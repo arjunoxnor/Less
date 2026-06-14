@@ -288,3 +288,215 @@ body {
 .sp-prose ::selection {
   background: rgba(47, 109, 246, 0.22);
 }
+
+/* ============================================================================
+   ACCOUNT / SYNC / MODAL / HISTORY
+   ========================================================================== */
+
+.toolbar-account {
+  gap: 8px;
+}
+.account-email {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  display: inline-block;
+}
+.sync-synced {
+  background: #2fbf71;
+}
+.sync-syncing {
+  background: #e2b53b;
+}
+.sync-offline {
+  background: #9a9aa4;
+}
+.sync-error {
+  background: #e0533b;
+}
+
+/* ---- Modal ------------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  background: var(--toolbar-bg);
+  color: var(--toolbar-fg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+}
+.modal-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.modal-sub {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+.field span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.field input {
+  width: 100%;
+  padding: 9px 11px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.modal-error {
+  background: rgba(224, 83, 59, 0.12);
+  color: #e0533b;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  margin-bottom: 12px;
+}
+.modal-primary {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.modal-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.modal-switch {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+.modal-switch button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+.modal-close {
+  display: block;
+  margin: 16px auto 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ---- History panel ----------------------------------------------------- */
+
+.history-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: var(--toolbar-bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.history-x {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+.history-empty {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+.history-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.history-when {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.history-preview {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 4px 0 8px;
+  line-height: 1.4;
+}
+.history-restore {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+  cursor: pointer;
+}
+.history-restore:hover {
+  border-color: var(--accent);
+}

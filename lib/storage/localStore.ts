@@ -11,6 +11,9 @@ import type { JSONContent } from "@tiptap/core";
 
 const DOC_KEY = "less:script:current";
 const PREFS_KEY = "less:prefs";
+const ACTIVE_ID_KEY = "less:activeScriptId";
+const LAST_SAVED_KEY = "less:lastSavedAt";
+const DIRTY_KEY = "less:dirty";
 
 export type FontChoice = "courier" | "courier-prime";
 export type ThemeChoice = "light" | "dark";
@@ -67,6 +70,36 @@ export function savePrefs(prefs: Prefs): void {
     /* ignore */
   }
 }
+
+/* --- Cloud-sync bookkeeping ------------------------------------------------
+   Which cloud script this device is editing, when it was last pushed, and
+   whether there are local edits not yet synced. These let us reconcile safely
+   on reload and after going offline. */
+
+function get(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function set(key: string, value: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+export const getActiveScriptId = () => get(ACTIVE_ID_KEY);
+export const setActiveScriptId = (id: string | null) => set(ACTIVE_ID_KEY, id);
+export const getLastSavedAt = () => get(LAST_SAVED_KEY);
+export const setLastSavedAt = (iso: string | null) => set(LAST_SAVED_KEY, iso);
+export const isDirty = () => get(DIRTY_KEY) === "1";
+export const setDirty = (dirty: boolean) => set(DIRTY_KEY, dirty ? "1" : "0");
 
 /** Make a debounced version of a function (used for autosave). */
 export function debounce<A extends unknown[]>(

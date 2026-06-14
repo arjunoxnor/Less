@@ -11,20 +11,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "16.2.9",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "@supabase/supabase-js": "^2.108.1",
     "@tiptap/core": "3.26.1",
-    "@tiptap/pm": "3.26.1",
-    "@tiptap/react": "3.26.1",
     "@tiptap/extension-document": "3.26.1",
     "@tiptap/extension-text": "3.26.1",
-    "@tiptap/extensions": "3.26.1"
+    "@tiptap/extensions": "3.26.1",
+    "@tiptap/pm": "3.26.1",
+    "@tiptap/react": "3.26.1",
+    "next": "16.2.9",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
   }
 }

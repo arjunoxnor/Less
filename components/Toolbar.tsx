@@ -1,6 +1,7 @@
 "use client";
 
 import type { Editor } from "@tiptap/react";
+import type { User } from "@supabase/supabase-js";
 import {
   ELEMENT_CYCLE,
   ELEMENT_LABELS,
@@ -8,7 +9,16 @@ import {
   type ElementType,
 } from "@/lib/editor/elements";
 import type { Prefs } from "@/lib/storage/localStore";
+import type { SyncStatus } from "@/lib/storage/useCloudSync";
 import { modKeyLabel } from "@/lib/platform";
+
+const SYNC_LABEL: Record<SyncStatus, string> = {
+  local: "Local",
+  syncing: "Saving…",
+  synced: "Synced",
+  offline: "Offline",
+  error: "Sync error",
+};
 
 /**
  * The top toolbar: element-type buttons (with their Cmd/Ctrl+number hints),
@@ -23,12 +33,24 @@ export function Toolbar({
   prefs,
   onPrefsChange,
   mod,
+  cloudConfigured,
+  user,
+  syncStatus,
+  onSignInClick,
+  onSignOutClick,
+  onHistoryClick,
 }: {
   editor: Editor | null;
   currentElement: ElementType;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   mod: string;
+  cloudConfigured: boolean;
+  user: User | null;
+  syncStatus: SyncStatus;
+  onSignInClick: () => void;
+  onSignOutClick: () => void;
+  onHistoryClick: () => void;
 }) {
   const setElement = (type: ElementType) => {
     editor?.chain().focus().setElement(type).run();
@@ -92,6 +114,43 @@ export function Toolbar({
           Focus
         </button>
       </div>
+
+      {cloudConfigured && (
+        <div className="toolbar-group toolbar-account">
+          {user ? (
+            <>
+              <span
+                className={"sync-dot sync-" + syncStatus}
+                title={SYNC_LABEL[syncStatus]}
+              />
+              <span className="sync-label">{SYNC_LABEL[syncStatus]}</span>
+              <button
+                type="button"
+                className="tb-btn"
+                onClick={onHistoryClick}
+                title="Version history"
+              >
+                History
+              </button>
+              <span className="account-email" title={user.email ?? ""}>
+                {user.email}
+              </span>
+              <button type="button" className="tb-btn" onClick={onSignOutClick}>
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="tb-btn tb-btn-active"
+              onClick={onSignInClick}
+              title="Save your work to the cloud"
+            >
+              Sign in to save
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -17,8 +17,13 @@ import {
   type Prefs,
 } from "@/lib/storage/localStore";
 import { modKeyLabel } from "@/lib/platform";
+import { isCloudConfigured } from "@/lib/supabase/client";
+import { useAuth, signOut } from "@/lib/supabase/auth";
+import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { Toolbar } from "./Toolbar";
 import { StatusBar } from "./StatusBar";
+import { AuthModal } from "./AuthModal";
+import { HistoryPanel } from "./HistoryPanel";
 
 // Page geometry for the live page-count estimate. US Letter at 96 CSS px/inch:
 // the page is 11in tall with 1in top + 1in bottom margins, leaving 9in of
@@ -40,6 +45,8 @@ export function ScreenplayEditor() {
   const [wordCount, setWordCount] = useState(0);
   const [saved, setSaved] = useState(true);
   const [mod, setMod] = useState("Ctrl");
+  const [showAuth, setShowAuth] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Debounced autosave. Local storage is the source of truth for this session;
   // we write 600ms after the writer pauses so we're never the reason work is lost.
@@ -87,6 +94,14 @@ export function ScreenplayEditor() {
       setCurrentElement(currentElementType(editor.state));
     },
   });
+
+  // Auth + cloud sync. Both no-op gracefully when Supabase isn't configured,
+  // so the editor always works local-first regardless.
+  const { user } = useAuth();
+  const { status: syncStatus, getVersions, restoreVersion } = useCloudSync(
+    editor,
+    user
+  );
 
   // After mount: load preferences and resolve the platform shortcut symbol.
   useEffect(() => {
@@ -140,6 +155,12 @@ export function ScreenplayEditor() {
         prefs={prefs}
         onPrefsChange={onPrefsChange}
         mod={mod}
+        cloudConfigured={isCloudConfigured}
+        user={user}
+        syncStatus={syncStatus}
+        onSignInClick={() => setShowAuth(true)}
+        onSignOutClick={() => void signOut()}
+        onHistoryClick={() => setShowHistory(true)}
       />
 
       <div className="page-scroll">
@@ -163,6 +184,19 @@ export function ScreenplayEditor() {
         >
           Exit focus (Esc)
         </button>
+      )}
+
+      {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+
+      {showHistory && (
+        <HistoryPanel
+          getVersions={getVersions}
+          onRestore={(content) => {
+            restoreVersion(content);
+            setShowHistory(false);
+          }}
+          onClose={() => setShowHistory(false)}
+        />
       )}
     </div>
   );
