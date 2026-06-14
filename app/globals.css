@@ -1,0 +1,290 @@
+/* ============================================================================
+   LESS — global styles
+   Two parts: (1) the app chrome (toolbar, status bar, theme), and (2) the
+   screenplay "page" itself, whose margins follow standard US spec format.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+/* ---- Theme tokens ------------------------------------------------------- */
+
+:root {
+  --bg: #e9e9ec; /* the "desk" behind the page */
+  --page-bg: #ffffff; /* the script page */
+  --page-fg: #1a1a1a;
+  --toolbar-bg: #ffffff;
+  --toolbar-fg: #222226;
+  --border: #dcdce1;
+  --muted: #8a8a93;
+  --accent: #2f6df6;
+  --btn-bg: #f4f4f6;
+  --btn-active-bg: #e4ecff;
+  --btn-active-fg: #1d4fd8;
+  --placeholder: #bdbdc6;
+  --shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="dark"] {
+  --bg: #141417;
+  --page-bg: #232329;
+  --page-fg: #e7e7ec;
+  --toolbar-bg: #1b1b20;
+  --toolbar-fg: #e7e7ec;
+  --border: #34343c;
+  --muted: #9a9aa4;
+  --accent: #6f9bff;
+  --btn-bg: #2a2a31;
+  --btn-active-bg: #2b3a63;
+  --btn-active-fg: #cfdcff;
+  --placeholder: #5b5b66;
+  --shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
+}
+
+body {
+  background: var(--bg);
+  color: var(--toolbar-fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Font choice for the script (set on .app, used by the page) --------- */
+
+.font-courier-prime {
+  --sp-font: var(--font-courier-prime), "Courier Prime", "Courier New", monospace;
+}
+.font-courier {
+  --sp-font: "Courier New", Courier, monospace;
+}
+
+/* ---- App layout: toolbar / scrollable page / status bar ---------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--toolbar-bg);
+  color: var(--toolbar-fg);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.toolbar-brand {
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-size: 15px;
+  color: var(--accent);
+  user-select: none;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tb-btn:hover {
+  border-color: var(--accent);
+}
+.tb-btn-active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+  border-color: var(--accent);
+}
+.tb-key {
+  font-size: 10px;
+  opacity: 0.6;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 4px;
+  line-height: 14px;
+}
+.tb-select {
+  padding: 5px 8px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+  cursor: pointer;
+}
+
+/* ---- The scrollable area that holds the page --------------------------- */
+
+.page-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 28px 16px 60px;
+}
+
+.page-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+/* ---- Status bar -------------------------------------------------------- */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 5px 16px;
+  font-size: 12px;
+  background: var(--toolbar-bg);
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.status-spacer {
+  flex: 1 1 auto;
+}
+.status-element {
+  color: var(--accent);
+  font-weight: 600;
+}
+.status-sub {
+  opacity: 0.7;
+}
+.status-saved {
+  min-width: 56px;
+  text-align: right;
+}
+
+/* ---- Focus (distraction-free) mode ------------------------------------- */
+
+.focus-mode .toolbar,
+.focus-mode .status-bar {
+  display: none;
+}
+.focus-exit {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--toolbar-bg);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.focus-exit:hover {
+  opacity: 1;
+}
+
+/* ============================================================================
+   THE SCREENPLAY PAGE
+   8.5in x 11in. Margins: 1in top/bottom, 1.5in left, 1in right -> a 6in text
+   column. At 12pt Courier with 6 lines/inch this is the standard spec layout.
+   The element indents below are measured inside that 6in column.
+   ========================================================================== */
+
+.sp-editor .sp-prose {
+  width: 8.5in;
+  min-height: 11in;
+  margin: 0 auto;
+  padding: 1in 1in 1in 1.5in;
+  background: var(--page-bg);
+  color: var(--page-fg);
+  box-shadow: var(--shadow);
+  font-family: var(--sp-font);
+  font-size: 12pt;
+  line-height: 16px; /* 6 lines per inch */
+  outline: none;
+}
+
+.sp-prose .sp-line {
+  margin: 0;
+  white-space: pre-wrap;
+  min-height: 16px;
+}
+
+/* Vertical spacing between elements (a "blank line" is 16px). */
+.sp-prose .sp-scene_heading {
+  margin-top: 32px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.sp-prose .sp-scene_heading:first-child {
+  margin-top: 0;
+}
+.sp-prose .sp-action {
+  margin-top: 16px;
+}
+.sp-prose .sp-character {
+  margin-top: 16px;
+  margin-left: 2in; /* starts ~3.5in from the page's left edge */
+  text-transform: uppercase;
+}
+.sp-prose .sp-parenthetical {
+  margin-top: 0;
+  margin-left: 1.5in;
+  margin-right: 2in;
+}
+.sp-prose .sp-dialogue {
+  margin-top: 0;
+  margin-left: 1in;
+  margin-right: 1.5in;
+}
+.sp-prose .sp-transition {
+  margin-top: 16px;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+/* The very first line should never push down from the top margin. */
+.sp-prose .sp-line:first-child {
+  margin-top: 0;
+}
+
+/* ---- Placeholder hints on the current empty line ----------------------- */
+
+.sp-prose .is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--placeholder);
+  pointer-events: none;
+  height: 0;
+  float: left;
+}
+
+/* Selection color */
+.sp-prose ::selection {
+  background: rgba(47, 109, 246, 0.22);
+}
