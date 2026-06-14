@@ -4,6 +4,28 @@ import { useState } from "react";
 import { signIn, signUp } from "@/lib/supabase/auth";
 
 /**
+ * Map raw Supabase auth errors to neutral, user-facing copy. We log the raw
+ * error to the console for debugging but never render it: verbatim messages
+ * differ by case ("User already registered", weak-password details, rate
+ * limits) and would help an attacker probe which emails have accounts.
+ */
+function friendlyAuthError(raw: string, mode: "signin" | "signup"): string {
+  console.error("auth error:", raw);
+  const m = raw.toLowerCase();
+  if (m.includes("rate") || m.includes("too many") || m.includes("429")) {
+    return "Too many attempts. Please wait a moment and try again.";
+  }
+  if (m.includes("password") && (m.includes("short") || m.includes("least") || m.includes("weak") || m.includes("6"))) {
+    return "Please use a password of at least 6 characters.";
+  }
+  if (mode === "signin") {
+    return "That email or password didn’t work.";
+  }
+  // For sign-up, stay non-committal about whether the address already exists.
+  return "Couldn’t create that account. If you already have one, try signing in.";
+}
+
+/**
  * Sign in / sign up modal. Appears only when the writer chooses to save to the
  * cloud — you never need an account just to start writing.
  */
@@ -22,7 +44,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
     const { error } = await fn(email.trim(), password);
     setBusy(false);
     if (error) {
-      setError(error.message);
+      setError(friendlyAuthError(error.message, mode));
       return;
     }
     onClose(); // auth state change triggers sync automatically

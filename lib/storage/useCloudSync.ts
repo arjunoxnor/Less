@@ -15,6 +15,7 @@ import {
   type VersionRow,
 } from "@/lib/supabase/scripts";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
+import { SAMPLE_SCRIPT } from "@/lib/editor/sampleScript";
 import {
   debounce,
   getActiveScriptId,
@@ -41,19 +42,27 @@ const SNAPSHOT_THROTTLE_MS = 3 * 60 * 1000; // at most one snapshot per 3 min
  *
  *  - Local storage is always written first (instant, never lost).
  *  - When signed in, changes also push to Supabase in the background.
- *  - On load it reconciles local vs cloud safely (never silently loses work).
+ *  - On load it reconciles local vs cloud safely (never silently loses work,
+ *    including edits typed while the cloud copy is still loading).
  *  - Offline edits keep working and flush when the connection returns.
  *  - Periodic immutable snapshots give you a rollback safety net.
+ *  - On sign-out it fully resets, so one user's work can never bleed into the
+ *    next user on a shared browser.
  */
 export function useCloudSync(editor: Editor | null, user: User | null) {
   const [status, setStatus] = useState<SyncStatus>("local");
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Bumped whenever we load cloud/snapshot content into the editor with the
+  // 'update' event suppressed, so the surrounding UI (word/page count, the
+  // "Saved" label) knows to recompute against the freshly loaded document.
+  const [pulledTick, setPulledTick] = useState(0);
 
   // Refs so the editor 'update' subscription never goes stale.
   const userRef = useRef<User | null>(user);
   const activeIdRef = useRef<string | null>(null);
   const lastSnapshotAt = useRef<number>(0);
   const reconciledFor = useRef<string | null>(null);
+  const prevUserId = useRef<string | null>(null); // detect real sign-out transitions
 
   userRef.current = user;
 
@@ -62,6 +71,18 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     setActiveScriptId(id);
     setActiveId(id);
   }, []);
+
+  // Load content into the editor WITHOUT firing 'update' (so we don't trigger a
+  // save loop), mirror it to local storage, and signal the UI to recompute.
+  const pullInto = useCallback(
+    (content: JSONContent) => {
+      if (!editor) return;
+      editor.commands.setContent(content, { emitUpdate: false });
+      saveDoc(content);
+      setPulledTick((t) => t + 1);
+    },
+    [editor]
+  );
 
   // Push the current document to the cloud (with a throttled snapshot).
   const pushNow = useCallback(async () => {
@@ -75,10 +96,12 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     }
     try {
       const doc = ed.getJSON();
-      const title = deriveTitle(doc);
-      const ts = await saveScript(id, doc, title);
+      const snapshotJson = JSON.stringify(doc);
+      const ts = await saveScript(id, doc, deriveTitle(doc));
       if (ts) setLastSavedAt(ts);
-      setDirty(false);
+      // Only mark clean if nothing was typed during the save round trip;
+      // otherwise leave dirty=true so the offline-flush path still fires.
+      if (JSON.stringify(ed.getJSON()) === snapshotJson) setDirty(false);
 
       // Snapshot, throttled, so history doesn't fill with every keystroke burst.
       const now = Date.now();
@@ -123,28 +146,31 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
             const lastSaved = getLastSavedAt();
             const cloudNewer =
               !lastSaved || new Date(cloud.updated_at) > new Date(lastSaved);
-            if (isDirty()) {
-              // We have un-pushed local edits — local wins.
-              const ts = await saveScript(id, localDoc, deriveTitle(localDoc));
+            // The editor stayed interactive during the fetch above, so re-read
+            // it: anything typed in that window must NOT be clobbered.
+            const live = editor.getJSON();
+            const typedDuringFetch =
+              JSON.stringify(live) !== JSON.stringify(localDoc);
+            if (isDirty() || typedDuringFetch) {
+              // Un-pushed local edits (incl. in-flight typing) win.
+              const ts = await saveScript(id, live, deriveTitle(live));
               if (ts) setLastSavedAt(ts);
               setDirty(false);
             } else if (cloudNewer) {
               // Another device moved ahead — pull cloud in.
-              applyCloud(editor, cloud.content);
+              pullInto(cloud.content);
               setLastSavedAt(cloud.updated_at);
             }
           }
         }
 
         if (!id) {
-          // First time signing in on this device.
-          if (isMeaningfulDoc(localDoc)) {
+          // First time signing in on this device. Re-read live content so any
+          // typing during the (possible) fetch above is preserved.
+          const live = editor.getJSON();
+          if (isMeaningfulDoc(live)) {
             // Preserve the anonymous work as a new cloud script.
-            const row = await createScript(
-              user.id,
-              deriveTitle(localDoc),
-              localDoc
-            );
+            const row = await createScript(user.id, deriveTitle(live), live);
             if (row) {
               id = row.id;
               setLastSavedAt(row.updated_at);
@@ -155,15 +181,11 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
               const cloud = await fetchScript(existing[0].id);
               if (cloud) {
                 id = cloud.id;
-                applyCloud(editor, cloud.content);
+                pullInto(cloud.content);
                 setLastSavedAt(cloud.updated_at);
               }
             } else {
-              const row = await createScript(
-                user.id,
-                deriveTitle(localDoc),
-                localDoc
-              );
+              const row = await createScript(user.id, deriveTitle(live), live);
               if (row) {
                 id = row.id;
                 setLastSavedAt(row.updated_at);
@@ -185,16 +207,18 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
         setStatus("error");
       }
     })();
-  }, [editor, user, setActive]);
+  }, [editor, user, setActive, pullInto]);
 
   // --- Subscribe to edits: mark dirty + schedule a background push ---------
   useEffect(() => {
     if (!editor) return;
     const onUpdate = () => {
-      if (!userRef.current || !activeIdRef.current) return;
+      if (!userRef.current) return;
+      // Mark dirty even before reconcile assigns an activeId, so edits made
+      // during the reconcile fetch window are never treated as "clean".
       setDirty(true);
       setStatus("syncing");
-      debouncedPush.current();
+      if (activeIdRef.current) debouncedPush.current();
     };
     editor.on("update", onUpdate);
     return () => {
@@ -216,14 +240,30 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     };
   }, [pushNow]);
 
-  // --- Sign-out: stop cloud sync, keep the local copy ----------------------
+  // --- Sign-out: stop sync, clear ALL bookkeeping, reset the editor --------
+  // Only fires on a genuine signed-in -> signed-out transition (not on the
+  // initial anonymous load), so anonymous local work is never wiped.
   useEffect(() => {
-    if (!user) {
-      reconciledFor.current = null;
-      activeIdRef.current = null;
-      setActiveId(null);
+    const had = prevUserId.current;
+    prevUserId.current = user?.id ?? null;
+    if (user) return;
+    if (!had) return; // initial load / already anonymous — leave local work alone
+
+    reconciledFor.current = null;
+    activeIdRef.current = null;
+    setActiveId(null);
+    // Clear persisted cloud bookkeeping so the next user on this browser does
+    // NOT inherit the previous user's script id, timestamps, or content.
+    setActiveScriptId(null);
+    setLastSavedAt(null);
+    setDirty(false);
+    if (editor) {
+      editor.commands.setContent(SAMPLE_SCRIPT, { emitUpdate: false });
+      saveDoc(SAMPLE_SCRIPT);
+      setPulledTick((t) => t + 1);
     }
-  }, [user]);
+    setStatus("local");
+  }, [user, editor]);
 
   /** For the history panel: list snapshots of the active script. */
   const getVersions = useCallback(async (): Promise<VersionRow[]> => {
@@ -234,19 +274,12 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
   /** Restore a snapshot's content into the editor (and push it as current). */
   const restoreVersion = useCallback(
     (content: JSONContent) => {
-      if (!editor) return;
-      applyCloud(editor, content);
+      pullInto(content);
       setDirty(true);
       void pushNow();
     },
-    [editor, pushNow]
+    [pullInto, pushNow]
   );
 
-  return { status, activeId, getVersions, restoreVersion };
-}
-
-/** Load cloud content into the editor without triggering a save loop. */
-function applyCloud(editor: Editor, content: JSONContent) {
-  editor.commands.setContent(content, { emitUpdate: false });
-  saveDoc(content);
+  return { status, activeId, pulledTick, getVersions, restoreVersion };
 }

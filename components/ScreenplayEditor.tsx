@@ -98,10 +98,18 @@ export function ScreenplayEditor() {
   // Auth + cloud sync. Both no-op gracefully when Supabase isn't configured,
   // so the editor always works local-first regardless.
   const { user } = useAuth();
-  const { status: syncStatus, getVersions, restoreVersion } = useCloudSync(
-    editor,
-    user
-  );
+  const { status: syncStatus, pulledTick, getVersions, restoreVersion } =
+    useCloudSync(editor, user);
+
+  // When sync loads new content into the editor (a cross-device pull, a version
+  // restore, or a sign-out reset), the 'update' event is suppressed — so
+  // recompute the word/page count and refresh the saved indicator here.
+  useEffect(() => {
+    if (editor && pulledTick > 0) {
+      measure(editor);
+      setSaved(true);
+    }
+  }, [pulledTick, editor, measure]);
 
   // After mount: load preferences and resolve the platform shortcut symbol.
   useEffect(() => {
