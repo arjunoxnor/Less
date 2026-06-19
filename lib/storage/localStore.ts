@@ -101,14 +101,28 @@ export const setLastSavedAt = (iso: string | null) => set(LAST_SAVED_KEY, iso);
 export const isDirty = () => get(DIRTY_KEY) === "1";
 export const setDirty = (dirty: boolean) => set(DIRTY_KEY, dirty ? "1" : "0");
 
-/** Make a debounced version of a function (used for autosave). */
+/**
+ * Make a debounced version of a function (used for autosave). The returned
+ * function carries a `cancel()` that drops any pending call, so callers can
+ * stop a stale save from firing when content is replaced out-of-band (e.g. an
+ * import or a version restore that bypasses the editor's update event).
+ */
+export type Debounced<A extends unknown[]> = ((...args: A) => void) & {
+  cancel: () => void;
+};
+
 export function debounce<A extends unknown[]>(
   fn: (...args: A) => void,
   ms: number
-): (...args: A) => void {
+): Debounced<A> {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return (...args: A) => {
+  const debounced = (...args: A) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   };
+  debounced.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
 }

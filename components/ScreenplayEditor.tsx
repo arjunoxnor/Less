@@ -20,6 +20,12 @@ import { modKeyLabel } from "@/lib/platform";
 import { isCloudConfigured } from "@/lib/supabase/client";
 import { useAuth, signOut } from "@/lib/supabase/auth";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
+import {
+  exportDoc,
+  importFile,
+  type ExportFormat,
+  type ImportFormat,
+} from "@/lib/export";
 import { Toolbar } from "./Toolbar";
 import { StatusBar } from "./StatusBar";
 import { AuthModal } from "./AuthModal";
@@ -98,18 +104,26 @@ export function ScreenplayEditor() {
   // Auth + cloud sync. Both no-op gracefully when Supabase isn't configured,
   // so the editor always works local-first regardless.
   const { user } = useAuth();
-  const { status: syncStatus, pulledTick, getVersions, restoreVersion } =
-    useCloudSync(editor, user);
+  const {
+    status: syncStatus,
+    pulledTick,
+    getVersions,
+    restoreVersion,
+    importContent,
+  } = useCloudSync(editor, user);
 
   // When sync loads new content into the editor (a cross-device pull, a version
-  // restore, or a sign-out reset), the 'update' event is suppressed — so
-  // recompute the word/page count and refresh the saved indicator here.
+  // restore, an import, or a sign-out reset), the 'update' event is suppressed.
+  // Cancel any pending autosave first: it was queued with the OLD document and
+  // would otherwise fire 600ms later and overwrite the freshly loaded content
+  // in local storage. Then recompute counts and refresh the saved indicator.
   useEffect(() => {
     if (editor && pulledTick > 0) {
+      debouncedSave.cancel();
       measure(editor);
       setSaved(true);
     }
-  }, [pulledTick, editor, measure]);
+  }, [pulledTick, editor, measure, debouncedSave]);
 
   // After mount: load preferences and resolve the platform shortcut symbol.
   useEffect(() => {
@@ -149,6 +163,31 @@ export function ScreenplayEditor() {
     setPrefs((p) => ({ ...p, ...next }));
   }, []);
 
+  // Export the live document to a downloaded file.
+  const handleExport = useCallback(
+    (format: ExportFormat) => {
+      if (editor) void exportDoc(editor.getJSON(), format);
+    },
+    [editor]
+  );
+
+  // Import a picked file. importFile routes by extension, so the format arg is
+  // only used by the Toolbar to label the picker. On failure we surface the
+  // plain-English message and leave the current document untouched.
+  const handleImport = useCallback(
+    async (_format: ImportFormat, file: File) => {
+      try {
+        const content = await importFile(file);
+        importContent(content);
+      } catch (e) {
+        window.alert(
+          e instanceof Error ? e.message : "Could not import that file."
+        );
+      }
+    },
+    [importContent]
+  );
+
   return (
     <div
       className={
@@ -169,6 +208,8 @@ export function ScreenplayEditor() {
         onSignInClick={() => setShowAuth(true)}
         onSignOutClick={() => void signOut()}
         onHistoryClick={() => setShowHistory(true)}
+        onExport={handleExport}
+        onImport={(format, file) => void handleImport(format, file)}
       />
 
       <div className="page-scroll">

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import type { User } from "@supabase/supabase-js";
 import {
@@ -8,6 +9,7 @@ import {
   ELEMENT_NUMBER,
   type ElementType,
 } from "@/lib/editor/elements";
+import type { ExportFormat, ImportFormat } from "@/lib/export";
 import type { Prefs } from "@/lib/storage/localStore";
 import type { SyncStatus } from "@/lib/storage/useCloudSync";
 import { modKeyLabel } from "@/lib/platform";
@@ -39,6 +41,8 @@ export function Toolbar({
   onSignInClick,
   onSignOutClick,
   onHistoryClick,
+  onExport,
+  onImport,
 }: {
   editor: Editor | null;
   currentElement: ElementType;
@@ -51,10 +55,33 @@ export function Toolbar({
   onSignInClick: () => void;
   onSignOutClick: () => void;
   onHistoryClick: () => void;
+  onExport: (format: ExportFormat) => void;
+  onImport: (format: ImportFormat, file: File) => void;
 }) {
   const setElement = (type: ElementType) => {
     editor?.chain().focus().setElement(type).run();
   };
+
+  // Which dropdown (if any) is open. Click-outside and Escape close it.
+  const [openMenu, setOpenMenu] = useState<null | "export" | "import">(null);
+  const fountainInputRef = useRef<HTMLInputElement>(null);
+  const fdxInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest(".tb-menu")) setOpenMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenMenu(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenu]);
 
   return (
     <div className="toolbar">
@@ -109,10 +136,113 @@ export function Toolbar({
           type="button"
           className={"tb-btn" + (prefs.focusMode ? " tb-btn-active" : "")}
           onClick={() => onPrefsChange({ focusMode: !prefs.focusMode })}
-          title="Focus mode — hide everything but the page"
+          title="Focus mode, hide everything but the page"
         >
           Focus
         </button>
+      </div>
+
+      <div className="toolbar-group">
+        <div className="tb-menu">
+          <button
+            type="button"
+            className={"tb-btn" + (openMenu === "export" ? " tb-btn-active" : "")}
+            onClick={() =>
+              setOpenMenu((m) => (m === "export" ? null : "export"))
+            }
+            title="Export your script"
+          >
+            Export
+          </button>
+          {openMenu === "export" && (
+            <div className="tb-menu-list">
+              <button
+                type="button"
+                className="tb-menu-item"
+                title="Export to PDF"
+                onClick={() => {
+                  onExport("pdf");
+                  setOpenMenu(null);
+                }}
+              >
+                PDF
+              </button>
+              <button
+                type="button"
+                className="tb-menu-item"
+                title="Export to Fountain"
+                onClick={() => {
+                  onExport("fountain");
+                  setOpenMenu(null);
+                }}
+              >
+                Fountain
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="tb-menu">
+          <button
+            type="button"
+            className={"tb-btn" + (openMenu === "import" ? " tb-btn-active" : "")}
+            onClick={() =>
+              setOpenMenu((m) => (m === "import" ? null : "import"))
+            }
+            title="Import a script"
+          >
+            Import
+          </button>
+          {openMenu === "import" && (
+            <div className="tb-menu-list">
+              <button
+                type="button"
+                className="tb-menu-item"
+                title="Import a Fountain file"
+                onClick={() => {
+                  fountainInputRef.current?.click();
+                  setOpenMenu(null);
+                }}
+              >
+                Fountain
+              </button>
+              <button
+                type="button"
+                className="tb-menu-item"
+                title="Import a Final Draft file"
+                onClick={() => {
+                  fdxInputRef.current?.click();
+                  setOpenMenu(null);
+                }}
+              >
+                FDX
+              </button>
+            </div>
+          )}
+        </div>
+
+        <input
+          ref={fountainInputRef}
+          type="file"
+          accept=".fountain,.txt,.spmd"
+          className="tb-file-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onImport("fountain", f);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={fdxInputRef}
+          type="file"
+          accept=".fdx,.xml"
+          className="tb-file-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onImport("fdx", f);
+            e.target.value = "";
+          }}
+        />
       </div>
 
       {cloudConfigured && (

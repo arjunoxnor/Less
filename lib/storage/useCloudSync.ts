@@ -281,5 +281,29 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     [pullInto, pushNow]
   );
 
-  return { status, activeId, pulledTick, getVersions, restoreVersion };
+  /**
+   * Load imported content into the editor. Behaviorally identical to a version
+   * restore: it suppresses the 'update' event (so it never races the debounced
+   * local save), mirrors to local storage, refreshes the UI via pulledTick, and
+   * pushes to the active cloud script when signed in. Marking dirty first means
+   * a mid-flight reconcile treats the import as un-pushed local work and never
+   * clobbers it.
+   */
+  const importContent = useCallback(
+    (content: JSONContent) => {
+      pullInto(content);
+      setDirty(true);
+      void pushNow();
+    },
+    [pullInto, pushNow]
+  );
+
+  return {
+    status,
+    activeId,
+    pulledTick,
+    getVersions,
+    restoreVersion,
+    importContent,
+  };
 }
