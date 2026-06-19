@@ -17,7 +17,13 @@ import type {
  * can run on any ProseMirror Node.
  */
 
-/** A rough page is ~55 printed lines at 6 lines/inch over a 9in text column. */
+/**
+ * A rough page estimate for the scene-navigator badges only: ~55 NON-BLANK
+ * lines. This is intentionally distinct from the geometry-exact LINES_PER_PAGE
+ * (54, counting blanks and (MORE) markers) in lib/export/layout.ts that drives
+ * the PDF and the status-bar count. The badges are estimates; a follow-up can
+ * have buildOutline consume the pagination engine so they match the export.
+ */
 const LINES_PER_PAGE = 55;
 
 /**

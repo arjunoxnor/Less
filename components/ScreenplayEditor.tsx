@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import type { JSONContent } from "@tiptap/core";
 
 import { buildExtensions } from "@/lib/editor/buildExtensions";
+import { docToLines } from "@/lib/export/flatten";
+import { paginate } from "@/lib/export/paginate";
 import { SAMPLE_SCRIPT } from "@/lib/editor/sampleScript";
 import { currentElementType } from "@/lib/editor/keymap";
 import type { ElementType } from "@/lib/editor/elements";
@@ -50,14 +53,6 @@ import { CastListPanel } from "./CastListPanel";
 import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
 
-// Page geometry for the live page-count estimate. US Letter at 96 CSS px/inch:
-// the page is 11in tall with 1in top + 1in bottom margins, leaving 9in of
-// printable content per page. (Real, rule-aware pagination — no orphaned cues,
-// (MORE)/(CONT'D) splits — is a later sub-phase; this is the honest estimate.)
-const PX_PER_IN = 96;
-const PAGE_CONTENT_PX = 9 * PX_PER_IN;
-const PAGE_MARGINS_PX = 2 * PX_PER_IN;
-
 export function ScreenplayEditor() {
   // Read any saved script synchronously on the client; fall back to the sample.
   // (On the server this returns the sample, but the editor only instantiates on
@@ -102,15 +97,24 @@ export function ScreenplayEditor() {
     []
   );
 
-  // Recompute word count and the page estimate from the live document.
+  // Word count is cheap and synchronous on every change.
   const measure = useCallback((ed: Editor) => {
     const text = ed.getText({ blockSeparator: "\n" }).trim();
     setWordCount(text ? text.split(/\s+/).length : 0);
-
-    const dom = ed.view.dom as HTMLElement;
-    const contentH = Math.max(0, dom.scrollHeight - PAGE_MARGINS_PX);
-    setPageCount(Math.max(1, Math.ceil(contentH / PAGE_CONTENT_PX)));
   }, []);
+
+  // The page count comes from the real pagination engine, so the number on
+  // screen equals the number of pages in the exported PDF. The engine is pure
+  // O(rows) array work; debounce it so a long script is not re-paginated on
+  // every keystroke. (It assumes monospace Courier 10cpi, which is what the two
+  // shipped fonts are; a proportional font would reflect print, not screen wrap.)
+  const computePageCount = useCallback((doc: JSONContent) => {
+    setPageCount(paginate(docToLines(doc)).pageCount);
+  }, []);
+  const debouncedPageCount = useMemo(
+    () => debounce((doc: JSONContent) => computePageCount(doc), 300),
+    [computePageCount]
+  );
 
   // Built once. outlineRef and setAcState are stable, so the extension list (and
   // the editor) never needs to be reconfigured on re-render. Recreating it each
@@ -136,6 +140,7 @@ export function ScreenplayEditor() {
       setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
       measure(editor);
+      computePageCount(editor.getJSON()); // immediate, so the first count is right
       // Dev-only handle for debugging in the browser console. Stripped from
       // production builds.
       if (process.env.NODE_ENV !== "production") {
@@ -146,6 +151,7 @@ export function ScreenplayEditor() {
       setSaved(false);
       debouncedSave(editor.getJSON());
       measure(editor);
+      debouncedPageCount(editor.getJSON());
       setCaretLine(editor.state.selection.$from.index(0));
     },
     onSelectionUpdate: ({ editor }) => {
@@ -188,10 +194,12 @@ export function ScreenplayEditor() {
   useEffect(() => {
     if (editor && pulledTick > 0) {
       debouncedSave.cancel();
+      debouncedPageCount.cancel();
       measure(editor);
+      computePageCount(editor.getJSON());
       setSaved(true);
     }
-  }, [pulledTick, editor, measure, debouncedSave]);
+  }, [pulledTick, editor, measure, debouncedSave, debouncedPageCount, computePageCount]);
 
   // After mount: load preferences and resolve the platform shortcut symbol.
   useEffect(() => {
@@ -207,15 +215,6 @@ export function ScreenplayEditor() {
       document.documentElement.dataset.theme = prefs.theme;
     }
   }, [prefs]);
-
-  // The font choice changes line metrics, which changes the page count, so
-  // re-measure whenever the editor's rendered height changes.
-  useEffect(() => {
-    if (!editor) return;
-    const ro = new ResizeObserver(() => measure(editor));
-    ro.observe(editor.view.dom);
-    return () => ro.disconnect();
-  }, [editor, measure]);
 
   // Escape leaves focus mode.
   useEffect(() => {
