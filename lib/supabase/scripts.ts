@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
+import type { TitlePage } from "@/lib/export/titlePage";
 import { getSupabase } from "./client";
 
 /**
@@ -13,6 +14,7 @@ export interface ScriptRow {
   id: string;
   title: string;
   content: JSONContent;
+  title_page?: TitlePage | null;
   updated_at: string;
   created_at: string;
 }
@@ -26,6 +28,7 @@ export interface ScriptSummary {
 export interface VersionRow {
   id: string;
   content: JSONContent;
+  title_page?: TitlePage | null;
   label: string | null;
   created_at: string;
 }
@@ -34,14 +37,17 @@ export interface VersionRow {
 export async function createScript(
   userId: string,
   title: string,
-  content: JSONContent
+  content: JSONContent,
+  titlePage?: TitlePage | null
 ): Promise<ScriptRow | null> {
   const sb = getSupabase();
   if (!sb) return null;
+  const row: Record<string, unknown> = { user_id: userId, title, content };
+  if (titlePage) row.title_page = titlePage;
   const { data, error } = await sb
     .from("scripts")
-    .insert({ user_id: userId, title, content })
-    .select("id, title, content, created_at, updated_at")
+    .insert(row)
+    .select("id, title, content, title_page, created_at, updated_at")
     .single();
   if (error) throw error;
   return data as ScriptRow;
@@ -53,7 +59,7 @@ export async function fetchScript(id: string): Promise<ScriptRow | null> {
   if (!sb) return null;
   const { data, error } = await sb
     .from("scripts")
-    .select("id, title, content, created_at, updated_at")
+    .select("id, title, content, title_page, created_at, updated_at")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -72,17 +78,21 @@ export async function listScripts(): Promise<ScriptSummary[]> {
   return (data as ScriptSummary[]) ?? [];
 }
 
-/** Save content/title to an existing script. Returns the new updated_at. */
+/** Save content/title (and optional title page) to an existing script. */
 export async function saveScript(
   id: string,
   content: JSONContent,
-  title: string
+  title: string,
+  titlePage?: TitlePage | null
 ): Promise<string | null> {
   const sb = getSupabase();
   if (!sb) return null;
+  const patch: Record<string, unknown> = { content, title };
+  // Pass null to clear it explicitly; omit (undefined) to leave it unchanged.
+  if (titlePage !== undefined) patch.title_page = titlePage;
   const { data, error } = await sb
     .from("scripts")
-    .update({ content, title })
+    .update(patch)
     .eq("id", id)
     .select("updated_at")
     .single();
@@ -95,16 +105,19 @@ export async function createSnapshot(
   scriptId: string,
   userId: string,
   content: JSONContent,
+  titlePage?: TitlePage | null,
   label?: string
 ): Promise<void> {
   const sb = getSupabase();
   if (!sb) return;
-  const { error } = await sb.from("script_versions").insert({
+  const row: Record<string, unknown> = {
     script_id: scriptId,
     user_id: userId,
     content,
     label: label ?? null,
-  });
+  };
+  if (titlePage) row.title_page = titlePage;
+  const { error } = await sb.from("script_versions").insert(row);
   if (error) throw error;
 }
 
@@ -114,7 +127,7 @@ export async function listVersions(scriptId: string): Promise<VersionRow[]> {
   if (!sb) return [];
   const { data, error } = await sb
     .from("script_versions")
-    .select("id, content, label, created_at")
+    .select("id, content, title_page, label, created_at")
     .eq("script_id", scriptId)
     .order("created_at", { ascending: false })
     .limit(100);

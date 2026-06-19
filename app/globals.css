@@ -411,7 +411,8 @@ body {
   color: var(--muted);
   margin-bottom: 4px;
 }
-.field input {
+.field input,
+.field textarea {
   width: 100%;
   padding: 9px 11px;
   font-size: 14px;
@@ -419,8 +420,11 @@ body {
   border-radius: 7px;
   background: var(--page-bg);
   color: var(--page-fg);
+  font-family: inherit;
+  resize: vertical;
 }
-.field input:focus {
+.field input:focus,
+.field textarea:focus {
   outline: none;
   border-color: var(--accent);
 }

@@ -46,6 +46,7 @@ export function Toolbar({
   onScenesClick,
   onFindClick,
   onCastClick,
+  onTitlePageClick,
   scenesOpen,
   findOpen,
   castOpen,
@@ -66,6 +67,7 @@ export function Toolbar({
   onScenesClick: () => void;
   onFindClick: () => void;
   onCastClick: () => void;
+  onTitlePageClick: () => void;
   scenesOpen: boolean;
   findOpen: boolean;
   castOpen: boolean;
@@ -281,6 +283,14 @@ export function Toolbar({
           title="Cast list"
         >
           Cast
+        </button>
+        <button
+          type="button"
+          className="tb-btn"
+          onClick={onTitlePageClick}
+          title="Edit the title page"
+        >
+          Title Page
         </button>
       </div>
 

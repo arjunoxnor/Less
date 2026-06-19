@@ -1,5 +1,6 @@
 import type { ElementType } from "@/lib/editor/elements";
 import type { ScriptLine } from "@/types/screenplay";
+import { hasTitlePage, type TitlePage } from "./titlePage";
 
 /**
  * Fountain (https://fountain.io) serializer and parser, both working on the
@@ -82,7 +83,31 @@ function ensureParens(text: string): string {
 // Export: ScriptLine[] -> Fountain
 // ---------------------------------------------------------------------------
 
-export function toFountain(lines: ScriptLine[]): string {
+/** Emit a Fountain title-page block (Key: value lines), or "" when empty. */
+function toFountainTitlePage(tp: TitlePage): string {
+  const out: string[] = [];
+  const emit = (key: string, value: string | undefined) => {
+    if (!value) return;
+    const parts = value.split("\n");
+    if (parts.length === 1) {
+      out.push(`${key}: ${parts[0]}`);
+    } else {
+      // Multi-line value: key on its own line, continuations indented 3 spaces.
+      out.push(`${key}:`);
+      for (const p of parts) out.push(`   ${p}`);
+    }
+  };
+  emit("Title", tp.title);
+  emit("Credit", tp.credit);
+  emit("Author", tp.author);
+  emit("Source", tp.source);
+  emit("Draft date", tp.draftDate);
+  emit("Contact", tp.contact);
+  emit("Copyright", tp.copyright);
+  return out.join("\n");
+}
+
+export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): string {
   const blocks: string[] = [];
   let i = 0;
 
@@ -133,14 +158,49 @@ export function toFountain(lines: ScriptLine[]): string {
     i++;
   }
 
-  return blocks.join("\n\n") + "\n";
+  const body = blocks.join("\n\n") + "\n";
+  if (hasTitlePage(titlePage)) {
+    return `${toFountainTitlePage(titlePage!)}\n\n${body}`;
+  }
+  return body;
 }
 
 // ---------------------------------------------------------------------------
 // Import: Fountain -> ScriptLine[]
 // ---------------------------------------------------------------------------
 
-export function parseFountain(text: string): ScriptLine[] {
+/** Parse a recognized leading title-page block into a TitlePage. */
+function parseTitleBlock(blockLines: string[]): TitlePage {
+  const map: Record<string, string[]> = {};
+  let currentKey: string | null = null;
+  for (const raw of blockLines) {
+    if (/^(\s{2,}|\t)/.test(raw) && currentKey) {
+      map[currentKey].push(raw.trim());
+      continue;
+    }
+    const m = /^([^:]+):(.*)$/.exec(raw);
+    if (!m) continue;
+    currentKey = m[1].trim().toLowerCase();
+    if (!map[currentKey]) map[currentKey] = [];
+    const val = m[2].trim();
+    if (val) map[currentKey].push(val);
+  }
+  const get = (k: string) => (map[k]?.length ? map[k].join("\n") : undefined);
+  const tp: TitlePage = {};
+  if (get("title")) tp.title = get("title");
+  if (get("credit")) tp.credit = get("credit");
+  if (get("author") ?? get("authors")) tp.author = get("author") ?? get("authors");
+  if (get("source")) tp.source = get("source");
+  if (get("draft date")) tp.draftDate = get("draft date");
+  if (get("contact")) tp.contact = get("contact");
+  if (get("copyright")) tp.copyright = get("copyright");
+  return tp;
+}
+
+export function parseFountain(text: string): {
+  lines: ScriptLine[];
+  titlePage: TitlePage | null;
+} {
   // Normalize newlines, then strip boneyard (spans line breaks) and inline
   // notes before any line-by-line work so neither pollutes the body.
   let body = text
@@ -158,6 +218,7 @@ export function parseFountain(text: string): ScriptLine[] {
   const firstLine = (start < rawLines.length ? rawLines[start] : "").trim();
   const keyMatch = /^([^:]+):/.exec(firstLine);
   const isForced = /^[.@!>~#=]/.test(firstLine);
+  let titlePage: TitlePage | null = null;
   if (
     keyMatch &&
     !isForced &&
@@ -166,6 +227,8 @@ export function parseFountain(text: string): ScriptLine[] {
   ) {
     let j = start;
     while (j < rawLines.length && rawLines[j].trim() !== "") j++;
+    const parsed = parseTitleBlock(rawLines.slice(start, j));
+    titlePage = hasTitlePage(parsed) ? parsed : null;
     body = rawLines.slice(j).join("\n");
   }
 
@@ -277,5 +340,5 @@ export function parseFountain(text: string): ScriptLine[] {
     out.push({ element: "action", text: stripInline(raw.replace(/\s+$/, "")) });
   }
 
-  return out;
+  return { lines: out, titlePage };
 }

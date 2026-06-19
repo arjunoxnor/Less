@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { JSONContent } from "@tiptap/core";
 import type { VersionRow } from "@/lib/supabase/scripts";
+import type { TitlePage } from "@/lib/export/titlePage";
 import { docText } from "@/lib/editor/docUtils";
 
 /**
@@ -15,7 +16,7 @@ export function HistoryPanel({
   onClose,
 }: {
   getVersions: () => Promise<VersionRow[]>;
-  onRestore: (content: JSONContent) => void;
+  onRestore: (content: JSONContent, titlePage: TitlePage | null) => void;
   onClose: () => void;
 }) {
   const [versions, setVersions] = useState<VersionRow[] | null>(null);
@@ -65,7 +66,7 @@ export function HistoryPanel({
               <button
                 type="button"
                 className="history-restore"
-                onClick={() => onRestore(v.content)}
+                onClick={() => onRestore(v.content, v.title_page ?? null)}
               >
                 Restore
               </button>

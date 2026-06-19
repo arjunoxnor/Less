@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
+import type { TitlePage } from "@/lib/export/titlePage";
 
 /**
  * Local-first storage.
@@ -10,6 +11,7 @@ import type { JSONContent } from "@tiptap/core";
  */
 
 const DOC_KEY = "less:script:current";
+const TITLE_PAGE_KEY = "less:titlePage";
 const PREFS_KEY = "less:prefs";
 const ACTIVE_ID_KEY = "less:activeScriptId";
 const LAST_SAVED_KEY = "less:lastSavedAt";
@@ -49,6 +51,28 @@ export function saveDoc(doc: JSONContent): void {
   } catch {
     // Storage full / disabled. Swallowing here is intentional; a louder
     // recovery path (and Supabase sync) arrives in the save/auth phase.
+  }
+}
+
+/** Load the saved title page, or null if there is none. */
+export function loadTitlePage(): TitlePage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(TITLE_PAGE_KEY);
+    return raw ? (JSON.parse(raw) as TitlePage) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist (or clear, when null) the title page on the same footing as the doc. */
+export function saveTitlePage(tp: TitlePage | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (tp === null) window.localStorage.removeItem(TITLE_PAGE_KEY);
+    else window.localStorage.setItem(TITLE_PAGE_KEY, JSON.stringify(tp));
+  } catch {
+    /* ignore */
   }
 }
 

@@ -16,12 +16,15 @@ import {
 } from "@/lib/supabase/scripts";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { SAMPLE_SCRIPT } from "@/lib/editor/sampleScript";
+import { trimTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import {
   debounce,
   getActiveScriptId,
   getLastSavedAt,
   isDirty,
+  loadTitlePage,
   saveDoc,
+  saveTitlePage,
   setActiveScriptId,
   setDirty,
   setLastSavedAt,
@@ -57,6 +60,13 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
   // "Saved" label) knows to recompute against the freshly loaded document.
   const [pulledTick, setPulledTick] = useState(0);
 
+  // The title page is metadata beside the doc (not editor state): keep it in a
+  // ref for the sync paths and a React state for the modal.
+  const titlePageRef = useRef<TitlePage | null>(loadTitlePage());
+  const [titlePage, setTitlePageState] = useState<TitlePage | null>(
+    titlePageRef.current
+  );
+
   // Refs so the editor 'update' subscription never goes stale.
   const userRef = useRef<User | null>(user);
   const activeIdRef = useRef<string | null>(null);
@@ -75,10 +85,15 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
   // Load content into the editor WITHOUT firing 'update' (so we don't trigger a
   // save loop), mirror it to local storage, and signal the UI to recompute.
   const pullInto = useCallback(
-    (content: JSONContent) => {
+    (content: JSONContent, tp?: TitlePage | null) => {
       if (!editor) return;
       editor.commands.setContent(content, { emitUpdate: false });
       saveDoc(content);
+      if (tp !== undefined) {
+        titlePageRef.current = tp;
+        saveTitlePage(tp);
+        setTitlePageState(tp);
+      }
       setPulledTick((t) => t + 1);
     },
     [editor]
@@ -96,8 +111,9 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     }
     try {
       const doc = ed.getJSON();
+      const tp = titlePageRef.current;
       const snapshotJson = JSON.stringify(doc);
-      const ts = await saveScript(id, doc, deriveTitle(doc));
+      const ts = await saveScript(id, doc, deriveTitle(doc), tp);
       if (ts) setLastSavedAt(ts);
       // Only mark clean if nothing was typed during the save round trip;
       // otherwise leave dirty=true so the offline-flush path still fires.
@@ -107,7 +123,7 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
       const now = Date.now();
       if (now - lastSnapshotAt.current > SNAPSHOT_THROTTLE_MS) {
         lastSnapshotAt.current = now;
-        createSnapshot(id, u.id, doc).catch((e) =>
+        createSnapshot(id, u.id, doc, tp).catch((e) =>
           console.error("snapshot failed", e)
         );
       }
@@ -153,12 +169,17 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
               JSON.stringify(live) !== JSON.stringify(localDoc);
             if (isDirty() || typedDuringFetch) {
               // Un-pushed local edits (incl. in-flight typing) win.
-              const ts = await saveScript(id, live, deriveTitle(live));
+              const ts = await saveScript(
+                id,
+                live,
+                deriveTitle(live),
+                titlePageRef.current
+              );
               if (ts) setLastSavedAt(ts);
               setDirty(false);
             } else if (cloudNewer) {
-              // Another device moved ahead — pull cloud in.
-              pullInto(cloud.content);
+              // Another device moved ahead — pull cloud (and its title page) in.
+              pullInto(cloud.content, cloud.title_page ?? null);
               setLastSavedAt(cloud.updated_at);
             }
           }
@@ -169,8 +190,13 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
           // typing during the (possible) fetch above is preserved.
           const live = editor.getJSON();
           if (isMeaningfulDoc(live)) {
-            // Preserve the anonymous work as a new cloud script.
-            const row = await createScript(user.id, deriveTitle(live), live);
+            // Preserve the anonymous work (and any title page) as a new script.
+            const row = await createScript(
+              user.id,
+              deriveTitle(live),
+              live,
+              titlePageRef.current
+            );
             if (row) {
               id = row.id;
               setLastSavedAt(row.updated_at);
@@ -181,11 +207,16 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
               const cloud = await fetchScript(existing[0].id);
               if (cloud) {
                 id = cloud.id;
-                pullInto(cloud.content);
+                pullInto(cloud.content, cloud.title_page ?? null);
                 setLastSavedAt(cloud.updated_at);
               }
             } else {
-              const row = await createScript(user.id, deriveTitle(live), live);
+              const row = await createScript(
+                user.id,
+                deriveTitle(live),
+                live,
+                titlePageRef.current
+              );
               if (row) {
                 id = row.id;
                 setLastSavedAt(row.updated_at);
@@ -257,6 +288,10 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     setActiveScriptId(null);
     setLastSavedAt(null);
     setDirty(false);
+    // Clear the title page too, so the next user does not inherit it.
+    titlePageRef.current = null;
+    saveTitlePage(null);
+    setTitlePageState(null);
     if (editor) {
       editor.commands.setContent(SAMPLE_SCRIPT, { emitUpdate: false });
       saveDoc(SAMPLE_SCRIPT);
@@ -271,10 +306,20 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     return listVersions(activeIdRef.current);
   }, []);
 
-  /** Restore a snapshot's content into the editor (and push it as current). */
+  /** Edit the title page: persist locally, mark dirty, schedule a cloud push. */
+  const setTitlePage = useCallback((tp: TitlePage | null) => {
+    const next = trimTitlePage(tp);
+    titlePageRef.current = next;
+    saveTitlePage(next);
+    setTitlePageState(next);
+    setDirty(true);
+    if (userRef.current && activeIdRef.current) debouncedPush.current();
+  }, []);
+
+  /** Restore a snapshot's content (and its title page) into the editor. */
   const restoreVersion = useCallback(
-    (content: JSONContent) => {
-      pullInto(content);
+    (content: JSONContent, tp?: TitlePage | null) => {
+      pullInto(content, tp);
       setDirty(true);
       void pushNow();
     },
@@ -290,8 +335,8 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
    * clobbers it.
    */
   const importContent = useCallback(
-    (content: JSONContent) => {
-      pullInto(content);
+    (content: JSONContent, tp?: TitlePage | null) => {
+      pullInto(content, tp);
       setDirty(true);
       void pushNow();
     },
@@ -305,5 +350,7 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     getVersions,
     restoreVersion,
     importContent,
+    titlePage,
+    setTitlePage,
   };
 }

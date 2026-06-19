@@ -52,6 +52,7 @@ import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
 import { CastListPanel } from "./CastListPanel";
 import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
+import { TitlePageModal } from "./TitlePageModal";
 
 export function ScreenplayEditor() {
   // Read any saved script synchronously on the client; fall back to the sample.
@@ -184,7 +185,10 @@ export function ScreenplayEditor() {
     getVersions,
     restoreVersion,
     importContent,
+    titlePage,
+    setTitlePage,
   } = useCloudSync(editor, user);
+  const [showTitlePage, setShowTitlePage] = useState(false);
 
   // When sync loads new content into the editor (a cross-device pull, a version
   // restore, an import, or a sign-out reset), the 'update' event is suppressed.
@@ -230,12 +234,12 @@ export function ScreenplayEditor() {
     setPrefs((p) => ({ ...p, ...next }));
   }, []);
 
-  // Export the live document to a downloaded file.
+  // Export the live document (and its title page) to a downloaded file.
   const handleExport = useCallback(
     (format: ExportFormat) => {
-      if (editor) void exportDoc(editor.getJSON(), format);
+      if (editor) void exportDoc(editor.getJSON(), format, titlePage ?? undefined);
     },
-    [editor]
+    [editor, titlePage]
   );
 
   // Import a picked file. importFile routes by extension, so the format arg is
@@ -244,8 +248,8 @@ export function ScreenplayEditor() {
   const handleImport = useCallback(
     async (_format: ImportFormat, file: File) => {
       try {
-        const content = await importFile(file);
-        importContent(content);
+        const { doc, titlePage: importedTp } = await importFile(file);
+        importContent(doc, importedTp);
       } catch (e) {
         window.alert(
           e instanceof Error ? e.message : "Could not import that file."
@@ -383,6 +387,7 @@ export function ScreenplayEditor() {
         onScenesClick={() => setShowScenes((v) => !v)}
         onFindClick={handleFindClick}
         onCastClick={() => setShowCast((v) => !v)}
+        onTitlePageClick={() => setShowTitlePage(true)}
         scenesOpen={showScenes}
         findOpen={showFind}
         castOpen={showCast}
@@ -416,8 +421,8 @@ export function ScreenplayEditor() {
       {showHistory && (
         <HistoryPanel
           getVersions={getVersions}
-          onRestore={(content) => {
-            restoreVersion(content);
+          onRestore={(content, tp) => {
+            restoreVersion(content, tp);
             setShowHistory(false);
           }}
           onClose={() => setShowHistory(false)}
@@ -458,6 +463,17 @@ export function ScreenplayEditor() {
           initialRenameFrom={renameFrom}
           renameTick={renameTick}
           onClose={() => setShowFind(false)}
+        />
+      )}
+
+      {showTitlePage && (
+        <TitlePageModal
+          value={titlePage ?? {}}
+          onSave={(tp) => {
+            setTitlePage(tp);
+            setShowTitlePage(false);
+          }}
+          onClose={() => setShowTitlePage(false)}
         />
       )}
 

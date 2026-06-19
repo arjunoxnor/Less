@@ -1,5 +1,6 @@
 import { DEFAULT_ELEMENT, type ElementType } from "@/lib/editor/elements";
 import type { ScriptLine } from "@/types/screenplay";
+import { hasTitlePage, type TitlePage } from "./titlePage";
 
 /**
  * Final Draft (.fdx) importer. Import only; FDX export is out of Phase 3 scope.
@@ -55,26 +56,85 @@ function flattenDual(dual: Element, lines: ScriptLine[]): void {
   }
 }
 
-export function parseFdx(xmlString: string): ScriptLine[] {
+/** Direct child of `el` with the given localName, or null. */
+function childByName(el: Element, name: string): Element | null {
+  for (const child of Array.from(el.children)) {
+    if (child.localName === name) return child;
+  }
+  return null;
+}
+
+const TITLE_KEY_MAP: Record<string, keyof TitlePage> = {
+  title: "title",
+  credit: "credit",
+  author: "author",
+  authors: "author",
+  source: "source",
+  "draft date": "draftDate",
+  contact: "contact",
+  copyright: "copyright",
+};
+
+/**
+ * Parse the top-level <TitlePage> (if any) into a TitlePage. FDX title pages are
+ * usually unlabeled, formatting-only paragraphs, so we map "Key: Value" lines
+ * when present and otherwise treat the first line as the title and the rest as
+ * contact. Heuristic and user-correctable in the modal.
+ */
+function parseFdxTitlePage(root: Element): TitlePage | null {
+  const titlePageEl = childByName(root, "TitlePage");
+  if (!titlePageEl) return null;
+  const content = childByName(titlePageEl, "Content");
+  if (!content) return null;
+
+  const texts: string[] = [];
+  for (const node of Array.from(content.children)) {
+    if (node.localName !== "Paragraph") continue;
+    let t = "";
+    for (const c of Array.from(node.children)) {
+      if (c.localName === "Text") t += c.textContent ?? "";
+    }
+    t = t.trim();
+    if (t) texts.push(t);
+  }
+  if (texts.length === 0) return null;
+
+  const tp: TitlePage = {};
+  const leftover: string[] = [];
+  for (const line of texts) {
+    const m = /^([^:]+):\s*(.*)$/.exec(line);
+    const field = m ? TITLE_KEY_MAP[m[1].trim().toLowerCase()] : undefined;
+    if (field && m![2].trim()) tp[field] = m![2].trim();
+    else leftover.push(line);
+  }
+  if (!hasTitlePage(tp)) {
+    tp.title = leftover.shift();
+  }
+  if (leftover.length && !tp.contact) {
+    tp.contact = leftover.join("\n");
+  }
+  return hasTitlePage(tp) ? tp : null;
+}
+
+export function parseFdx(xmlString: string): {
+  lines: ScriptLine[];
+  titlePage: TitlePage | null;
+} {
   const doc = new DOMParser().parseFromString(xmlString, "application/xml");
   if (doc.querySelector("parsererror")) {
     throw new Error("This file is not valid Final Draft XML.");
   }
 
   const root = doc.documentElement;
-  if (!root) return [];
+  if (!root) return { lines: [], titlePage: null };
+
+  const titlePage = parseFdxTitlePage(root);
 
   // The screenplay body is the FIRST <Content> that is a direct child of the
   // root, NOT any nested Content inside <TitlePage>. localName (not tagName)
   // tolerates a namespace prefix like <fd:Content>.
-  let content: Element | null = null;
-  for (const child of Array.from(root.children)) {
-    if (child.localName === "Content") {
-      content = child;
-      break;
-    }
-  }
-  if (!content) return [];
+  const content = childByName(root, "Content");
+  if (!content) return { lines: [], titlePage };
 
   const lines: ScriptLine[] = [];
   for (const node of Array.from(content.children)) {
@@ -95,5 +155,5 @@ export function parseFdx(xmlString: string): ScriptLine[] {
 
   // Drop purely-empty lines so blank Final Draft spacing paragraphs do not
   // turn into a wall of empty action.
-  return lines.filter((l) => l.text !== "");
+  return { lines: lines.filter((l) => l.text !== ""), titlePage };
 }
