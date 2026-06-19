@@ -26,7 +26,7 @@ import {
  */
 
 /** Find the screenplayLine node that contains a resolved position. */
-function lineAt($pos: ResolvedPos) {
+export function lineAt($pos: ResolvedPos) {
   for (let depth = $pos.depth; depth > 0; depth--) {
     const node = $pos.node(depth);
     if (node.type.name === "screenplayLine") {

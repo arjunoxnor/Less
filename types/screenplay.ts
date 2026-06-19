@@ -18,3 +18,47 @@ export interface Scene {
   /** Index of the scene-heading line within the flat line list. */
   lineIndex: number;
 }
+
+/* --- Phase 4: navigation -------------------------------------------------- */
+
+/** A scene heading, with the document position to jump to and a page estimate. */
+export interface SceneEntry {
+  /** 1-based scene number among the headings. */
+  number: number;
+  heading: string;
+  /** Absolute ProseMirror position inside the heading line (the jump target). */
+  pos: number;
+  /** Index of this line among the doc's top-level lines. */
+  lineIndex: number;
+  /** Estimated page the scene begins on, or null if not estimable. */
+  page: number | null;
+}
+
+/** A speaking character, with where they first appear and how often. */
+export interface CastEntry {
+  name: string;
+  /** Jump target: the first cue for this character. */
+  pos: number;
+  lines: number;
+  scenes: number;
+}
+
+/** A location used in a slugline, with how many scenes use it. */
+export interface LocationEntry {
+  name: string;
+  scenes: number;
+}
+
+/** A character name with its dialogue-line count (for autocomplete ranking). */
+export interface CharacterEntry {
+  name: string;
+  lines: number;
+}
+
+/** Everything derived from one walk of the document. */
+export interface Outline {
+  scenes: SceneEntry[];
+  locations: LocationEntry[];
+  characters: CharacterEntry[];
+  cast: CastEntry[];
+}

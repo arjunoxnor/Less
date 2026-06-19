@@ -43,6 +43,12 @@ export function Toolbar({
   onHistoryClick,
   onExport,
   onImport,
+  onScenesClick,
+  onFindClick,
+  onCastClick,
+  scenesOpen,
+  findOpen,
+  castOpen,
 }: {
   editor: Editor | null;
   currentElement: ElementType;
@@ -57,6 +63,12 @@ export function Toolbar({
   onHistoryClick: () => void;
   onExport: (format: ExportFormat) => void;
   onImport: (format: ImportFormat, file: File) => void;
+  onScenesClick: () => void;
+  onFindClick: () => void;
+  onCastClick: () => void;
+  scenesOpen: boolean;
+  findOpen: boolean;
+  castOpen: boolean;
 }) {
   const setElement = (type: ElementType) => {
     editor?.chain().focus().setElement(type).run();
@@ -243,6 +255,33 @@ export function Toolbar({
             e.target.value = "";
           }}
         />
+      </div>
+
+      <div className="toolbar-group">
+        <button
+          type="button"
+          className={"tb-btn" + (scenesOpen ? " tb-btn-active" : "")}
+          onClick={onScenesClick}
+          title="Scene navigator"
+        >
+          Scenes
+        </button>
+        <button
+          type="button"
+          className={"tb-btn" + (findOpen ? " tb-btn-active" : "")}
+          onClick={onFindClick}
+          title="Find and replace"
+        >
+          Find
+        </button>
+        <button
+          type="button"
+          className={"tb-btn" + (castOpen ? " tb-btn-active" : "")}
+          onClick={onCastClick}
+          title="Cast list"
+        >
+          Cast
+        </button>
       </div>
 
       {cloudConfigured && (

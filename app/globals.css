@@ -542,3 +542,258 @@ body {
 .history-restore:hover {
   border-color: var(--accent);
 }
+
+/* ============================================================================
+   PHASE 4: NAVIGATION (scene navigator, cast list, find/replace, autocomplete)
+   ========================================================================== */
+
+/* ---- Shared side panel (same geometry as the history panel) ------------- */
+
+.side-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: var(--toolbar-bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+}
+.side-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.side-panel-x {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.side-panel-x:hover {
+  color: var(--accent);
+}
+.side-panel-count {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.side-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1 1 auto;
+}
+.side-panel-empty {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ---- Scene navigator ---------------------------------------------------- */
+
+.scene-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  background: none;
+  color: var(--toolbar-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.scene-item:hover {
+  background: var(--btn-bg);
+}
+.scene-item-current {
+  border-left-color: var(--accent);
+  color: var(--accent);
+}
+.scene-num {
+  color: var(--accent);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+.scene-text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scene-page {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+/* ---- Cast list ---------------------------------------------------------- */
+
+.cast-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cast-name {
+  flex: 1 1 auto;
+  background: none;
+  border: none;
+  color: var(--toolbar-fg);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cast-name:hover {
+  color: var(--accent);
+}
+.cast-metrics {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.cast-rename {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.cast-rename:hover {
+  border-color: var(--accent);
+}
+
+/* ---- Find and replace --------------------------------------------------- */
+
+.find-seg {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px 0;
+}
+.seg {
+  flex: 1 1 0;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+  cursor: pointer;
+}
+.seg-active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+  border-color: var(--accent);
+}
+.find-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+}
+.find-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+}
+.find-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.find-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.find-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.find-count {
+  font-size: 12px;
+  color: var(--muted);
+}
+.find-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Match highlights drawn over the page text. */
+.find-mark {
+  background: rgba(47, 109, 246, 0.22);
+  border-radius: 2px;
+}
+.find-mark-active {
+  background: rgba(47, 109, 246, 0.38);
+  outline: 1px solid var(--accent);
+}
+
+/* ---- Autocomplete dropdown ---------------------------------------------- */
+
+.ac-menu {
+  z-index: 200;
+  min-width: 180px;
+  max-width: 320px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--toolbar-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.ac-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--toolbar-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ac-item-active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+}
+.ac-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-hint {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+}

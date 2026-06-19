@@ -26,6 +26,22 @@ export function isElementType(value: unknown): value is ElementType {
 }
 
 /**
+ * Concatenate all inline text under a single line node, verbatim (no whitespace
+ * collapsing). This is the canonical per-line text rule; outline.ts mirrors it
+ * via ProseMirror's node.textContent, which is the same concatenation.
+ */
+export function lineText(node: JSONContent): string {
+  let text = "";
+  const collect = (n?: JSONContent) => {
+    if (!n) return;
+    if (n.type === "text" && n.text) text += n.text;
+    n.content?.forEach(collect);
+  };
+  node.content?.forEach(collect);
+  return text;
+}
+
+/**
  * Flatten a ProseMirror doc into one ScriptLine per screenplayLine node.
  *
  * Text is concatenated verbatim (no whitespace collapsing) so a round trip
@@ -38,14 +54,7 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
   for (const node of doc.content ?? []) {
     const raw = node.attrs?.element;
     const element = isElementType(raw) ? raw : DEFAULT_ELEMENT;
-    let text = "";
-    const collect = (n?: JSONContent) => {
-      if (!n) return;
-      if (n.type === "text" && n.text) text += n.text;
-      n.content?.forEach(collect);
-    };
-    node.content?.forEach(collect);
-    lines.push({ element, text });
+    lines.push({ element, text: lineText(node) });
   }
   return lines;
 }

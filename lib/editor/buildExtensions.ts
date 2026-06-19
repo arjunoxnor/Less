@@ -5,7 +5,11 @@ import { UndoRedo, Gapcursor, Dropcursor, Placeholder } from "@tiptap/extensions
 import { ScreenplayLine } from "./screenplayLine";
 import { ScreenplayKeymap } from "./keymap";
 import { AutoCaps } from "./autoCaps";
+import { buildAutocomplete, type AcState } from "./autocomplete";
+import { FindReplace } from "./findPlugin";
+import { EMPTY_OUTLINE } from "./outline";
 import type { ElementType } from "./elements";
+import type { Outline } from "@/types/screenplay";
 
 /** Hint shown on the current empty line, tailored to its element type. */
 function placeholderFor(element: ElementType): string {
@@ -41,7 +45,13 @@ function placeholderFor(element: ElementType): string {
  *   UndoRedo     history (Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z)
  *   Gapcursor/Dropcursor  standard editing niceties
  */
-export function buildExtensions() {
+export function buildExtensions(opts?: {
+  /** Live outline source for autocomplete candidates (locations, characters). */
+  getOutline?: () => Outline;
+  /** Pushes the autocomplete dropdown state to React for rendering. */
+  onAutocompleteState?: (state: AcState | null) => void;
+}) {
+  const getOutline = opts?.getOutline ?? (() => EMPTY_OUTLINE);
   return [
     // Override the document's content rule so the only thing allowed at the top
     // level is one-or-more screenplay lines. Nothing else can sneak in.
@@ -50,6 +60,10 @@ export function buildExtensions() {
     ScreenplayLine,
     ScreenplayKeymap,
     AutoCaps,
+    // Autocomplete carries priority 200 so its keydown handler runs before the
+    // keymap; it only consumes keys while its menu is open.
+    buildAutocomplete(getOutline, opts?.onAutocompleteState),
+    FindReplace,
     UndoRedo,
     Gapcursor,
     Dropcursor,
