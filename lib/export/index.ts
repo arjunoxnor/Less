@@ -4,7 +4,7 @@ import { deriveTitle } from "@/lib/editor/docUtils";
 import { docToLines, linesToDoc } from "./flatten";
 import { downloadBlob, safeFilename } from "./download";
 import { toFountain, parseFountain } from "./fountain";
-import { parseFdx } from "./fdx";
+import { parseFdx, toFdx } from "./fdx";
 import { exportPdf } from "./pdf";
 import type { TitlePage } from "./titlePage";
 
@@ -14,7 +14,7 @@ import type { TitlePage } from "./titlePage";
  * format module.
  */
 
-export type ExportFormat = "pdf" | "fountain";
+export type ExportFormat = "pdf" | "fountain" | "fdx";
 export type ImportFormat = "fountain" | "fdx";
 
 /**
@@ -56,6 +56,12 @@ export async function exportDoc(
     const buffer = new ArrayBuffer(bytes.byteLength);
     new Uint8Array(buffer).set(bytes);
     downloadBlob(buffer, safeFilename(title, "pdf"), "application/pdf");
+    return;
+  }
+
+  if (format === "fdx") {
+    const xml = toFdx(lines, titlePage);
+    downloadBlob(xml, safeFilename(title, "fdx"), "application/xml;charset=utf-8");
     return;
   }
 

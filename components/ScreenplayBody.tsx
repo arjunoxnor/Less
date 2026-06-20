@@ -59,6 +59,7 @@ import { AuthModal } from "./AuthModal";
 import { HistoryPanel } from "./HistoryPanel";
 import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
 import { CastListPanel } from "./CastListPanel";
+import { ReportsPanel } from "./ReportsPanel";
 import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
 import { SpellMenu } from "./SpellMenu";
@@ -99,6 +100,7 @@ export function ScreenplayBody({
   const [showHistory, setShowHistory] = useState(false);
   const [showScenes, setShowScenes] = useState(false);
   const [showCast, setShowCast] = useState(false);
+  const [showReports, setShowReports] = useState(false);
   const [showFind, setShowFind] = useState(false);
   const [showTitlePage, setShowTitlePage] = useState(false);
   const [caretLine, setCaretLine] = useState(0);
@@ -405,6 +407,7 @@ export function ScreenplayBody({
           onScenesClick={() => setShowScenes((v) => !v)}
           onFindClick={handleFindClick}
           onCastClick={() => setShowCast((v) => !v)}
+          onReportsClick={() => setShowReports((v) => !v)}
           onTitlePageClick={() => setShowTitlePage(true)}
           onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
           onToggleDual={toggleDual}
@@ -412,6 +415,7 @@ export function ScreenplayBody({
           scenesOpen={showScenes}
           findOpen={showFind}
           castOpen={showCast}
+          reportsOpen={showReports}
         />
       </EditorChrome>
 
@@ -462,6 +466,17 @@ export function ScreenplayBody({
           onJump={jumpToScene}
           onRename={onCastRename}
           onClose={() => setShowCast(false)}
+        />
+      )}
+
+      {showReports && (
+        <ReportsPanel
+          outline={outline}
+          pageCount={pageCount}
+          wordCount={wordCount}
+          title={title}
+          onJump={jumpToScene}
+          onClose={() => setShowReports(false)}
         />
       )}
 

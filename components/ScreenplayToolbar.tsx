@@ -27,6 +27,7 @@ export function ScreenplayToolbar({
   onScenesClick,
   onFindClick,
   onCastClick,
+  onReportsClick,
   onTitlePageClick,
   onToggleSpell,
   onToggleDual,
@@ -34,6 +35,7 @@ export function ScreenplayToolbar({
   scenesOpen,
   findOpen,
   castOpen,
+  reportsOpen,
 }: {
   editor: Editor | null;
   currentElement: ElementType;
@@ -44,6 +46,7 @@ export function ScreenplayToolbar({
   onScenesClick: () => void;
   onFindClick: () => void;
   onCastClick: () => void;
+  onReportsClick: () => void;
   onTitlePageClick: () => void;
   onToggleSpell: () => void;
   onToggleDual: () => void;
@@ -51,6 +54,7 @@ export function ScreenplayToolbar({
   scenesOpen: boolean;
   findOpen: boolean;
   castOpen: boolean;
+  reportsOpen: boolean;
 }) {
   const setElement = (type: ElementType) => {
     editor?.chain().focus().setElement(type).run();
@@ -114,6 +118,9 @@ export function ScreenplayToolbar({
               <button type="button" className="tb-menu-item" onClick={() => { onExport("fountain"); setOpenMenu(null); }}>
                 Fountain
               </button>
+              <button type="button" className="tb-menu-item" onClick={() => { onExport("fdx"); setOpenMenu(null); }}>
+                Final Draft (FDX)
+              </button>
             </div>
           )}
         </div>
@@ -172,6 +179,9 @@ export function ScreenplayToolbar({
         </button>
         <button type="button" className={"tb-btn" + (castOpen ? " tb-btn-active" : "")} onClick={onCastClick} title="Cast list">
           Cast
+        </button>
+        <button type="button" className={"tb-btn" + (reportsOpen ? " tb-btn-active" : "")} onClick={onReportsClick} title="Reports and statistics">
+          Reports
         </button>
         <button type="button" className="tb-btn" onClick={onTitlePageClick} title="Edit the title page">
           Title Page

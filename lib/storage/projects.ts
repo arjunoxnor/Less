@@ -155,10 +155,11 @@ export function saveProjectTitlePage(id: string, tp: TitlePage | null): void {
 /** Create a new local project (instant, offline-safe). */
 export function createProject(
   type: ProjectType,
-  opts?: { title?: string }
+  opts?: { title?: string; content?: JSONContent }
 ): Project {
   const id = crypto.randomUUID();
-  const content = type === "plain" ? EMPTY_PLAIN_DOC : EMPTY_SCREENPLAY;
+  const content =
+    opts?.content ?? (type === "plain" ? EMPTY_PLAIN_DOC : EMPTY_SCREENPLAY);
   const ts = nowIso();
   const meta: ProjectMeta = {
     id,

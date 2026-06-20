@@ -429,7 +429,8 @@ body {
   margin-bottom: 4px;
 }
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   padding: 9px 11px;
   font-size: 14px;
@@ -441,7 +442,8 @@ body {
   resize: vertical;
 }
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field select:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -1190,4 +1192,85 @@ body {
   height: 0;
   color: var(--placeholder);
   pointer-events: none;
+}
+
+/* ---- Reports panel (Phase 9) -------------------------------------------- */
+
+.report-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 14px 6px;
+}
+.report-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  background: var(--btn-bg);
+  border-radius: 8px;
+}
+.report-stat-n {
+  font-size: 18px;
+  font-weight: 700;
+}
+.report-stat-l {
+  font-size: 11px;
+  color: var(--muted);
+}
+.report-export {
+  margin: 2px 14px 4px;
+}
+.report-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  padding: 14px 14px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+.report-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 14px;
+  font-size: 13px;
+}
+.report-scene {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--toolbar-fg);
+  cursor: pointer;
+  padding: 0;
+}
+.report-scene:hover .report-scene-h {
+  color: var(--accent);
+}
+.report-scene-n {
+  color: var(--muted);
+  min-width: 1.6em;
+}
+.report-scene-h {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-scene-p {
+  color: var(--muted);
+  font-size: 11px;
+}
+.report-name {
+  font-weight: 500;
+}
+.report-metrics {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }

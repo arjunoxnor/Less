@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import type { JSONContent } from "@tiptap/core";
 import type { Prefs } from "@/lib/storage/localStore";
 import type {
   ProjectMeta,
   ProjectStatus,
   ProjectType,
 } from "@/lib/storage/projects";
+import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
 
 const STATUS_LABEL: Record<ProjectStatus, string> = {
   not_started: "Not started",
@@ -63,7 +65,7 @@ export function ProjectsHome({
   onPrefsChange: (next: Partial<Prefs>) => void;
   lastOpenedId: string | null;
   onOpen: (id: string) => void;
-  onCreate: (type: ProjectType, title: string) => void;
+  onCreate: (type: ProjectType, title: string, content?: JSONContent) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onStatusChange: (id: string, status: ProjectStatus) => void;
@@ -73,6 +75,7 @@ export function ProjectsHome({
   const [showNew, setShowNew] = useState(false);
   const [newType, setNewType] = useState<ProjectType>("screenplay");
   const [newName, setNewName] = useState("");
+  const [newTemplate, setNewTemplate] = useState("blank");
   const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -86,10 +89,15 @@ export function ProjectsHome({
     lastOpenedId != null ? projects.find((p) => p.id === lastOpenedId) ?? null : null;
 
   const create = () => {
-    onCreate(newType, newName.trim());
+    const content =
+      newType === "screenplay" && newTemplate !== "blank"
+        ? buildTemplate(newTemplate) ?? undefined
+        : undefined;
+    onCreate(newType, newName.trim(), content);
     setShowNew(false);
     setNewName("");
     setNewType("screenplay");
+    setNewTemplate("blank");
   };
 
   const commitRename = (id: string) => {
@@ -313,6 +321,21 @@ export function ProjectsHome({
                 </button>
               </div>
             </div>
+            {newType === "screenplay" && (
+              <label className="field">
+                <span>Template</span>
+                <select
+                  value={newTemplate}
+                  onChange={(e) => setNewTemplate(e.target.value)}
+                >
+                  {SCREENPLAY_TEMPLATES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label} — {t.description}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="modal-actions">
               <button type="button" className="tb-btn" onClick={() => setShowNew(false)}>
                 Cancel

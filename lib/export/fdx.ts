@@ -166,3 +166,104 @@ export function parseFdx(xmlString: string): {
   // turn into a wall of empty action.
   return { lines: lines.filter((l) => l.text !== ""), titlePage };
 }
+
+/* --- Export ------------------------------------------------------------- */
+
+/** LESS element -> Final Draft paragraph Type. */
+const REVERSE_TYPE: Record<ElementType, string> = {
+  scene_heading: "Scene Heading",
+  action: "Action",
+  character: "Character",
+  parenthetical: "Parenthetical",
+  dialogue: "Dialogue",
+  transition: "Transition",
+};
+
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function paragraphXml(line: ScriptLine, indent: string): string {
+  const type = REVERSE_TYPE[line.element] ?? "Action";
+  return (
+    `${indent}<Paragraph Type="${type}">\n` +
+    `${indent}  <Text>${esc(line.text)}</Text>\n` +
+    `${indent}</Paragraph>`
+  );
+}
+
+/** End (exclusive) of a cue cluster: the character cue + its parenthetical/dialogue. */
+function clusterEnd(lines: ScriptLine[], start: number): number {
+  let i = start + 1;
+  while (
+    i < lines.length &&
+    (lines[i].element === "parenthetical" || lines[i].element === "dialogue")
+  ) {
+    i++;
+  }
+  return i;
+}
+
+function titlePageXml(tp: TitlePage): string {
+  const para = (text: string, align: string) =>
+    `      <Paragraph Alignment="${align}">\n        <Text>${esc(text)}</Text>\n      </Paragraph>`;
+  const out: string[] = ["  <TitlePage>", "    <Content>"];
+  if (tp.title) out.push(para(tp.title, "Center"));
+  if (tp.credit) out.push(para(tp.credit, "Center"));
+  if (tp.author) out.push(para(tp.author, "Center"));
+  if (tp.source) out.push(para(tp.source, "Center"));
+  if (tp.draftDate) out.push(para(tp.draftDate, "Left"));
+  if (tp.contact) {
+    for (const cl of tp.contact.split("\n")) out.push(para(cl, "Left"));
+  }
+  if (tp.copyright) out.push(para(tp.copyright, "Left"));
+  out.push("    </Content>", "  </TitlePage>");
+  return out.join("\n");
+}
+
+/**
+ * Serialize to Final Draft (.fdx) XML, the near-symmetric inverse of parseFdx.
+ * Dual dialogue is reconstructed: a non-dual cue cluster immediately followed by
+ * a dual one is wrapped in <Paragraph><DualDialogue>...</DualDialogue></Paragraph>,
+ * exactly the shape the importer reads.
+ */
+export function toFdx(lines: ScriptLine[], titlePage?: TitlePage | null): string {
+  const parts: string[] = [
+    '<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
+    '<FinalDraft DocumentType="Script" Template="No" Version="5">',
+    "  <Content>",
+  ];
+
+  let i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.element === "character" && !l.dual) {
+      const leftEnd = clusterEnd(lines, i);
+      if (
+        leftEnd < lines.length &&
+        lines[leftEnd].element === "character" &&
+        lines[leftEnd].dual
+      ) {
+        const rightEnd = clusterEnd(lines, leftEnd);
+        parts.push("    <Paragraph>", "      <DualDialogue>");
+        for (let k = i; k < rightEnd; k++) {
+          parts.push(paragraphXml({ ...lines[k], dual: false }, "        "));
+        }
+        parts.push("      </DualDialogue>", "    </Paragraph>");
+        i = rightEnd;
+        continue;
+      }
+    }
+    parts.push(paragraphXml(l, "    "));
+    i++;
+  }
+
+  parts.push("  </Content>");
+  if (hasTitlePage(titlePage)) parts.push(titlePageXml(titlePage!));
+  parts.push("</FinalDraft>");
+  return parts.join("\n") + "\n";
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import type { JSONContent } from "@tiptap/core";
 
 import {
   clearAllBookkeeping,
@@ -57,8 +58,8 @@ export function useProjects(user: User | null) {
   }, [refresh]);
 
   const create = useCallback(
-    (type: ProjectType, title?: string): ProjectMeta => {
-      const meta = localCreate(type, { title });
+    (type: ProjectType, title?: string, content?: JSONContent): ProjectMeta => {
+      const meta = localCreate(type, { title, content });
       if (user && online()) {
         const doc = loadProjectDoc(meta.id);
         if (doc) {

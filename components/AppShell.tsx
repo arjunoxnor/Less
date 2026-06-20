@@ -100,8 +100,8 @@ export function AppShell() {
   }, [refresh]);
 
   const onCreate = useCallback(
-    (type: ProjectType, title: string) => {
-      const meta = create(type, title || undefined);
+    (type: ProjectType, title: string, content?: import("@tiptap/core").JSONContent) => {
+      const meta = create(type, title || undefined, content);
       openProject(meta.id);
     },
     [create, openProject]
