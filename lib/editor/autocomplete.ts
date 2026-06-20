@@ -2,25 +2,45 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { lineAt } from "./keymap";
-import { cueBaseName, parseLocation, TIME_OF_DAY } from "./outline";
+import { cueBaseName, TIME_OF_DAY } from "./outline";
+import {
+  CHARACTER_EXTENSIONS,
+  COMMON_SUBLOCATIONS,
+  EXTENSION_HINTS,
+  LONGEST_ACTION_CANDIDATE,
+  SHOTS,
+  TRANSITIONS,
+} from "./smarttype-catalogs";
 import type { ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
 
 /**
- * Inline autocomplete for sluglines and character cues, built as a custom
+ * Inline autocomplete (SmartType) for screenplays, built as a custom
  * ProseMirror plugin (not the Mention node, because the schema is strict and
  * stores plain text). The plugin owns the open-state and the candidate list;
  * the caret coordinates and that list are pushed to React through onState so a
  * styled dropdown can render next to the caret.
  *
- * It suggests previously-used LOCATIONS while you type a scene heading's
- * location, standard TIMES of day after the dash, and previously-used CHARACTER
- * names while you type a cue. Accepting replaces only the relevant text segment.
+ * Per element it offers what a professional expects:
+ *  - scene heading: INT./EXT. openers, then previously-used LOCATIONS, then
+ *    sub-locations and TIMES of day after the dash;
+ *  - character cue: previously-used NAMES, then cue EXTENSIONS (V.O.), (O.S.)
+ *    once you open a paren;
+ *  - transition: the standard TRANSITIONS catalog;
+ *  - action: SHOTS and transitions, but only while you type in all caps, so
+ *    ordinary prose is never interrupted (accepting a transition retypes the
+ *    line to a transition in one undo step).
+ *
+ * Candidates are ranked by frequency and recency from the live outline, with a
+ * subsequence fuzzy fallback when nothing matches by prefix. Accepting replaces
+ * only the relevant text segment.
  */
 
 export interface AcItem {
   text: string;
   hint: string;
+  /** When set, accepting also retypes the line to this element (one undo step). */
+  retypeTo?: ElementType;
 }
 
 /** Internal plugin state (coords are added by the React-facing snapshot). */
@@ -30,6 +50,8 @@ interface AcPluginState {
   active: number;
   replaceFrom: number;
   replaceTo: number;
+  /** First text position inside the active line (node pos is lineStart - 1). */
+  lineStart: number;
 }
 
 /** What React needs to render the menu. */
@@ -50,6 +72,7 @@ const CLOSED: AcPluginState = {
   active: 0,
   replaceFrom: 0,
   replaceTo: 0,
+  lineStart: 0,
 };
 
 const MAX_ITEMS = 8;
@@ -61,88 +84,227 @@ const TIME_SEP = /\s+-{1,2}\s+/g;
 // typing "i" offers INT. and "e" offers EXT., the way the pros do it.
 const SLUG_OPENERS = ["INT. ", "EXT. ", "INT./EXT. ", "EST. ", "I/E. "];
 
-/** Build the open/closed plugin state from the current selection and outline. */
-function compute(state: EditorState, getOutline: () => Outline): AcPluginState {
-  const sel = state.selection;
-  if (!sel.empty) return CLOSED;
+// The seed shown the instant you switch to an empty transition line.
+const TRANSITION_SEED = ["CUT TO:", "DISSOLVE TO:", "SMASH CUT TO:"];
 
-  const line = lineAt(sel.$from);
-  if (!line) return CLOSED;
+/* --- Candidate ranking ---------------------------------------------------- */
 
-  const element = line.node.attrs.element as ElementType;
-  if (element !== "scene_heading" && element !== "character") return CLOSED;
+interface Cand {
+  text: string;
+  hint: string;
+  /** Higher wins first (e.g. how many lines a character speaks). */
+  freq?: number;
+  /** Higher is more recent (the line index it was last seen at). */
+  recency?: number;
+  retypeTo?: ElementType;
+}
 
-  const lineStart = line.pos + 1; // first text position inside the line
-  const caretOffset = sel.$from.parentOffset; // char index within the line
-  const fullText = line.node.textContent;
-  const outline = getOutline();
+/** Are all of `q`'s characters present in `s`, in order (loose fuzzy match)? */
+function isSubsequence(q: string, s: string): boolean {
+  let i = 0;
+  for (let j = 0; j < s.length && i < q.length; j++) {
+    if (s[j] === q[i]) i++;
+  }
+  return i === q.length;
+}
 
-  if (element === "character") {
-    const upToCaret = fullText.slice(0, caretOffset);
-    const query = cueBaseName(upToCaret);
-    if (!query) return CLOSED;
-    const qUpper = query.toUpperCase();
-    const ownName = cueBaseName(fullText).toUpperCase();
-    const items = outline.characters
-      .filter((c) => {
-        const u = c.name.toUpperCase();
-        return u.startsWith(qUpper) && u !== qUpper && u !== ownName;
-      })
-      .slice(0, MAX_ITEMS)
-      .map((c) => ({ text: c.name, hint: c.lines === 1 ? "1 line" : `${c.lines} lines` }));
-    if (items.length === 0) return CLOSED;
+/**
+ * Filter a candidate pool by `query` (prefix first, fuzzy fallback) and rank by
+ * frequency, then recency, then shortness, then alphabetically. Deterministic.
+ */
+function rankCandidates(
+  query: string,
+  pool: Cand[],
+  opts?: { fuzzy?: boolean }
+): AcItem[] {
+  const q = query.toUpperCase();
+  const byRank = (a: Cand, b: Cand) =>
+    (b.freq ?? 0) - (a.freq ?? 0) ||
+    (b.recency ?? 0) - (a.recency ?? 0) ||
+    a.text.length - b.text.length ||
+    a.text.localeCompare(b.text);
 
-    const lead = upToCaret.length - upToCaret.trimStart().length;
-    return {
-      open: true,
-      items,
-      active: 0,
-      replaceFrom: lineStart + lead,
-      replaceTo: lineStart + caretOffset,
-    };
+  let hits = pool.filter((c) => {
+    const u = c.text.toUpperCase();
+    return u.startsWith(q) && u !== q;
+  });
+  if (hits.length === 0 && opts?.fuzzy && q.length >= 2) {
+    hits = pool.filter((c) => {
+      const u = c.text.toUpperCase();
+      return u !== q && isSubsequence(q, u);
+    });
+  }
+  return hits
+    .sort(byRank)
+    .slice(0, MAX_ITEMS)
+    .map((c) => ({
+      text: c.text,
+      hint: c.hint,
+      ...(c.retypeTo ? { retypeTo: c.retypeTo } : {}),
+    }));
+}
+
+function closed(lineStart: number): AcPluginState {
+  return { ...CLOSED, lineStart };
+}
+
+function open(
+  items: AcItem[],
+  replaceFrom: number,
+  replaceTo: number,
+  lineStart: number
+): AcPluginState {
+  return { open: true, items, active: 0, replaceFrom, replaceTo, lineStart };
+}
+
+/* --- Per-element computation ---------------------------------------------- */
+
+function computeCharacter(
+  fullText: string,
+  caretOffset: number,
+  lineStart: number,
+  outline: Outline
+): AcPluginState {
+  const upToCaret = fullText.slice(0, caretOffset);
+
+  // Extension mode: once a name is in place and the writer opens a paren, offer
+  // the standard cue extensions (V.O.), (O.S.), (CONT'D), and so on.
+  const openParen = upToCaret.lastIndexOf("(");
+  if (openParen >= 0 && upToCaret.slice(0, openParen).trim()) {
+    const extQuery = upToCaret.slice(openParen);
+    const base = cueBaseName(fullText).toUpperCase();
+    const ce = outline.characters.find((c) => c.name.toUpperCase() === base);
+    const lastExt = ce?.lastExtension?.toUpperCase();
+    const pool: Cand[] = CHARACTER_EXTENSIONS.map((e) => ({
+      text: e,
+      hint: EXTENSION_HINTS[e] ?? "",
+      // Pin this character's last-used extension to the very top.
+      freq: lastExt && e.toUpperCase() === lastExt ? 1 : 0,
+    }));
+    const items = rankCandidates(extQuery, pool);
+    if (items.length === 0) return closed(lineStart);
+    return open(items, lineStart + openParen, lineStart + caretOffset, lineStart);
   }
 
-  // scene_heading with no complete prefix yet: suggest the slugline openers as
-  // the writer types one (e.g. "i" -> INT. / INT./EXT. / I/E.). Only when the
-  // caret text so far is the start of a known opener, so an ordinary heading
-  // that does not begin with INT/EXT is never interrupted.
+  // Name mode: complete a previously-used character, ranked by how much they
+  // speak (and recency) so the leads surface first.
+  const query = cueBaseName(upToCaret);
+  if (!query) return closed(lineStart);
+  const ownName = cueBaseName(fullText).toUpperCase();
+  const pool: Cand[] = outline.characters
+    .filter((c) => c.name.toUpperCase() !== ownName)
+    .map((c) => ({
+      text: c.name,
+      hint: c.lines === 1 ? "1 line" : `${c.lines} lines`,
+      freq: c.lines,
+      recency: c.lastIndex,
+    }));
+  const items = rankCandidates(query, pool, { fuzzy: true });
+  if (items.length === 0) return closed(lineStart);
+  const lead = upToCaret.length - upToCaret.trimStart().length;
+  return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
+}
+
+function computeTransition(
+  fullText: string,
+  caretOffset: number,
+  lineStart: number,
+  outline: Outline
+): AcPluginState {
+  const upToCaret = fullText.slice(0, caretOffset);
+  const typed = upToCaret.trimStart();
+  const lead = upToCaret.length - typed.length;
+
+  // Seed the common transitions the moment you land on an empty transition line.
+  if (!typed) {
+    const items = TRANSITION_SEED.map((t) => ({ text: t, hint: "" }));
+    return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
+  }
+
+  const pool: Cand[] = TRANSITIONS.map((t) => ({ text: t, hint: "" }));
+  for (const tr of outline.transitions) {
+    const ex = pool.find((p) => p.text.toUpperCase() === tr.text.toUpperCase());
+    if (ex) {
+      ex.freq = tr.count;
+      ex.recency = tr.lastIndex;
+    } else {
+      pool.push({ text: tr.text, hint: "", freq: tr.count, recency: tr.lastIndex });
+    }
+  }
+  const items = rankCandidates(typed, pool, { fuzzy: true });
+  if (items.length === 0) return closed(lineStart);
+  return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
+}
+
+function computeAction(
+  fullText: string,
+  caretOffset: number,
+  lineStart: number
+): AcPluginState {
+  const upToCaret = fullText.slice(0, caretOffset);
+  const trimmed = upToCaret.trimStart();
+  // Strict gate so ordinary prose is never interrupted: at least two characters,
+  // typed in all caps, no sentence punctuation, and not longer than the longest
+  // catalog entry.
+  if (trimmed.length < 2) return closed(lineStart);
+  if (trimmed !== trimmed.toUpperCase()) return closed(lineStart);
+  if (/[.,!?;:]/.test(trimmed)) return closed(lineStart);
+  if (trimmed.length > LONGEST_ACTION_CANDIDATE) return closed(lineStart);
+
+  const pool: Cand[] = [
+    ...SHOTS.map((s) => ({ text: s, hint: "shot" })),
+    ...TRANSITIONS.map((t) => ({
+      text: t,
+      hint: "transition",
+      retypeTo: "transition" as ElementType,
+    })),
+  ];
+  const items = rankCandidates(trimmed, pool);
+  if (items.length === 0) return closed(lineStart);
+  const lead = upToCaret.length - trimmed.length;
+  return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
+}
+
+function computeSceneHeading(
+  fullText: string,
+  caretOffset: number,
+  lineStart: number,
+  outline: Outline
+): AcPluginState {
+  // No complete prefix yet: suggest the slugline openers as the writer types one
+  // (e.g. "i" -> INT. / INT./EXT. / I/E.). Only when the caret text so far is
+  // the start of a known opener, so an ordinary heading is never interrupted.
   const pm = SLUG_PREFIX.exec(fullText);
   if (!pm) {
     const upToCaret = fullText.slice(0, caretOffset);
     const typed = upToCaret.trimStart().toUpperCase();
-    if (!typed) return CLOSED;
+    if (!typed) return closed(lineStart);
     const items = SLUG_OPENERS.filter(
       (o) => o.toUpperCase().startsWith(typed) && o.toUpperCase() !== typed
     ).map((o) => ({ text: o, hint: "" }));
-    if (items.length === 0) return CLOSED;
+    if (items.length === 0) return closed(lineStart);
     const lead = upToCaret.length - upToCaret.trimStart().length;
-    return {
-      open: true,
-      items,
-      active: 0,
-      replaceFrom: lineStart + lead,
-      replaceTo: lineStart + caretOffset,
-    };
+    return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
   }
   const prefixEnd = pm[0].length;
-  if (caretOffset <= prefixEnd) return CLOSED;
+  if (caretOffset <= prefixEnd) return closed(lineStart);
 
-  // Find the last separator after the prefix; its trailing segment may be a time.
+  // Find the last separator after the prefix and count how many there are.
   let sepIdx = -1;
   let sepLen = 0;
+  let sepCount = 0;
   TIME_SEP.lastIndex = 0;
   let sep: RegExpExecArray | null;
   while ((sep = TIME_SEP.exec(fullText)) !== null) {
     if (sep.index >= prefixEnd) {
       sepIdx = sep.index;
       sepLen = sep[0].length;
+      sepCount++;
     }
   }
 
-  // The trailing segment counts as the time slot if it reads as a time of day,
-  // or if the caret is in it (the writer is typing the time). This mirrors
-  // parseLocation, so the location slot is exactly the same span the outline
-  // keyed on, and a sub-location like "HOUSE - GARAGE" is never half-replaced.
+  // The trailing segment counts as the time/sub-location slot if it reads as a
+  // time of day, or if the caret is in it (the writer is typing there).
   const caretInTrailing = sepIdx >= 0 && caretOffset >= sepIdx + sepLen;
   const trailingUpper =
     sepIdx >= 0 ? fullText.slice(sepIdx + sepLen).trim().toUpperCase() : "";
@@ -152,43 +314,75 @@ function compute(state: EditorState, getOutline: () => Outline): AcPluginState {
   const hasTime = sepIdx >= 0 && (trailingIsTime || caretInTrailing);
 
   if (caretInTrailing) {
-    // Time-of-day segment. query and replace span both run to the caret.
-    const timeStart = sepIdx + sepLen;
-    const query = fullText.slice(timeStart, caretOffset).trim().toUpperCase();
-    const items = TIME_OF_DAY.filter((t) => t.startsWith(query) && t !== query)
-      .slice(0, MAX_ITEMS)
-      .map((t) => ({ text: t, hint: "" }));
-    if (items.length === 0) return CLOSED;
-    return {
-      open: true,
-      items,
-      active: 0,
-      replaceFrom: lineStart + timeStart,
-      replaceTo: lineStart + caretOffset,
-    };
+    // Trailing slot. Offer times, plus sub-locations when this is the first
+    // separator (e.g. "INT. HOUSE - KIT" -> KITCHEN). query and replace span
+    // both run to the caret, mirroring the original time behavior.
+    const segStart = sepIdx + sepLen;
+    const query = fullText.slice(segStart, caretOffset).trim().toUpperCase();
+    const pool: Cand[] = TIME_OF_DAY.map((t) => ({ text: t, hint: "" }));
+    if (sepCount === 1) {
+      const parent = fullText.slice(prefixEnd, sepIdx).trim().toUpperCase();
+      const le = outline.locations.find((l) => l.name === parent);
+      const subs = new Set<string>([
+        ...(le?.subLocations ?? []),
+        ...COMMON_SUBLOCATIONS,
+      ]);
+      for (const s of subs) pool.push({ text: s, hint: "room" });
+    }
+    const items = rankCandidates(query, pool);
+    if (items.length === 0) return closed(lineStart);
+    return open(items, lineStart + segStart, lineStart + caretOffset, lineStart);
   }
 
   // Location segment: prefix end to the time separator (or end of line). The
-  // query is the WHOLE segment (not just up to the caret) so query and replace
-  // range share the same boundary and nothing after the caret is clobbered.
+  // query is the WHOLE segment so query and replace range share a boundary and
+  // nothing after the caret is clobbered.
   const locEnd = hasTime ? sepIdx : fullText.length;
   const query = fullText.slice(prefixEnd, locEnd).trim().toUpperCase();
-  if (!query) return CLOSED;
-  const items = outline.locations
-    .filter((l) => {
-      const u = l.name.toUpperCase();
-      return u.startsWith(query) && u !== query;
-    })
-    .slice(0, MAX_ITEMS)
-    .map((l) => ({ text: l.name, hint: l.scenes === 1 ? "1 scene" : `${l.scenes} scenes` }));
-  if (items.length === 0) return CLOSED;
-  return {
-    open: true,
-    items,
-    active: 0,
-    replaceFrom: lineStart + prefixEnd,
-    replaceTo: lineStart + locEnd,
-  };
+  if (!query) return closed(lineStart);
+  const pool: Cand[] = outline.locations.map((l) => ({
+    text: l.name,
+    hint: l.scenes === 1 ? "1 scene" : `${l.scenes} scenes`,
+    freq: l.scenes,
+    recency: l.lastIndex,
+  }));
+  const items = rankCandidates(query, pool, { fuzzy: true });
+  if (items.length === 0) return closed(lineStart);
+  return open(items, lineStart + prefixEnd, lineStart + locEnd, lineStart);
+}
+
+/** Build the open/closed plugin state from the current selection and outline. */
+function compute(state: EditorState, getOutline: () => Outline): AcPluginState {
+  const sel = state.selection;
+  if (!sel.empty) return CLOSED;
+
+  const line = lineAt(sel.$from);
+  if (!line) return CLOSED;
+
+  const element = line.node.attrs.element as ElementType;
+  if (
+    element !== "scene_heading" &&
+    element !== "character" &&
+    element !== "transition" &&
+    element !== "action"
+  )
+    return CLOSED;
+
+  const lineStart = line.pos + 1; // first text position inside the line
+  const caretOffset = sel.$from.parentOffset; // char index within the line
+  const fullText = line.node.textContent;
+  const outline = getOutline();
+
+  switch (element) {
+    case "character":
+      return computeCharacter(fullText, caretOffset, lineStart, outline);
+    case "transition":
+      return computeTransition(fullText, caretOffset, lineStart, outline);
+    case "action":
+      return computeAction(fullText, caretOffset, lineStart);
+    default:
+      return computeSceneHeading(fullText, caretOffset, lineStart, outline);
+  }
 }
 
 /** Accept the suggestion at `index`, replacing the relevant text segment. */
@@ -197,6 +391,17 @@ export function acceptAutocomplete(view: EditorView, index: number): boolean {
   if (!st || !st.open || index < 0 || index >= st.items.length) return false;
   const item = st.items[index];
   const tr = view.state.tr.insertText(item.text, st.replaceFrom, st.replaceTo);
+
+  // Promote the line's element in the SAME transaction (one undo step) when the
+  // chosen item asks for it, e.g. accepting a transition typed on an action line.
+  if (item.retypeTo) {
+    const nodePos = st.lineStart - 1;
+    const node = view.state.doc.nodeAt(nodePos);
+    if (node && node.type.name === "screenplayLine") {
+      tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, element: item.retypeTo });
+    }
+  }
+
   const caret = st.replaceFrom + item.text.length;
   tr.setSelection(TextSelection.create(tr.doc, caret));
   tr.setMeta(autocompleteKey, { open: false, items: [] });

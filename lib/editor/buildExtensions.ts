@@ -7,9 +7,11 @@ import { ScreenplayKeymap } from "./keymap";
 import { AutoCaps } from "./autoCaps";
 import { buildAutocomplete, type AcState } from "./autocomplete";
 import { FindReplace } from "./findPlugin";
+import { buildSpellcheck, type SpellState } from "./spellcheck";
 import { EMPTY_OUTLINE } from "./outline";
 import type { ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
+import type { NSpell } from "nspell";
 
 /** Hint shown on the current empty line, tailored to its element type. */
 function placeholderFor(element: ElementType): string {
@@ -50,9 +52,15 @@ export function buildExtensions(opts?: {
   getOutline?: () => Outline;
   /** Pushes the autocomplete dropdown state to React for rendering. */
   onAutocompleteState?: (state: AcState | null) => void;
+  /** Lazy spell-check engine loader; omit to disable spell check entirely. */
+  getSpeller?: () => Promise<NSpell>;
+  /** Live read of the user's Spelling toggle. */
+  isSpellEnabled?: () => boolean;
+  /** Pushes the spelling popover state to React for rendering. */
+  onSpellState?: (state: SpellState | null) => void;
 }) {
   const getOutline = opts?.getOutline ?? (() => EMPTY_OUTLINE);
-  return [
+  const extensions = [
     // Override the document's content rule so the only thing allowed at the top
     // level is one-or-more screenplay lines. Nothing else can sneak in.
     Document.extend({ content: "screenplayLine+" }),
@@ -73,4 +81,16 @@ export function buildExtensions(opts?: {
         placeholderFor((node.attrs.element as ElementType) ?? "action"),
     }),
   ];
+  // Spell check is decorations + click only (no keydown priority needed).
+  if (opts?.getSpeller) {
+    extensions.push(
+      buildSpellcheck(
+        getOutline,
+        opts.getSpeller,
+        opts.isSpellEnabled ?? (() => true),
+        opts.onSpellState
+      )
+    );
+  }
+  return extensions;
 }

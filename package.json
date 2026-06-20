@@ -4,7 +4,10 @@
   "private": true,
   "description": "LESS — Last Ever Screenwriting Software. A free, fast, web-based screenwriting app.",
   "scripts": {
+    "copy-dict": "node scripts/copy-dict.mjs",
+    "predev": "node scripts/copy-dict.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-dict.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -18,7 +21,9 @@
     "@tiptap/extensions": "3.26.1",
     "@tiptap/pm": "3.26.1",
     "@tiptap/react": "3.26.1",
+    "dictionary-en": "^4.0.0",
     "next": "16.2.9",
+    "nspell": "^2.1.5",
     "pdf-lib": "^1.17.1",
     "react": "19.2.7",
     "react-dom": "19.2.7"

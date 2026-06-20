@@ -49,12 +49,27 @@ export interface CastEntry {
 export interface LocationEntry {
   name: string;
   scenes: number;
+  /** Line index of the most recent sighting, for recency ranking. */
+  lastIndex: number;
+  /** Sub-locations seen under this parent (e.g. KITCHEN under HOUSE). */
+  subLocations: string[];
 }
 
 /** A character name with its dialogue-line count (for autocomplete ranking). */
 export interface CharacterEntry {
   name: string;
   lines: number;
+  /** Line index of the most recent cue, for recency ranking. */
+  lastIndex: number;
+  /** The last cue extension used with this name, e.g. "(V.O.)", if any. */
+  lastExtension?: string;
+}
+
+/** A transition used in the script, with frequency and recency for ranking. */
+export interface TransitionEntry {
+  text: string;
+  count: number;
+  lastIndex: number;
 }
 
 /** Everything derived from one walk of the document. */
@@ -63,4 +78,5 @@ export interface Outline {
   locations: LocationEntry[];
   characters: CharacterEntry[];
   cast: CastEntry[];
+  transitions: TransitionEntry[];
 }

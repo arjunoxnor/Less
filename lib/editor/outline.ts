@@ -6,6 +6,7 @@ import type {
   LocationEntry,
   Outline,
   SceneEntry,
+  TransitionEntry,
 } from "@/types/screenplay";
 
 /**
@@ -116,12 +117,38 @@ interface CharAccum {
   lines: number;
   scenes: Set<number>;
   firstName: string;
+  lastIndex: number;
+  lastExtension?: string;
+}
+
+interface LocAccum {
+  scenes: Set<number>;
+  lastIndex: number;
+}
+
+/** Find the last " - " / " -- " separator in a location, splitting parent/sub. */
+function splitSubLocation(location: string): { parent: string; sub: string } | null {
+  let lastIdx = -1;
+  let lastLen = 0;
+  TIME_SEP.lastIndex = 0;
+  let sep: RegExpExecArray | null;
+  while ((sep = TIME_SEP.exec(location)) !== null) {
+    lastIdx = sep.index;
+    lastLen = sep[0].length;
+  }
+  if (lastIdx <= 0) return null;
+  const parent = location.slice(0, lastIdx).trim();
+  const sub = location.slice(lastIdx + lastLen).trim();
+  if (!parent || !sub) return null;
+  return { parent, sub };
 }
 
 /** Walk the document once and derive the full outline. */
 export function buildOutline(doc: PMNode): Outline {
   const scenes: SceneEntry[] = [];
-  const locMap = new Map<string, Set<number>>();
+  const locMap = new Map<string, LocAccum>();
+  const subLocMap = new Map<string, Set<string>>();
+  const transMap = new Map<string, TransitionEntry>();
   const charMap = new Map<string, CharAccum>();
 
   let sceneCounter = 0;
@@ -146,8 +173,21 @@ export function buildOutline(doc: PMNode): Outline {
       const { location } = parseLocation(text);
       if (location) {
         const key = location.toUpperCase();
-        if (!locMap.has(key)) locMap.set(key, new Set());
-        locMap.get(key)!.add(sceneCounter);
+        let le = locMap.get(key);
+        if (!le) {
+          le = { scenes: new Set(), lastIndex: index };
+          locMap.set(key, le);
+        }
+        le.scenes.add(sceneCounter);
+        le.lastIndex = index;
+        // Record the sub-location under its parent (HOUSE -> KITCHEN), so a
+        // later "INT. HOUSE - " can suggest the rooms used before.
+        const split = splitSubLocation(location);
+        if (split) {
+          const pkey = split.parent.toUpperCase();
+          if (!subLocMap.has(pkey)) subLocMap.set(pkey, new Set());
+          subLocMap.get(pkey)!.add(split.sub.toUpperCase());
+        }
       }
       // A new scene ends the current speaker's block.
       currentSpeaker = null;
@@ -157,11 +197,16 @@ export function buildOutline(doc: PMNode): Outline {
         const key = base.toUpperCase();
         let entry = charMap.get(key);
         if (!entry) {
-          entry = { pos, lines: 0, scenes: new Set(), firstName: base };
+          entry = { pos, lines: 0, scenes: new Set(), firstName: base, lastIndex: index };
           charMap.set(key, entry);
         }
         // Attribute pre-heading cues to scene 1 (not the phantom scene 0).
         entry.scenes.add(Math.max(1, sceneCounter));
+        entry.lastIndex = index;
+        // Remember the trailing extension (V.O.) / (O.S.) so the cue-extension
+        // autocomplete can pin this character's last-used one to the top.
+        const ext = text.match(/\(([^)]*)\)\s*$/);
+        if (ext) entry.lastExtension = "(" + ext[1].trim() + ")";
         currentSpeaker = key;
       } else {
         currentSpeaker = null;
@@ -175,6 +220,16 @@ export function buildOutline(doc: PMNode): Outline {
       // Action and transitions also end the current speaker's block, so a
       // dangling dialogue line is never miscounted against the prior speaker.
       currentSpeaker = null;
+      if (element === "transition" && text) {
+        const key = text.toUpperCase();
+        const cur = transMap.get(key);
+        if (cur) {
+          cur.count++;
+          cur.lastIndex = index;
+        } else {
+          transMap.set(key, { text, count: 1, lastIndex: index });
+        }
+      }
     }
     // parenthetical keeps the current speaker (CHARACTER -> PARENTHETICAL ->
     // DIALOGUE is one block).
@@ -192,14 +247,28 @@ export function buildOutline(doc: PMNode): Outline {
     );
 
   const characters: CharacterEntry[] = charValues
-    .map((e) => ({ name: e.firstName, lines: e.lines }))
+    .map((e) => ({
+      name: e.firstName,
+      lines: e.lines,
+      lastIndex: e.lastIndex,
+      lastExtension: e.lastExtension,
+    }))
     .sort((a, b) => b.lines - a.lines || a.name.localeCompare(b.name));
 
   const locations: LocationEntry[] = [...locMap.entries()]
-    .map(([name, set]) => ({ name, scenes: set.size }))
+    .map(([name, v]) => ({
+      name,
+      scenes: v.scenes.size,
+      lastIndex: v.lastIndex,
+      subLocations: [...(subLocMap.get(name) ?? [])],
+    }))
     .sort((a, b) => b.scenes - a.scenes || a.name.localeCompare(b.name));
 
-  return { scenes, locations, characters, cast };
+  const transitions: TransitionEntry[] = [...transMap.values()].sort(
+    (a, b) => b.count - a.count || b.lastIndex - a.lastIndex
+  );
+
+  return { scenes, locations, characters, cast, transitions };
 }
 
 /** An empty outline, used before an editor exists. */
@@ -208,4 +277,5 @@ export const EMPTY_OUTLINE: Outline = {
   locations: [],
   characters: [],
   cast: [],
+  transitions: [],
 };

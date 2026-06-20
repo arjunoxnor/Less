@@ -24,12 +24,14 @@ export interface Prefs {
   font: FontChoice;
   theme: ThemeChoice;
   focusMode: boolean;
+  spellCheck: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
   font: "courier-prime",
   theme: "light",
   focusMode: false,
+  spellCheck: true,
 };
 
 /** Load the saved document, or null if this is a first visit. */

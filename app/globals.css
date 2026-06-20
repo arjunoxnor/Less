@@ -818,3 +818,58 @@ body {
   font-size: 12px;
   flex: 0 0 auto;
 }
+
+/* ---- Spell check -------------------------------------------------------- */
+
+/* A red wavy underline, distinct from the blue find highlight. Drawn under the
+   prose text only (the plugin never marks sluglines, cues, or transitions). */
+.spell-mark {
+  text-decoration: underline wavy #e0533b;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.spell-menu {
+  z-index: 200;
+  min-width: 180px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--toolbar-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.spell-item,
+.spell-action {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--toolbar-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.spell-item:hover,
+.spell-action:hover {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+}
+.spell-action {
+  color: var(--muted);
+  font-size: 13px;
+}
+.spell-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+.spell-empty {
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}

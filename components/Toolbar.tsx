@@ -47,6 +47,7 @@ export function Toolbar({
   onFindClick,
   onCastClick,
   onTitlePageClick,
+  onToggleSpell,
   onToggleDual,
   dualActive,
   scenesOpen,
@@ -70,6 +71,7 @@ export function Toolbar({
   onFindClick: () => void;
   onCastClick: () => void;
   onTitlePageClick: () => void;
+  onToggleSpell: () => void;
   onToggleDual: () => void;
   dualActive: boolean;
   scenesOpen: boolean;
@@ -303,6 +305,14 @@ export function Toolbar({
           title="Edit the title page"
         >
           Title Page
+        </button>
+        <button
+          type="button"
+          className={"tb-btn" + (prefs.spellCheck ? " tb-btn-active" : "")}
+          onClick={onToggleSpell}
+          title="Spell check"
+        >
+          Spelling
         </button>
       </div>
 

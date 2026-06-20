@@ -13,6 +13,8 @@ import type { ElementType } from "@/lib/editor/elements";
 import { useOutline } from "@/lib/editor/useOutline";
 import { EMPTY_OUTLINE } from "@/lib/editor/outline";
 import { acceptAutocomplete, type AcState } from "@/lib/editor/autocomplete";
+import { getSpeller } from "@/lib/editor/spellEngine";
+import { rescanSpelling, type SpellState } from "@/lib/editor/spellcheck";
 import {
   findPluginKey,
   setFindQuery,
@@ -52,6 +54,7 @@ import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
 import { CastListPanel } from "./CastListPanel";
 import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
+import { SpellMenu } from "./SpellMenu";
 import { TitlePageModal } from "./TitlePageModal";
 
 export function ScreenplayEditor() {
@@ -81,12 +84,16 @@ export function ScreenplayEditor() {
   });
   const [findMeta, setFindMeta] = useState({ matchCount: 0, activeIndex: 0 });
   const [acState, setAcState] = useState<AcState | null>(null);
+  const [spellState, setSpellState] = useState<SpellState | null>(null);
   const [renameFrom, setRenameFrom] = useState<string | null>(null);
   const [renameTick, setRenameTick] = useState(0);
   const [dualActive, setDualActive] = useState(false);
 
   // The latest outline, read lazily by the autocomplete plugin (built once).
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
+  // Live read of the Spelling toggle, so the once-built spell plugin always sees
+  // the current setting without being reconfigured.
+  const spellEnabledRef = useRef(DEFAULT_PREFS.spellCheck);
 
   // Debounced autosave. Local storage is the source of truth for this session;
   // we write 600ms after the writer pauses so we're never the reason work is lost.
@@ -127,6 +134,9 @@ export function ScreenplayEditor() {
       buildExtensions({
         getOutline: () => outlineRef.current,
         onAutocompleteState: setAcState,
+        getSpeller,
+        isSpellEnabled: () => spellEnabledRef.current,
+        onSpellState: setSpellState,
       }),
     []
   );
@@ -136,7 +146,10 @@ export function ScreenplayEditor() {
     extensions,
     content: initialContent,
     editorProps: {
-      attributes: { class: "sp-prose", spellcheck: "true" },
+      // The nspell engine owns spelling, so the native browser checker is off
+      // (it cannot be made screenplay-aware or styled). Native stays the silent
+      // fallback only if the dictionary fails to load.
+      attributes: { class: "sp-prose", spellcheck: "false" },
     },
     onCreate: ({ editor }) => {
       setCurrentElement(currentElementType(editor.state));
@@ -223,6 +236,14 @@ export function ScreenplayEditor() {
       document.documentElement.dataset.theme = prefs.theme;
     }
   }, [prefs]);
+
+  // Keep the spell plugin's live toggle in sync and rescan immediately when the
+  // writer flips Spelling on or off (a pref change does not dispatch an editor
+  // transaction, so the plugin would not otherwise notice).
+  useEffect(() => {
+    spellEnabledRef.current = prefs.spellCheck;
+    if (editor) rescanSpelling(editor.view);
+  }, [prefs.spellCheck, editor]);
 
   // Escape leaves focus mode.
   useEffect(() => {
@@ -396,6 +417,7 @@ export function ScreenplayEditor() {
         onFindClick={handleFindClick}
         onCastClick={() => setShowCast((v) => !v)}
         onTitlePageClick={() => setShowTitlePage(true)}
+        onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
         onToggleDual={toggleDual}
         dualActive={dualActive}
         scenesOpen={showScenes}
@@ -495,6 +517,14 @@ export function ScreenplayEditor() {
           onPick={(i) => {
             if (editor) acceptAutocomplete(editor.view, i);
           }}
+        />
+      )}
+
+      {spellState?.open && editor && (
+        <SpellMenu
+          state={spellState}
+          view={editor.view}
+          onClose={() => setSpellState(null)}
         />
       )}
     </div>
