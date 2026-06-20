@@ -323,6 +323,28 @@ export function paginate(lines: ScriptLine[]): PaginateResult {
     }
   };
 
+  /** Place a single unpaired dual block in the right column (orphan import). */
+  const placeDualSolo = (block: Block) => {
+    let leadingBlanks = atPageTop ? 0 : block.spaceBefore;
+    const rows = buildDualRows([block], DUAL_RIGHT_X);
+    if (
+      !atPageTop &&
+      leadingBlanks + rows.length > remainingSlots() &&
+      rows.length <= LINES_PER_PAGE
+    ) {
+      newPage();
+      leadingBlanks = 0;
+    }
+    if (leadingBlanks > 0) {
+      if (leadingBlanks >= remainingSlots()) newPage();
+      else advanceBlank(leadingBlanks);
+    }
+    for (const r of rows) {
+      if (remainingSlots() <= 0) newPage();
+      place(r.text, r.x);
+    }
+  };
+
   /** True if blocks[i] starts a non-dual cue cluster paired with a dual one. */
   const dualPairAt = (i: number): { left: Block[]; right: Block[] } | null => {
     if (blocks[i].kind !== "character" || blocks[i].dual) return null;
@@ -359,6 +381,15 @@ export function paginate(lines: ScriptLine[]): PaginateResult {
 
     const block = blocks[bi];
     bi++;
+
+    // An unpaired dual block (orphan import / a 3rd speaker) renders in the right
+    // column on its own, so the PDF matches the on-screen right-column indent
+    // rather than falling through to the centered single-column position.
+    if (block.dual) {
+      placeDualSolo(block);
+      continue;
+    }
+
     let leadingBlanks = atPageTop ? 0 : block.spaceBefore;
 
     // Keep-with-next: a cue, a scene heading, or a parenthetical must not be

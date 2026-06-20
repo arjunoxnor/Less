@@ -113,11 +113,18 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
       const doc = ed.getJSON();
       const tp = titlePageRef.current;
       const snapshotJson = JSON.stringify(doc);
+      const tpSnapshot = JSON.stringify(tp);
       const ts = await saveScript(id, doc, deriveTitle(doc), tp);
       if (ts) setLastSavedAt(ts);
-      // Only mark clean if nothing was typed during the save round trip;
-      // otherwise leave dirty=true so the offline-flush path still fires.
-      if (JSON.stringify(ed.getJSON()) === snapshotJson) setDirty(false);
+      // Only mark clean if neither the document NOR the title page changed during
+      // the save round trip; otherwise leave dirty=true so the pending / offline
+      // flush still delivers the change (the title page is a separate channel).
+      if (
+        JSON.stringify(ed.getJSON()) === snapshotJson &&
+        JSON.stringify(titlePageRef.current) === tpSnapshot
+      ) {
+        setDirty(false);
+      }
 
       // Snapshot, throttled, so history doesn't fill with every keystroke burst.
       const now = Date.now();

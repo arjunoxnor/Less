@@ -43,46 +43,46 @@ function drawCentered(page: PDFPage, font: PDFFont, text: string, y: number) {
 function drawTitlePage(pdf: PDFDocument, font: PDFFont, tp: TitlePage) {
   const page = pdf.addPage([PAGE_W, PAGE_H]);
 
-  let y = PAGE_H * 0.62;
-  if (tp.title) {
-    for (const row of wrap(sanitize(tp.title.toUpperCase()), 58)) {
+  // Draw a (possibly wrapped) centered field; returns the y below it.
+  const centered = (text: string | undefined, y: number) => {
+    if (!text) return y;
+    for (const row of wrap(sanitize(text), 58)) {
       drawCentered(page, font, row, y);
       y -= LINE;
     }
-  }
+    return y;
+  };
+  // Draw a (possibly wrapped) left-aligned field; returns the y below it.
+  const leftBlock = (text: string | undefined, y: number) => {
+    if (!text) return y;
+    for (const ln of text.split("\n")) {
+      for (const row of wrap(sanitize(ln), 58)) {
+        drawText(page, font, row, LEFT, y);
+        y -= LINE;
+      }
+    }
+    return y;
+  };
+
+  let y = PAGE_H * 0.62;
+  y = centered(tp.title?.toUpperCase(), y);
   y -= LINE * 2;
-  if (tp.credit) {
-    drawCentered(page, font, sanitize(tp.credit), y);
-    y -= LINE;
-  }
-  if (tp.author) {
-    drawCentered(page, font, sanitize(tp.author), y);
-    y -= LINE;
-  }
+  y = centered(tp.credit, y);
+  y = centered(tp.author, y);
   if (tp.source) {
     y -= LINE;
-    for (const row of wrap(sanitize(tp.source), 58)) {
-      drawCentered(page, font, row, y);
-      y -= LINE;
-    }
+    y = centered(tp.source, y);
   }
 
   // Lower-left: contact (possibly multi-line) then copyright.
   let by = 1.6 * 72;
-  if (tp.contact) {
-    for (const ln of tp.contact.split("\n")) {
-      drawText(page, font, sanitize(ln), LEFT, by);
-      by -= LINE;
-    }
-  }
-  if (tp.copyright) {
-    drawText(page, font, sanitize(tp.copyright), LEFT, by);
-  }
+  by = leftBlock(tp.contact, by);
+  leftBlock(tp.copyright, by);
 
-  // Lower-right: draft date.
+  // Lower-right: draft date, clamped so a long value never runs off the left.
   if (tp.draftDate) {
     const t = sanitize(tp.draftDate);
-    drawText(page, font, t, RIGHT_EDGE - t.length * CHAR_W, 1.6 * 72);
+    drawText(page, font, t, Math.max(LEFT, RIGHT_EDGE - t.length * CHAR_W), 1.6 * 72);
   }
 }
 

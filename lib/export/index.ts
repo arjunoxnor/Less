@@ -17,6 +17,29 @@ import type { TitlePage } from "./titlePage";
 export type ExportFormat = "pdf" | "fountain";
 export type ImportFormat = "fountain" | "fdx";
 
+/**
+ * Clear the dual flag on any imported cue cluster that has no left-column
+ * partner (a preceding non-dual character cue), so imported documents satisfy
+ * the same invariant the editor's toggleDual enforces. A dual right column only
+ * makes sense paired with a left one.
+ */
+function normalizeDual(lines: ScriptLine[]): ScriptLine[] {
+  const isBody = (l: ScriptLine) =>
+    l.element === "parenthetical" || l.element === "dialogue";
+  const out = lines.map((l) => ({ ...l }));
+  for (let i = 0; i < out.length; i++) {
+    if (out[i].element !== "character" || !out[i].dual) continue;
+    let j = i - 1;
+    while (j >= 0 && isBody(out[j])) j--;
+    const hasLeft = j >= 0 && out[j].element === "character" && !out[j].dual;
+    if (!hasLeft) {
+      delete out[i].dual;
+      for (let k = i + 1; k < out.length && isBody(out[k]); k++) delete out[k].dual;
+    }
+  }
+  return out;
+}
+
 /** Export the current document (and optional title page) to a downloaded file. */
 export async function exportDoc(
   doc: JSONContent,
@@ -71,5 +94,8 @@ export async function importFile(
     throw new Error("That file did not contain any screenplay lines.");
   }
 
-  return { doc: linesToDoc(result.lines), titlePage: result.titlePage };
+  return {
+    doc: linesToDoc(normalizeDual(result.lines)),
+    titlePage: result.titlePage,
+  };
 }

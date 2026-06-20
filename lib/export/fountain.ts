@@ -227,11 +227,23 @@ export function parseFountain(text: string): {
     !SCENE_PREFIX.test(firstLine) &&
     TITLE_PAGE_KEYS.has(keyMatch[1].trim().toLowerCase())
   ) {
+    // The block ends at a truly empty line; an indented (whitespace) line is a
+    // continuation (e.g. a blank line inside a multi-line Contact value), so it
+    // does not terminate the block.
     let j = start;
-    while (j < rawLines.length && rawLines[j].trim() !== "") j++;
+    while (
+      j < rawLines.length &&
+      (rawLines[j].trim() !== "" || /^[ \t]/.test(rawLines[j]))
+    ) {
+      j++;
+    }
     const parsed = parseTitleBlock(rawLines.slice(start, j));
-    titlePage = hasTitlePage(parsed) ? parsed : null;
-    body = rawLines.slice(j).join("\n");
+    // Only strip the block from the body when it actually yields a title page,
+    // so a leading "Key:" line with no mapped value is never silently dropped.
+    if (hasTitlePage(parsed)) {
+      titlePage = parsed;
+      body = rawLines.slice(j).join("\n");
+    }
   }
 
   const all = body.split("\n");

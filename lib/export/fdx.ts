@@ -50,9 +50,10 @@ function paragraphToLine(p: Element, dual = false): ScriptLine {
 }
 
 /**
- * Emit a <DualDialogue>'s inner Paragraphs in order, marking the SECOND
- * speaker's block (and everything after it) as dual so it renders in the right
- * column. The first speaker stays in the left column.
+ * Emit a <DualDialogue>'s inner Paragraphs in order. The first speaker stays in
+ * the left column; the SECOND speaker's cluster is marked dual (the right
+ * column). A rare 3rd+ speaker (not produced by Final Draft itself) is left
+ * non-dual so it renders as an ordinary cue rather than an unpaired right column.
  */
 function emitDual(dualEl: Element, lines: ScriptLine[]): void {
   let speakers = 0;
@@ -60,7 +61,7 @@ function emitDual(dualEl: Element, lines: ScriptLine[]): void {
     if (inner.localName !== "Paragraph") continue;
     const el = TYPE_MAP[inner.getAttribute("Type") ?? ""] ?? DEFAULT_ELEMENT;
     if (el === "character") speakers++;
-    lines.push(paragraphToLine(inner, speakers >= 2));
+    lines.push(paragraphToLine(inner, speakers === 2));
   }
 }
 
