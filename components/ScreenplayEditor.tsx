@@ -83,6 +83,7 @@ export function ScreenplayEditor() {
   const [acState, setAcState] = useState<AcState | null>(null);
   const [renameFrom, setRenameFrom] = useState<string | null>(null);
   const [renameTick, setRenameTick] = useState(0);
+  const [dualActive, setDualActive] = useState(false);
 
   // The latest outline, read lazily by the autocomplete plugin (built once).
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
@@ -140,6 +141,7 @@ export function ScreenplayEditor() {
     onCreate: ({ editor }) => {
       setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
+      setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
       measure(editor);
       computePageCount(editor.getJSON()); // immediate, so the first count is right
       // Dev-only handle for debugging in the browser console. Stripped from
@@ -154,10 +156,12 @@ export function ScreenplayEditor() {
       measure(editor);
       debouncedPageCount(editor.getJSON());
       setCaretLine(editor.state.selection.$from.index(0));
+      setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
     },
     onSelectionUpdate: ({ editor }) => {
       setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
+      setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
     },
   });
 
@@ -357,6 +361,10 @@ export function ScreenplayEditor() {
     setShowFind(true);
   }, []);
 
+  const toggleDual = useCallback(() => {
+    editor?.chain().focus().toggleDual().run();
+  }, [editor]);
+
   const setFindPatch = useCallback(
     (patch: Partial<FindInputs>) => setFindState((s) => ({ ...s, ...patch })),
     []
@@ -388,6 +396,8 @@ export function ScreenplayEditor() {
         onFindClick={handleFindClick}
         onCastClick={() => setShowCast((v) => !v)}
         onTitlePageClick={() => setShowTitlePage(true)}
+        onToggleDual={toggleDual}
+        dualActive={dualActive}
         scenesOpen={showScenes}
         findOpen={showFind}
         castOpen={showCast}

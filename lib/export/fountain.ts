@@ -118,7 +118,9 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       // Start a cue cluster: the character line plus the parentheticals and
       // dialogue that immediately follow, joined by single newlines so they
       // re-import as one cue (no blank line breaks the cluster).
-      const cluster: string[] = [isAllCaps(text) ? text : `@${text}`];
+      const cue = isAllCaps(text) ? text : `@${text}`;
+      // A dual (right-column) cue carries a trailing caret.
+      const cluster: string[] = [lines[i].dual ? `${cue} ^` : cue];
       i++;
       while (
         i < lines.length &&
@@ -235,6 +237,8 @@ export function parseFountain(text: string): {
   const all = body.split("\n");
   const out: ScriptLine[] = [];
   let inDialogue = false;
+  // True while inside a dual (right-column) cue cluster, set by a "^" caret.
+  let inDual = false;
 
   const isBlank = (idx: number) =>
     idx < 0 || idx >= all.length || all[idx].trim() === "";
@@ -243,6 +247,7 @@ export function parseFountain(text: string): {
     const raw = all[idx];
     if (raw.trim() === "") {
       inDialogue = false;
+      inDual = false;
       continue;
     }
 
@@ -250,8 +255,12 @@ export function parseFountain(text: string): {
     const nextBlank = isBlank(idx + 1);
     const line = raw.trim();
 
-    const push = (element: ElementType, value: string) => {
-      out.push({ element, text: stripInline(value) });
+    const push = (element: ElementType, value: string, dual = false) => {
+      out.push(
+        dual
+          ? { element, text: stripInline(value), dual: true }
+          : { element, text: stripInline(value) }
+      );
     };
 
     // 1. Forced markers (highest priority).
@@ -259,22 +268,28 @@ export function parseFountain(text: string): {
       // Single leading "." forces a scene heading; ".." / "..." do not.
       push("scene_heading", line.slice(1));
       inDialogue = false;
+      inDual = false;
       continue;
     }
     if (line.startsWith("@")) {
-      push("character", line.slice(1).trim());
+      const cueBody = line.slice(1).trim();
+      const isDual = /\^\s*$/.test(cueBody);
+      push("character", cueBody.replace(/\s*\^\s*$/, ""), isDual);
       inDialogue = true;
+      inDual = isDual;
       continue;
     }
     if (line.startsWith("!")) {
       // Action forced with "!"; preserve leading whitespace after the marker.
       out.push({ element: "action", text: stripInline(raw.replace(/^\s*!/, "")) });
       inDialogue = false;
+      inDual = false;
       continue;
     }
     if (line.startsWith(">") && !line.endsWith("<")) {
       push("transition", line.slice(1).trim());
       inDialogue = false;
+      inDual = false;
       continue;
     }
 
@@ -282,12 +297,14 @@ export function parseFountain(text: string): {
     if (line.startsWith(">") && line.endsWith("<")) {
       push("action", line.slice(1, -1).trim());
       inDialogue = false;
+      inDual = false;
       continue;
     }
 
     // 3. Drop-only structural markers: sections, synopses, page breaks.
     if (line.startsWith("#") || /^=\s/.test(line) || /^=+$/.test(line)) {
       inDialogue = false;
+      inDual = false;
       continue;
     }
 
@@ -295,6 +312,7 @@ export function parseFountain(text: string): {
     if (line.startsWith("~")) {
       push("dialogue", line.slice(1).trim());
       inDialogue = true;
+      inDual = false;
       continue;
     }
 
@@ -302,6 +320,7 @@ export function parseFountain(text: string): {
     if (SCENE_PREFIX.test(line) && prevBlank && nextBlank) {
       push("scene_heading", line);
       inDialogue = false;
+      inDual = false;
       continue;
     }
 
@@ -309,17 +328,20 @@ export function parseFountain(text: string): {
     //    inDialogue, so an orphaned parenthetical round-trips as a parenthetical
     //    rather than degrading to action.)
     if (/^\(.*\)$/.test(line)) {
-      push("parenthetical", line);
+      push("parenthetical", line, inDual);
       inDialogue = true;
       continue;
     }
 
     // 7. Character (auto): uppercase (allowing a lower-case extension), a blank
-    //    line before, and NO blank line after.
-    const core = line.replace(/\s*\([^)]*\)\s*$/, "");
+    //    line before, and NO blank line after. A trailing "^" marks a dual cue.
+    const isDual = /\^\s*$/.test(line);
+    const lineNoCaret = line.replace(/\s*\^\s*$/, "");
+    const core = lineNoCaret.replace(/\s*\([^)]*\)\s*$/, "");
     if (isAllCaps(core) && prevBlank && !nextBlank) {
-      push("character", line.replace(/\s*\^\s*$/, "")); // drop dual-dialogue caret
+      push("character", lineNoCaret, isDual);
       inDialogue = true;
+      inDual = isDual;
       continue;
     }
 
@@ -327,12 +349,13 @@ export function parseFountain(text: string): {
     if (isAllCaps(line) && /TO:$/.test(line) && prevBlank && nextBlank) {
       push("transition", line);
       inDialogue = false;
+      inDual = false;
       continue;
     }
 
     // 9. Dialogue continuation.
     if (inDialogue) {
-      push("dialogue", line);
+      push("dialogue", line, inDual);
       continue;
     }
 

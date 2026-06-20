@@ -2,6 +2,8 @@ import type { ElementType } from "@/lib/editor/elements";
 import type { ScriptLine } from "@/types/screenplay";
 import {
   LAYOUT,
+  LEFT,
+  CHAR_W,
   LINE,
   LINES_PER_PAGE,
   TOP_BASELINE,
@@ -58,9 +60,13 @@ interface Row {
 }
 interface Block {
   kind: ElementType;
+  /** Sanitized text before wrapping, kept so dual columns can re-wrap narrower. */
+  text: string;
   spaceBefore: number;
   rows: Row[];
   splittable: boolean;
+  /** True for the right-column cue/body of a dual-dialogue block. */
+  dual: boolean;
   /** For dialogue: the speaker name to repeat as NAME (CONT'D) after a split. */
   cueName?: string;
   /** For a character cue: slots needed so the cue can legally start a page. */
@@ -110,6 +116,28 @@ function keepSlotsFrom(blocks: Block[], i: number, depth = 0): number {
   return slots;
 }
 
+// Dual (side-by-side) dialogue: two narrow columns inside the text area. The
+// left column starts at the left margin; the right column 3 inches over. Each
+// column is re-wrapped narrower so the two fit the 6in text area.
+const DUAL_LEFT_X = LEFT;
+const DUAL_RIGHT_X = LEFT + 30 * CHAR_W; // ~3in to the right of the left margin
+
+function dualColumn(originX: number, kind: ElementType): { x: number; maxChars: number } {
+  if (kind === "character") return { x: originX + 4 * CHAR_W, maxChars: 22 };
+  if (kind === "parenthetical") return { x: originX + 3 * CHAR_W, maxChars: 20 };
+  return { x: originX, maxChars: 25 }; // dialogue
+}
+
+/** Lay one dual column's blocks out as physical rows at the column origin. */
+function buildDualRows(blocks: Block[], originX: number): Row[] {
+  const rows: Row[] = [];
+  for (const b of blocks) {
+    const { x, maxChars } = dualColumn(originX, b.kind);
+    for (const w of wrap(b.text, maxChars)) rows.push({ text: w, x });
+  }
+  return rows;
+}
+
 /** Pass 1: turn lines into laid-out blocks of physical rows. */
 function buildBlocks(lines: ScriptLine[]): Block[] {
   const blocks: Block[] = [];
@@ -133,9 +161,11 @@ function buildBlocks(lines: ScriptLine[]): Block[] {
 
     blocks.push({
       kind,
+      text,
       spaceBefore: el.spaceBefore,
       rows,
       splittable: kind === "dialogue",
+      dual: line.dual === true,
       cueName: kind === "dialogue" ? currentCue : undefined,
     });
   }
@@ -257,7 +287,78 @@ export function paginate(lines: ScriptLine[]): PaginateResult {
     }
   };
 
-  for (const block of blocks) {
+  /** Place a dual pair: the two cue clusters side by side, sharing a top line. */
+  const placeDualPair = (leftBlocks: Block[], rightBlocks: Block[]) => {
+    let leadingBlanks = atPageTop ? 0 : leftBlocks[0].spaceBefore;
+    const leftRows = buildDualRows(leftBlocks, DUAL_LEFT_X);
+    const rightRows = buildDualRows(rightBlocks, DUAL_RIGHT_X);
+    const height = Math.max(leftRows.length, rightRows.length);
+
+    // Treat the pair as atomic when it fits on a page; otherwise place where it
+    // is and split both columns at the page boundary (no MORE/CONT'D; rare).
+    if (!atPageTop && leadingBlanks + height > remainingSlots() && height <= LINES_PER_PAGE) {
+      newPage();
+      leadingBlanks = 0;
+    }
+    if (leadingBlanks > 0) {
+      if (leadingBlanks >= remainingSlots()) newPage();
+      else advanceBlank(leadingBlanks);
+    }
+
+    let row = 0;
+    while (row < height) {
+      if (remainingSlots() <= 0) newPage();
+      const canDraw = Math.min(height - row, remainingSlots());
+      const startY = y;
+      for (let k = 0; k < canDraw; k++) {
+        const l = leftRows[row + k];
+        const r = rightRows[row + k];
+        if (l) ops.push({ text: l.text, x: l.x, y: startY - k * LINE });
+        if (r) ops.push({ text: r.text, x: r.x, y: startY - k * LINE });
+      }
+      y = startY - canDraw * LINE;
+      usedSlots += canDraw;
+      atPageTop = false;
+      row += canDraw;
+    }
+  };
+
+  /** True if blocks[i] starts a non-dual cue cluster paired with a dual one. */
+  const dualPairAt = (i: number): { left: Block[]; right: Block[] } | null => {
+    if (blocks[i].kind !== "character" || blocks[i].dual) return null;
+    let leftEnd = i + 1;
+    while (
+      leftEnd < blocks.length &&
+      !blocks[leftEnd].dual &&
+      (blocks[leftEnd].kind === "parenthetical" || blocks[leftEnd].kind === "dialogue")
+    ) {
+      leftEnd++;
+    }
+    if (leftEnd >= blocks.length || blocks[leftEnd].kind !== "character" || !blocks[leftEnd].dual) {
+      return null;
+    }
+    let rightEnd = leftEnd + 1;
+    while (
+      rightEnd < blocks.length &&
+      blocks[rightEnd].dual &&
+      (blocks[rightEnd].kind === "parenthetical" || blocks[rightEnd].kind === "dialogue")
+    ) {
+      rightEnd++;
+    }
+    return { left: blocks.slice(i, leftEnd), right: blocks.slice(leftEnd, rightEnd) };
+  };
+
+  let bi = 0;
+  while (bi < blocks.length) {
+    const pair = dualPairAt(bi);
+    if (pair) {
+      placeDualPair(pair.left, pair.right);
+      bi += pair.left.length + pair.right.length;
+      continue;
+    }
+
+    const block = blocks[bi];
+    bi++;
     let leadingBlanks = atPageTop ? 0 : block.spaceBefore;
 
     // Keep-with-next: a cue, a scene heading, or a parenthetical must not be

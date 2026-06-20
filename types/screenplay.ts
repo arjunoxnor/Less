@@ -10,6 +10,8 @@ import type { ElementType } from "@/lib/editor/elements";
 export interface ScriptLine {
   element: ElementType;
   text: string;
+  /** True for the right-column cue (and its body) of a dual-dialogue block. */
+  dual?: boolean;
 }
 
 /** A scene, derived by splitting the line list on scene headings. */

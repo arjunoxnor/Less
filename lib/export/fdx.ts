@@ -35,7 +35,7 @@ const TYPE_MAP: Record<string, ElementType> = {
 };
 
 /** Read a single <Paragraph> into one ScriptLine. */
-function paragraphToLine(p: Element): ScriptLine {
+function paragraphToLine(p: Element, dual = false): ScriptLine {
   const rawType = p.getAttribute("Type") ?? "";
   const element = TYPE_MAP[rawType] ?? DEFAULT_ELEMENT;
 
@@ -46,13 +46,21 @@ function paragraphToLine(p: Element): ScriptLine {
   for (const child of Array.from(p.children)) {
     if (child.localName === "Text") text += child.textContent ?? "";
   }
-  return { element, text: text.trim() };
+  return dual ? { element, text: text.trim(), dual: true } : { element, text: text.trim() };
 }
 
-/** Emit every <Paragraph> directly under a <DualDialogue>, in document order. */
-function flattenDual(dual: Element, lines: ScriptLine[]): void {
-  for (const inner of Array.from(dual.children)) {
-    if (inner.localName === "Paragraph") lines.push(paragraphToLine(inner));
+/**
+ * Emit a <DualDialogue>'s inner Paragraphs in order, marking the SECOND
+ * speaker's block (and everything after it) as dual so it renders in the right
+ * column. The first speaker stays in the left column.
+ */
+function emitDual(dualEl: Element, lines: ScriptLine[]): void {
+  let speakers = 0;
+  for (const inner of Array.from(dualEl.children)) {
+    if (inner.localName !== "Paragraph") continue;
+    const el = TYPE_MAP[inner.getAttribute("Type") ?? ""] ?? DEFAULT_ELEMENT;
+    if (el === "character") speakers++;
+    lines.push(paragraphToLine(inner, speakers >= 2));
   }
 }
 
@@ -140,15 +148,15 @@ export function parseFdx(xmlString: string): {
   for (const node of Array.from(content.children)) {
     if (node.localName === "DualDialogue") {
       // Rare: a DualDialogue placed directly under Content.
-      flattenDual(node, lines);
+      emitDual(node, lines);
     } else if (node.localName === "Paragraph") {
-      // LESS has no dual dialogue. Final Draft normally wraps it in a
-      // <Paragraph><DualDialogue>...</DualDialogue></Paragraph>, so look for a
-      // nested DualDialogue and flatten it; otherwise it is an ordinary line.
+      // Final Draft normally wraps dual dialogue in a
+      // <Paragraph><DualDialogue>...</DualDialogue></Paragraph>; mark the second
+      // speaker dual. Otherwise it is an ordinary line.
       const dual = Array.from(node.children).find(
         (c) => c.localName === "DualDialogue"
       );
-      if (dual) flattenDual(dual, lines);
+      if (dual) emitDual(dual, lines);
       else lines.push(paragraphToLine(node));
     }
   }

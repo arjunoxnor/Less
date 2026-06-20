@@ -316,6 +316,23 @@ body {
   margin-top: 0;
 }
 
+/* ---- Dual (side-by-side) dialogue --------------------------------------- */
+/* On screen we indent the right-column cue and its lines into the right half,
+   immediately after the left block (visually paired, not pixel-aligned equal
+   height). True equal-height side-by-side needs a NodeView and is a follow-up;
+   the exported PDF lays the two columns out exactly. */
+.sp-prose .sp-line[data-dual="true"] {
+  margin-left: 3in;
+  margin-right: 0;
+  width: 2.7in;
+}
+.sp-prose .sp-character[data-dual="true"] {
+  margin-left: 3.3in;
+}
+.sp-prose .sp-parenthetical[data-dual="true"] {
+  margin-left: 3.2in;
+}
+
 /* ---- Placeholder hints on the current empty line ----------------------- */
 
 .sp-prose .is-empty::before {

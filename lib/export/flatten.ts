@@ -54,7 +54,9 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
   for (const node of doc.content ?? []) {
     const raw = node.attrs?.element;
     const element = isElementType(raw) ? raw : DEFAULT_ELEMENT;
-    lines.push({ element, text: lineText(node) });
+    // Carry the dual flag, but omit it when false so lines stay minimal.
+    const dual = node.attrs?.dual === true;
+    lines.push(dual ? { element, text: lineText(node), dual: true } : { element, text: lineText(node) });
   }
   return lines;
 }
@@ -67,7 +69,11 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
 export function linesToDoc(lines: ScriptLine[]): JSONContent {
   const nodes: JSONContent[] = lines.map((line) => ({
     type: "screenplayLine",
-    attrs: { element: isElementType(line.element) ? line.element : DEFAULT_ELEMENT },
+    attrs: {
+      element: isElementType(line.element) ? line.element : DEFAULT_ELEMENT,
+      // Set the attr only when true, so docs without dual serialize unchanged.
+      ...(line.dual ? { dual: true } : {}),
+    },
     content: line.text ? [{ type: "text", text: line.text }] : [],
   }));
 

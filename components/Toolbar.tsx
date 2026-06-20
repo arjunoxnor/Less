@@ -47,6 +47,8 @@ export function Toolbar({
   onFindClick,
   onCastClick,
   onTitlePageClick,
+  onToggleDual,
+  dualActive,
   scenesOpen,
   findOpen,
   castOpen,
@@ -68,6 +70,8 @@ export function Toolbar({
   onFindClick: () => void;
   onCastClick: () => void;
   onTitlePageClick: () => void;
+  onToggleDual: () => void;
+  dualActive: boolean;
   scenesOpen: boolean;
   findOpen: boolean;
   castOpen: boolean;
@@ -118,6 +122,14 @@ export function Toolbar({
             <span className="tb-key">{ELEMENT_NUMBER[type]}</span>
           </button>
         ))}
+        <button
+          type="button"
+          className={"tb-btn" + (dualActive ? " tb-btn-active" : "")}
+          onClick={onToggleDual}
+          title={`Dual dialogue  (${mod}+D)`}
+        >
+          Dual
+        </button>
       </div>
 
       <div className="toolbar-spacer" />
