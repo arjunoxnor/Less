@@ -1382,6 +1382,27 @@ body {
   color: #e0533b;
 }
 
+/* ---- Inline element-type icon at the active line (Arc-derived) ---------- */
+.sp-prose .sp-line {
+  position: relative;
+}
+.sp-elem-icon {
+  position: absolute;
+  left: -1.6em;
+  top: 0.12em;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  opacity: 0.65;
+  pointer-events: none;
+  user-select: none;
+}
+.sp-elem-icon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
 /* ---- Cast and Locations management (Arc-derived) ------------------------ */
 .manage-section-title {
   font-size: 11px;

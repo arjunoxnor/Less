@@ -6,6 +6,7 @@ import { ScreenplayLine } from "./screenplayLine";
 import { ScreenplayKeymap } from "./keymap";
 import { AutoCaps } from "./autoCaps";
 import { AutoElement } from "./autoElement";
+import { ElementIcons } from "./elementIcons";
 import { buildAutocomplete, type AcState } from "./autocomplete";
 import { FindReplace } from "./findPlugin";
 import { buildSpellcheck, type SpellState } from "./spellcheck";
@@ -73,6 +74,7 @@ export function buildExtensions(opts?: {
     ScreenplayKeymap,
     AutoCaps,
     AutoElement,
+    ElementIcons,
     // Autocomplete carries priority 200 so its keydown handler runs before the
     // keymap; it only consumes keys while its menu is open.
     buildAutocomplete(getOutline, opts?.onAutocompleteState),
