@@ -57,6 +57,10 @@ const MAX_ITEMS = 8;
 const SLUG_PREFIX = /^\s*(INT\.?\/EXT\.?|EXT\.?\/INT\.?|I\/E\.?|INT\.?|EXT\.?|EST\.?)\b[.\s-]*/i;
 const TIME_SEP = /\s+-{1,2}\s+/g;
 
+// The standard slugline openers suggested as you start a scene heading, so
+// typing "i" offers INT. and "e" offers EXT., the way the pros do it.
+const SLUG_OPENERS = ["INT. ", "EXT. ", "INT./EXT. ", "EST. ", "I/E. "];
+
 /** Build the open/closed plugin state from the current selection and outline. */
 function compute(state: EditorState, getOutline: () => Outline): AcPluginState {
   const sel = state.selection;
@@ -98,9 +102,28 @@ function compute(state: EditorState, getOutline: () => Outline): AcPluginState {
     };
   }
 
-  // scene_heading: figure out whether the caret is in the location or time part.
+  // scene_heading with no complete prefix yet: suggest the slugline openers as
+  // the writer types one (e.g. "i" -> INT. / INT./EXT. / I/E.). Only when the
+  // caret text so far is the start of a known opener, so an ordinary heading
+  // that does not begin with INT/EXT is never interrupted.
   const pm = SLUG_PREFIX.exec(fullText);
-  if (!pm) return CLOSED;
+  if (!pm) {
+    const upToCaret = fullText.slice(0, caretOffset);
+    const typed = upToCaret.trimStart().toUpperCase();
+    if (!typed) return CLOSED;
+    const items = SLUG_OPENERS.filter(
+      (o) => o.toUpperCase().startsWith(typed) && o.toUpperCase() !== typed
+    ).map((o) => ({ text: o, hint: "" }));
+    if (items.length === 0) return CLOSED;
+    const lead = upToCaret.length - upToCaret.trimStart().length;
+    return {
+      open: true,
+      items,
+      active: 0,
+      replaceFrom: lineStart + lead,
+      replaceTo: lineStart + caretOffset,
+    };
+  }
   const prefixEnd = pm[0].length;
   if (caretOffset <= prefixEnd) return CLOSED;
 
