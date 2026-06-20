@@ -74,6 +74,8 @@ interface Block {
   keepWithNextSlots?: number;
   /** 1-based scene number, set on scene_heading blocks (for margin printing). */
   sceneNumber?: number;
+  /** True when the line is marked revised (prints a margin asterisk). */
+  revised?: boolean;
 }
 
 /** How many slots a cue must reserve for its first dialogue block of N rows. */
@@ -125,6 +127,9 @@ function keepSlotsFrom(blocks: Block[], i: number, depth = 0): number {
 const DUAL_LEFT_X = LEFT;
 const DUAL_RIGHT_X = LEFT + 30 * CHAR_W; // ~3in to the right of the left margin
 
+// Revision asterisk x, in the right margin, clear of the right scene number.
+const REVISION_X = RIGHT_EDGE + 2 * CHAR_W;
+
 function dualColumn(originX: number, kind: ElementType): { x: number; maxChars: number } {
   if (kind === "character") return { x: originX + 4 * CHAR_W, maxChars: 22 };
   if (kind === "parenthetical") return { x: originX + 3 * CHAR_W, maxChars: 20 };
@@ -172,6 +177,7 @@ function buildBlocks(lines: ScriptLine[]): Block[] {
       dual: line.dual === true,
       cueName: kind === "dialogue" ? currentCue : undefined,
       sceneNumber: kind === "scene_heading" ? ++sceneCounter : undefined,
+      revised: line.revised === true,
     });
   }
 
@@ -201,10 +207,12 @@ export function paginate(
   let y = TOP_BASELINE;
   let usedSlots = 0;
   let atPageTop = true;
+  let revisedMark = false; // set per block; prints a margin asterisk on each row
 
   const remainingSlots = () => LINES_PER_PAGE - usedSlots;
   const place = (text: string, x: number) => {
     ops.push({ text, x, y });
+    if (revisedMark) ops.push({ text: "*", x: REVISION_X, y });
     y -= LINE;
     usedSlots++;
     atPageTop = false;
@@ -390,6 +398,7 @@ export function paginate(
 
     const block = blocks[bi];
     bi++;
+    revisedMark = block.revised === true;
 
     // An unpaired dual block (orphan import / a 3rd speaker) renders in the right
     // column on its own, so the PDF matches the on-screen right-column indent

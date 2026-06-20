@@ -32,9 +32,12 @@ export function ScreenplayToolbar({
   onTitlePageClick,
   onToggleSpell,
   onToggleSceneNumbers,
+  onToggleRevisions,
+  onClearRevisions,
   onToggleDual,
   dualActive,
   sceneNumbersOn,
+  revisionModeOn,
   scenesOpen,
   findOpen,
   castOpen,
@@ -55,9 +58,12 @@ export function ScreenplayToolbar({
   onTitlePageClick: () => void;
   onToggleSpell: () => void;
   onToggleSceneNumbers: () => void;
+  onToggleRevisions: () => void;
+  onClearRevisions: () => void;
   onToggleDual: () => void;
   dualActive: boolean;
   sceneNumbersOn: boolean;
+  revisionModeOn: boolean;
   scenesOpen: boolean;
   findOpen: boolean;
   castOpen: boolean;
@@ -213,6 +219,24 @@ export function ScreenplayToolbar({
         >
           Scene #
         </button>
+        <button
+          type="button"
+          className={"tb-btn" + (revisionModeOn ? " tb-btn-active" : "")}
+          onClick={onToggleRevisions}
+          title="Revision mode: mark edited lines with a revision asterisk"
+        >
+          Revisions
+        </button>
+        {revisionModeOn && (
+          <button
+            type="button"
+            className="tb-btn"
+            onClick={onClearRevisions}
+            title="Clear all revision marks (start a new pass)"
+          >
+            Clear marks
+          </button>
+        )}
       </div>
     </>
   );

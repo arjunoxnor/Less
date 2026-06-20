@@ -54,9 +54,11 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
   for (const node of doc.content ?? []) {
     const raw = node.attrs?.element;
     const element = isElementType(raw) ? raw : DEFAULT_ELEMENT;
-    // Carry the dual flag, but omit it when false so lines stay minimal.
-    const dual = node.attrs?.dual === true;
-    lines.push(dual ? { element, text: lineText(node), dual: true } : { element, text: lineText(node) });
+    // Carry the dual + revised flags, omitting them when false so lines stay minimal.
+    const line: ScriptLine = { element, text: lineText(node) };
+    if (node.attrs?.dual === true) line.dual = true;
+    if (node.attrs?.revised === true) line.revised = true;
+    lines.push(line);
   }
   return lines;
 }

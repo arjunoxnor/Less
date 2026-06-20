@@ -8,6 +8,7 @@ import { AutoCaps } from "./autoCaps";
 import { buildAutocomplete, type AcState } from "./autocomplete";
 import { FindReplace } from "./findPlugin";
 import { buildSpellcheck, type SpellState } from "./spellcheck";
+import { buildRevisionTracker } from "./revisions";
 import { EMPTY_OUTLINE } from "./outline";
 import type { ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
@@ -58,6 +59,8 @@ export function buildExtensions(opts?: {
   isSpellEnabled?: () => boolean;
   /** Pushes the spelling popover state to React for rendering. */
   onSpellState?: (state: SpellState | null) => void;
+  /** Live read of the user's Revisions toggle (auto-marks edited lines). */
+  isRevisionEnabled?: () => boolean;
 }) {
   const getOutline = opts?.getOutline ?? (() => EMPTY_OUTLINE);
   const extensions = [
@@ -91,6 +94,10 @@ export function buildExtensions(opts?: {
         opts.onSpellState
       )
     );
+  }
+  // Revision tracking marks edited lines while revision mode is on.
+  if (opts?.isRevisionEnabled) {
+    extensions.push(buildRevisionTracker(opts.isRevisionEnabled));
   }
   return extensions;
 }

@@ -4,6 +4,7 @@ import {
   DEFAULT_ELEMENT,
   type ElementType,
 } from "./elements";
+import { SKIP_REVISION_META } from "./revisions";
 
 /**
  * The one and only block node in our schema.
@@ -24,6 +25,8 @@ declare module "@tiptap/core" {
       toggleDual: () => ReturnType;
       /** Set (or clear, when empty) a script note on the current line. */
       setNote: (text: string) => ReturnType;
+      /** Clear every revision mark in the document (start a fresh pass). */
+      clearRevisions: () => ReturnType;
     };
   }
 }
@@ -70,6 +73,13 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
         default: "",
         parseHTML: (el) => el.getAttribute("data-note") ?? "",
         renderHTML: (attrs) => (attrs.note ? { "data-note": attrs.note as string } : {}),
+      },
+      // Marks a line changed since the current revision pass. Sparse like the
+      // others; drives the on-screen and PDF revision asterisks.
+      revised: {
+        default: false,
+        parseHTML: (el) => el.getAttribute("data-revised") === "true",
+        renderHTML: (attrs) => (attrs.revised ? { "data-revised": "true" } : {}),
       },
     };
   },
@@ -192,10 +202,31 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
           if ((node.attrs.note ?? "") === text) return false;
           if (dispatch) {
             dispatch(
-              state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, note: text })
+              state.tr
+                .setNodeMarkup(pos, undefined, { ...node.attrs, note: text })
+                .setMeta(SKIP_REVISION_META, true)
             );
           }
           return true;
+        },
+
+      clearRevisions:
+        () =>
+        ({ state, dispatch }) => {
+          const tr = state.tr;
+          let changed = false;
+          state.doc.forEach((node, offset) => {
+            if (node.type.name === this.name && node.attrs.revised) {
+              tr.setNodeMarkup(offset, undefined, { ...node.attrs, revised: false });
+              changed = true;
+            }
+          });
+          if (changed && dispatch) {
+            tr.setMeta("addToHistory", false);
+            tr.setMeta(SKIP_REVISION_META, true);
+            dispatch(tr);
+          }
+          return changed;
         },
     };
   },

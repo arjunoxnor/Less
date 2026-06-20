@@ -120,6 +120,7 @@ export function ScreenplayBody({
 
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
   const spellEnabledRef = useRef(prefs.spellCheck);
+  const revisionEnabledRef = useRef(prefs.revisionMode);
   const editorRef = useRef<Editor | null>(null);
 
   const debouncedSave = useMemo(
@@ -152,6 +153,7 @@ export function ScreenplayBody({
         getSpeller,
         isSpellEnabled: () => spellEnabledRef.current,
         onSpellState: setSpellState,
+        isRevisionEnabled: () => revisionEnabledRef.current,
       }),
     []
   );
@@ -261,6 +263,14 @@ export function ScreenplayBody({
     spellEnabledRef.current = prefs.spellCheck;
     if (editor) rescanSpelling(editor.view);
   }, [prefs.spellCheck, editor]);
+
+  useEffect(() => {
+    revisionEnabledRef.current = prefs.revisionMode;
+  }, [prefs.revisionMode]);
+
+  const clearRevisions = useCallback(() => {
+    editor?.chain().focus().clearRevisions().run();
+  }, [editor]);
 
   const handleExport = useCallback(
     (format: ExportFormat) => {
@@ -438,9 +448,12 @@ export function ScreenplayBody({
           onTitlePageClick={() => setShowTitlePage(true)}
           onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
           onToggleSceneNumbers={() => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers })}
+          onToggleRevisions={() => onPrefsChange({ revisionMode: !prefs.revisionMode })}
+          onClearRevisions={clearRevisions}
           onToggleDual={toggleDual}
           dualActive={dualActive}
           sceneNumbersOn={prefs.sceneNumbers}
+          revisionModeOn={prefs.revisionMode}
           scenesOpen={showScenes}
           findOpen={showFind}
           castOpen={showCast}

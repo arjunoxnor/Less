@@ -12,6 +12,8 @@ export interface ScriptLine {
   text: string;
   /** True for the right-column cue (and its body) of a dual-dialogue block. */
   dual?: boolean;
+  /** True when the line is marked changed in the current revision pass. */
+  revised?: boolean;
 }
 
 /** A scene, derived by splitting the line list on scene headings. */

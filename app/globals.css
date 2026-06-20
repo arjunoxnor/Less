@@ -1381,3 +1381,17 @@ body {
 .note-remove:hover {
   color: #e0533b;
 }
+
+/* ---- Revision marks (Phase 10) ------------------------------------------ */
+/* A red asterisk in the right gutter marks a revised line (PDF matches). */
+.sp-prose .sp-line[data-revised] {
+  position: relative;
+}
+.sp-prose .sp-line[data-revised]::after {
+  content: "*";
+  position: absolute;
+  right: -0.5in;
+  top: 0;
+  color: #e0533b;
+  font-weight: 700;
+}
