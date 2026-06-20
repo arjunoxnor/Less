@@ -1,7 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Nothing exotic yet. The editor is a client component; the rest is static.
   reactStrictMode: true,
+  // The whole app is client-side (no server routes), so export a static site to
+  // an out/ directory. That out/ is what gets deployed to Cloudflare Pages; the
+  // repo root (with .env.local etc.) is never uploaded.
+  output: "export",
+  images: { unoptimized: true },
 };
 
 export default nextConfig;
