@@ -229,6 +229,13 @@ body {
   min-width: 56px;
   text-align: right;
 }
+.status-locked {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-weight: 600;
+}
 
 /* ---- Focus (distraction-free) mode ------------------------------------- */
 

@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
+import type { PageLock } from "@/lib/export/pageLock";
 import { lsGet, lsSet } from "./localStore";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
@@ -56,6 +57,7 @@ const TOMBSTONE_KEY = "less:projects:tombstones";
 
 const docKey = (id: string) => `less:project:${id}:doc`;
 const tpKey = (id: string) => `less:project:${id}:titlePage`;
+const lockKey = (id: string) => `less:project:${id}:pageLock`;
 const dirtyKey = (id: string) => `less:project:${id}:dirty`;
 const lastSavedKey = (id: string) => `less:project:${id}:lastSavedAt`;
 
@@ -154,6 +156,24 @@ export function saveProjectTitlePage(id: string, tp: TitlePage | null): void {
   else lsSet(tpKey(id), JSON.stringify(tp));
 }
 
+/* --- Page lock (local-only; production page-number freeze + A-pages) ------ */
+
+export function loadPageLock(id: string): PageLock | null {
+  const raw = lsGet(lockKey(id));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PageLock;
+    return parsed && Array.isArray(parsed.anchors) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePageLock(id: string, lock: PageLock | null): void {
+  if (lock === null) lsSet(lockKey(id), null);
+  else lsSet(lockKey(id), JSON.stringify(lock));
+}
+
 /** Create a new local project (instant, offline-safe). */
 export function createProject(
   type: ProjectType,
@@ -203,6 +223,7 @@ export function deleteProject(id: string): void {
   writeIndex(readIndex().filter((m) => m.id !== id));
   lsSet(docKey(id), null);
   lsSet(tpKey(id), null);
+  lsSet(lockKey(id), null);
   lsSet(dirtyKey(id), null);
   lsSet(lastSavedKey(id), null);
   if (getLastOpenedId() === id) setLastOpenedId(null);
@@ -277,6 +298,7 @@ export function dropCloudProjects(): void {
     if (m.cloudCreated) {
       lsSet(docKey(m.id), null);
       lsSet(tpKey(m.id), null);
+      lsSet(lockKey(m.id), null);
       lsSet(dirtyKey(m.id), null);
       lsSet(lastSavedKey(m.id), null);
     } else {

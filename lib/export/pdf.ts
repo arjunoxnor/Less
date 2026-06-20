@@ -13,6 +13,7 @@ import {
 } from "./layout";
 import { paginate } from "./paginate";
 import { hasTitlePage, type TitlePage } from "./titlePage";
+import { labelLockedPages, type PageLock } from "./pageLock";
 
 /**
  * Spec-accurate screenplay PDF, generated client-side with pdf-lib.
@@ -89,7 +90,7 @@ function drawTitlePage(pdf: PDFDocument, font: PDFFont, tp: TitlePage) {
 export async function exportPdf(
   lines: ScriptLine[],
   titlePage?: TitlePage | null,
-  opts?: { sceneNumbers?: boolean; autoContd?: boolean }
+  opts?: { sceneNumbers?: boolean; autoContd?: boolean; lock?: PageLock | null }
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Courier);
@@ -97,12 +98,17 @@ export async function exportPdf(
   if (hasTitlePage(titlePage)) drawTitlePage(pdf, font, titlePage!);
 
   const { pages } = paginate(lines, opts);
+  // When locked, page numbers are frozen: inserted material takes A-page letters
+  // (42, 42A, 42B...) instead of renumbering. Locking never changes the layout.
+  const lockLabels = opts?.lock ? labelLockedPages(pages, lines, opts.lock) : null;
   for (const p of pages) {
     const page = pdf.addPage([PAGE_W, PAGE_H]);
     for (const op of p.ops) drawText(page, font, op.text, op.x, op.y);
-    // Page numbers: top-right, "N.", omitted on page 1 (and on the title page).
-    if (p.number > 1) {
-      const label = `${p.number}.`;
+    // Page numbers: top-right, "N.", omitted on the unnumbered first page unless
+    // a lock has assigned it a letter (a rare A-page before page 1 stays shown).
+    const numText = lockLabels?.get(p.number) ?? String(p.number);
+    if (p.number > 1 || (lockLabels && numText !== "1")) {
+      const label = `${numText}.`;
       drawText(page, font, label, RIGHT_EDGE - label.length * CHAR_W, PAGENO_Y);
     }
   }

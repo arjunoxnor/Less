@@ -50,6 +50,13 @@ export interface DrawOp {
 export interface Page {
   number: number;
   ops: DrawOp[];
+  /**
+   * Index (into the input ScriptLine[]) of the first source line whose content
+   * opens this page. Used by page locking to fingerprint each page's anchor so
+   * inserted material can be assigned A-page letters. Undefined only for a page
+   * with no real content (e.g. an empty trailing page).
+   */
+  startLine?: number;
 }
 export interface PaginateResult {
   pages: Page[];
@@ -217,9 +224,18 @@ export function paginate(
   let usedSlots = 0;
   let atPageTop = true;
   let revisedMark = false; // set per block; prints a margin asterisk on each row
+  // The source-line index whose content is being placed, and the index that
+  // opened the current page (for page-lock anchoring). markStart records the
+  // first real content on a fresh page; newPage attaches it and resets it.
+  let activeLineIndex = 0;
+  let curStartLine: number | undefined = undefined;
+  const markStart = () => {
+    if (curStartLine === undefined) curStartLine = activeLineIndex;
+  };
 
   const remainingSlots = () => LINES_PER_PAGE - usedSlots;
   const place = (text: string, x: number) => {
+    markStart();
     ops.push({ text, x, y });
     if (revisedMark) ops.push({ text: "*", x: REVISION_X, y });
     y -= LINE;
@@ -234,12 +250,13 @@ export function paginate(
     if (n > 0) atPageTop = false;
   };
   const newPage = () => {
-    pages.push({ number: pageNumber, ops });
+    pages.push({ number: pageNumber, ops, startLine: curStartLine });
     pageNumber++;
     ops = [];
     y = TOP_BASELINE;
     usedSlots = 0;
     atPageTop = true;
+    curStartLine = undefined;
   };
 
   /** Place a dialogue run, splitting with (MORE)/(CONT'D) as needed. */
@@ -336,6 +353,7 @@ export function paginate(
       if (remainingSlots() <= 0) newPage();
       const canDraw = Math.min(height - row, remainingSlots());
       const startY = y;
+      markStart();
       for (let k = 0; k < canDraw; k++) {
         const l = leftRows[row + k];
         const r = rightRows[row + k];
@@ -400,11 +418,13 @@ export function paginate(
   while (bi < blocks.length) {
     const pair = dualPairAt(bi);
     if (pair) {
+      activeLineIndex = bi;
       placeDualPair(pair.left, pair.right);
       bi += pair.left.length + pair.right.length;
       continue;
     }
 
+    activeLineIndex = bi;
     const block = blocks[bi];
     bi++;
     revisedMark = block.revised === true;
@@ -468,7 +488,7 @@ export function paginate(
   }
 
   if (ops.length > 0 || pages.length === 0) {
-    pages.push({ number: pageNumber, ops });
+    pages.push({ number: pageNumber, ops, startLine: curStartLine });
   }
 
   return { pages, pageCount: pages.length };

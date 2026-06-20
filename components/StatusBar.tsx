@@ -12,18 +12,27 @@ export function StatusBar({
   wordCount,
   currentElement,
   saved,
+  locked,
+  lockRevision,
 }: {
   pageCount: number;
   pageTarget?: number;
   wordCount: number;
   currentElement: ElementType;
   saved: boolean;
+  locked?: boolean;
+  lockRevision?: string;
 }) {
   return (
     <div className="status-bar">
       <span className="status-item status-element">
         {ELEMENT_LABELS[currentElement]}
       </span>
+      {locked && (
+        <span className="status-item status-locked" title="Page numbers are locked. Inserted material takes A-page letters.">
+          {lockRevision ? `Pages locked · ${lockRevision}` : "Pages locked"}
+        </span>
+      )}
       <span className="status-spacer" />
       <span className="status-item">{wordCount.toLocaleString()} words</span>
       <span className="status-item">

@@ -8,6 +8,7 @@ import type { User } from "@supabase/supabase-js";
 import { buildExtensions } from "@/lib/editor/buildExtensions";
 import { docToLines } from "@/lib/export/flatten";
 import { paginate } from "@/lib/export/paginate";
+import { capturePageLock, type PageLock } from "@/lib/export/pageLock";
 import { deriveTitle } from "@/lib/editor/docUtils";
 import { currentElementType } from "@/lib/editor/keymap";
 import {
@@ -42,6 +43,8 @@ import {
   saveProjectDoc,
   loadProjectTitlePage,
   saveProjectTitlePage,
+  loadPageLock,
+  savePageLock,
   markCloudCreated,
   isDirty as projIsDirty,
   setDirty as projSetDirty,
@@ -129,6 +132,7 @@ export function ScreenplayBody({
   const [renameFrom, setRenameFrom] = useState<string | null>(null);
   const [renameTick, setRenameTick] = useState(0);
   const [dualActive, setDualActive] = useState(false);
+  const [pageLock, setPageLock] = useState<PageLock | null>(() => loadPageLock(projectId));
 
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
   const spellEnabledRef = useRef(prefs.spellCheck);
@@ -300,11 +304,31 @@ export function ScreenplayBody({
         void exportDoc(editor.getJSON(), format, titlePage ?? undefined, {
           sceneNumbers: prefs.sceneNumbers,
           autoContd: prefs.autoContd,
+          lock: pageLock,
         });
       }
     },
-    [editor, titlePage, prefs.sceneNumbers, prefs.autoContd]
+    [editor, titlePage, prefs.sceneNumbers, prefs.autoContd, pageLock]
   );
+
+  // Lock the current pagination: page numbers freeze and later insertions take
+  // A-page letters. Capturing uses the same options the PDF will export with.
+  const lockPages = useCallback(() => {
+    if (!editor) return;
+    const lines = docToLines(editor.getJSON());
+    const { pages } = paginate(lines, {
+      sceneNumbers: prefs.sceneNumbers,
+      autoContd: prefs.autoContd,
+    });
+    const lock = capturePageLock(pages, lines, { lockedAt: new Date().toISOString() });
+    savePageLock(projectId, lock);
+    setPageLock(lock);
+  }, [editor, projectId, prefs.sceneNumbers, prefs.autoContd]);
+
+  const unlockPages = useCallback(() => {
+    savePageLock(projectId, null);
+    setPageLock(null);
+  }, [projectId]);
 
   const handleImport = useCallback(
     async (_format: ImportFormat, file: File) => {
@@ -499,6 +523,11 @@ export function ScreenplayBody({
     cmds.push({ id: "t-rev", group: "Toggle", label: (prefs.revisionMode ? "Turn off" : "Turn on") + " revision mode", run: () => onPrefsChange({ revisionMode: !prefs.revisionMode }) });
     cmds.push({ id: "t-contd", group: "Toggle", label: (prefs.autoContd ? "Turn off" : "Turn on") + " auto (CONT'D)", run: () => onPrefsChange({ autoContd: !prefs.autoContd }) });
     cmds.push({ id: "t-focus", group: "Toggle", label: "Focus mode", run: () => onPrefsChange({ focusMode: !prefs.focusMode }) });
+    if (pageLock) {
+      cmds.push({ id: "unlock", group: "Pages", label: "Unlock pages (resume normal numbering)", run: unlockPages });
+    } else {
+      cmds.push({ id: "lock", group: "Pages", label: "Lock pages (freeze numbers, A-pages on revision)", run: lockPages });
+    }
     cmds.push({ id: "go-home", group: "Go", label: "Back to projects", run: onBack });
     for (const s of outline.scenes) {
       cmds.push({
@@ -509,7 +538,7 @@ export function ScreenplayBody({
       });
     }
     return cmds;
-  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene]);
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages]);
 
   return (
     <div
@@ -578,6 +607,8 @@ export function ScreenplayBody({
         wordCount={wordCount}
         currentElement={currentElement}
         saved={saved}
+        locked={pageLock != null}
+        lockRevision={pageLock?.revision}
       />
 
       {prefs.focusMode && (

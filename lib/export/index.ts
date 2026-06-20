@@ -7,6 +7,7 @@ import { toFountain, parseFountain } from "./fountain";
 import { parseFdx, toFdx } from "./fdx";
 import { exportPdf } from "./pdf";
 import type { TitlePage } from "./titlePage";
+import type { PageLock } from "./pageLock";
 
 /**
  * The one module the UI talks to. Components call exportDoc / importFile and
@@ -45,7 +46,7 @@ export async function exportDoc(
   doc: JSONContent,
   format: ExportFormat,
   titlePage?: TitlePage | null,
-  opts?: { sceneNumbers?: boolean; autoContd?: boolean }
+  opts?: { sceneNumbers?: boolean; autoContd?: boolean; lock?: PageLock | null }
 ): Promise<void> {
   const lines = docToLines(doc);
   const title = deriveTitle(doc);
