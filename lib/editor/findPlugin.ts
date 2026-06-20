@@ -13,6 +13,9 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 
 export interface FindOpts {
   caseSensitive: boolean;
+  wholeWord?: boolean;
+  /** Restrict matches to one element type; empty/"all" searches everything. */
+  element?: string;
 }
 export interface Match {
   from: number;
@@ -21,9 +24,16 @@ export interface Match {
 export interface FindState {
   query: string;
   caseSensitive: boolean;
+  wholeWord: boolean;
+  element: string;
   active: number;
   matches: Match[];
   deco: DecorationSet;
+}
+
+/** A word character for whole-word boundary checks (letters, digits, _). */
+function isWordChar(ch: string | undefined): boolean {
+  return !!ch && /[A-Za-z0-9_]/.test(ch);
 }
 
 export const findPluginKey = new PluginKey<FindState>("screenplayFind");
@@ -38,15 +48,23 @@ export function findMatches(doc: PMNode, query: string, opts: FindOpts): Match[]
   const needle = opts.caseSensitive ? query : query.toLowerCase();
   const nlen = needle.length;
 
+  const scope = opts.element && opts.element !== "all" ? opts.element : null;
+
   doc.forEach((node, offset) => {
     if (matches.length >= MAX_MATCHES) return;
     if (node.type.name !== "screenplayLine") return;
+    if (scope && node.attrs.element !== scope) return;
     const raw = node.textContent;
     const hay = opts.caseSensitive ? raw : raw.toLowerCase();
     let i = hay.indexOf(needle);
     while (i !== -1 && matches.length < MAX_MATCHES) {
-      const from = offset + 1 + i;
-      matches.push({ from, to: from + nlen });
+      const before = i > 0 ? hay[i - 1] : undefined;
+      const after = i + nlen < hay.length ? hay[i + nlen] : undefined;
+      const wordOk = !opts.wholeWord || (!isWordChar(before) && !isWordChar(after));
+      if (wordOk) {
+        const from = offset + 1 + i;
+        matches.push({ from, to: from + nlen });
+      }
       i = hay.indexOf(needle, i + nlen); // non-overlapping
     }
   });
@@ -74,6 +92,8 @@ export const FindReplace = Extension.create({
           init: () => ({
             query: "",
             caseSensitive: false,
+            wholeWord: false,
+            element: "all",
             active: 0,
             matches: [],
             deco: DecorationSet.empty,
@@ -83,18 +103,26 @@ export const FindReplace = Extension.create({
             let next = prev;
             if (meta) {
               next = { ...prev, ...meta };
-              // A changed query / case resets the cursor to the first match.
+              // A changed query / option resets the cursor to the first match.
               const queryChanged =
                 meta.query !== undefined && meta.query !== prev.query;
               const caseChanged =
                 meta.caseSensitive !== undefined &&
                 meta.caseSensitive !== prev.caseSensitive;
-              if (queryChanged || caseChanged) next.active = 0;
+              const wordChanged =
+                meta.wholeWord !== undefined && meta.wholeWord !== prev.wholeWord;
+              const elementChanged =
+                meta.element !== undefined && meta.element !== prev.element;
+              if (queryChanged || caseChanged || wordChanged || elementChanged) {
+                next.active = 0;
+              }
             }
 
             if (meta || tr.docChanged) {
               const matches = findMatches(newState.doc, next.query, {
                 caseSensitive: next.caseSensitive,
+                wholeWord: next.wholeWord,
+                element: next.element,
               });
               const active = matches.length
                 ? Math.min(Math.max(next.active, 0), matches.length - 1)
@@ -120,7 +148,7 @@ export const FindReplace = Extension.create({
 /** Update the search inputs (does not move the caret or touch history). */
 export function setFindQuery(
   view: EditorView,
-  patch: Partial<Pick<FindState, "query" | "caseSensitive" | "active">>
+  patch: Partial<Pick<FindState, "query" | "caseSensitive" | "wholeWord" | "element" | "active">>
 ): void {
   view.dispatch(view.state.tr.setMeta(findPluginKey, patch).setMeta("addToHistory", false));
 }

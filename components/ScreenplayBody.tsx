@@ -10,7 +10,11 @@ import { docToLines } from "@/lib/export/flatten";
 import { paginate } from "@/lib/export/paginate";
 import { deriveTitle } from "@/lib/editor/docUtils";
 import { currentElementType } from "@/lib/editor/keymap";
-import type { ElementType } from "@/lib/editor/elements";
+import {
+  ELEMENT_CYCLE,
+  ELEMENT_LABELS,
+  type ElementType,
+} from "@/lib/editor/elements";
 import { useOutline } from "@/lib/editor/useOutline";
 import { EMPTY_OUTLINE } from "@/lib/editor/outline";
 import { acceptAutocomplete, type AcState } from "@/lib/editor/autocomplete";
@@ -68,6 +72,7 @@ import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
 import { SpellMenu } from "./SpellMenu";
 import { TitlePageModal } from "./TitlePageModal";
+import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 
 export function ScreenplayBody({
   projectId,
@@ -109,11 +114,14 @@ export function ScreenplayBody({
   const [showNotes, setShowNotes] = useState(false);
   const [showFind, setShowFind] = useState(false);
   const [showTitlePage, setShowTitlePage] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
   const [caretLine, setCaretLine] = useState(0);
   const [findState, setFindState] = useState<FindInputs>({
     query: "",
     replace: "",
     caseSensitive: false,
+    wholeWord: false,
+    element: "all",
   });
   const [findMeta, setFindMeta] = useState({ matchCount: 0, activeIndex: 0 });
   const [acState, setAcState] = useState<AcState | null>(null);
@@ -323,11 +331,20 @@ export function ScreenplayBody({
       setFindQuery(editor.view, {
         query: findState.query,
         caseSensitive: findState.caseSensitive,
+        wholeWord: findState.wholeWord,
+        element: findState.element,
       });
     } else {
       setFindQuery(editor.view, { query: "" });
     }
-  }, [editor, showFind, findState.query, findState.caseSensitive]);
+  }, [
+    editor,
+    showFind,
+    findState.query,
+    findState.caseSensitive,
+    findState.wholeWord,
+    findState.element,
+  ]);
 
   useEffect(() => {
     if (!editor) return;
@@ -433,6 +450,66 @@ export function ScreenplayBody({
     (patch: Partial<FindInputs>) => setFindState((s) => ({ ...s, ...patch })),
     []
   );
+
+  // Cmd/Ctrl+K opens the command palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setShowPalette((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const commands = useMemo<PaletteCommand[]>(() => {
+    const cmds: PaletteCommand[] = [];
+    for (const t of ELEMENT_CYCLE) {
+      cmds.push({
+        id: "el-" + t,
+        group: "Format",
+        label: "Set element: " + ELEMENT_LABELS[t],
+        run: () => editor?.chain().focus().setElement(t).run(),
+      });
+    }
+    cmds.push({ id: "dual", group: "Format", label: "Toggle dual dialogue", run: toggleDual });
+    cmds.push({ id: "scenes", group: "Panel", label: "Open Scenes", run: () => setShowScenes(true) });
+    cmds.push({
+      id: "find",
+      group: "Panel",
+      label: "Find and replace",
+      run: () => {
+        setRenameFrom(null);
+        setShowFind(true);
+      },
+    });
+    cmds.push({ id: "cast", group: "Panel", label: "Cast and Locations", run: () => setShowCast(true) });
+    cmds.push({ id: "reports", group: "Panel", label: "Reports", run: () => setShowReports(true) });
+    cmds.push({ id: "notes", group: "Panel", label: "Notes", run: () => setShowNotes(true) });
+    cmds.push({ id: "titlepage", group: "Panel", label: "Title page", run: () => setShowTitlePage(true) });
+    if (user) {
+      cmds.push({ id: "history", group: "Panel", label: "Version history", run: () => setShowHistory(true) });
+    }
+    cmds.push({ id: "exp-pdf", group: "Export", label: "Export PDF", run: () => handleExport("pdf") });
+    cmds.push({ id: "exp-fountain", group: "Export", label: "Export Fountain", run: () => handleExport("fountain") });
+    cmds.push({ id: "exp-fdx", group: "Export", label: "Export Final Draft (FDX)", run: () => handleExport("fdx") });
+    cmds.push({ id: "t-spell", group: "Toggle", label: (prefs.spellCheck ? "Turn off" : "Turn on") + " spell check", run: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) });
+    cmds.push({ id: "t-scenenum", group: "Toggle", label: (prefs.sceneNumbers ? "Hide" : "Show") + " scene numbers", run: () => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers }) });
+    cmds.push({ id: "t-rev", group: "Toggle", label: (prefs.revisionMode ? "Turn off" : "Turn on") + " revision mode", run: () => onPrefsChange({ revisionMode: !prefs.revisionMode }) });
+    cmds.push({ id: "t-contd", group: "Toggle", label: (prefs.autoContd ? "Turn off" : "Turn on") + " auto (CONT'D)", run: () => onPrefsChange({ autoContd: !prefs.autoContd }) });
+    cmds.push({ id: "t-focus", group: "Toggle", label: "Focus mode", run: () => onPrefsChange({ focusMode: !prefs.focusMode }) });
+    cmds.push({ id: "go-home", group: "Go", label: "Back to projects", run: onBack });
+    for (const s of outline.scenes) {
+      cmds.push({
+        id: "scene-" + s.number,
+        group: "Scene",
+        label: s.number + ". " + (s.heading || "(untitled scene)"),
+        run: () => jumpToScene(s.pos),
+      });
+    }
+    return cmds;
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene]);
 
   return (
     <div
@@ -606,6 +683,10 @@ export function ScreenplayBody({
 
       {spellState?.open && editor && (
         <SpellMenu state={spellState} view={editor.view} onClose={() => setSpellState(null)} />
+      )}
+
+      {showPalette && (
+        <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />
       )}
     </div>
   );

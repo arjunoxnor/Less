@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import type { CastEntry } from "@/types/screenplay";
 import type { RenamePlan } from "@/lib/editor/renameCharacter";
+import { ELEMENT_CYCLE, ELEMENT_LABELS } from "@/lib/editor/elements";
 
 export interface FindInputs {
   query: string;
   replace: string;
   caseSensitive: boolean;
+  wholeWord: boolean;
+  element: string;
 }
 
 /**
@@ -158,6 +161,29 @@ export function FindReplacePanel({
               onChange={(e) => setFindState({ caseSensitive: e.target.checked })}
             />
             Match case
+          </label>
+          <label className="find-check">
+            <input
+              type="checkbox"
+              checked={findState.wholeWord}
+              onChange={(e) => setFindState({ wholeWord: e.target.checked })}
+            />
+            Whole word
+          </label>
+          <label className="find-check find-check-select">
+            <span>In</span>
+            <select
+              className="find-input"
+              value={findState.element}
+              onChange={(e) => setFindState({ element: e.target.value })}
+            >
+              <option value="all">All elements</option>
+              {ELEMENT_CYCLE.map((t) => (
+                <option key={t} value={t}>
+                  {ELEMENT_LABELS[t]}
+                </option>
+              ))}
+            </select>
           </label>
 
           <div className="find-row">
