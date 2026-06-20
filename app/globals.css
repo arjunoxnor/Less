@@ -1498,6 +1498,124 @@ body {
   text-align: center;
 }
 
+/* ---- Production breakdown tagging -------------------------------------- */
+.sp-bd {
+  border-bottom: 2px solid var(--bd-color, #888);
+  background: color-mix(in srgb, var(--bd-color, #888) 12%, transparent);
+}
+.bd-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.bd-cat-select,
+.bd-name-input {
+  width: 100%;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.bd-add-row {
+  display: flex;
+  gap: 6px;
+}
+.bd-add-row .tb-btn {
+  flex: 1;
+}
+.bd-highlight-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.bd-seg {
+  margin-bottom: 8px;
+}
+.bd-group {
+  margin-bottom: 14px;
+}
+.bd-group-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.bd-group-count {
+  margin-left: auto;
+  font-weight: 600;
+}
+.bd-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.bd-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+}
+.bd-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bd-item-metrics {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.bd-item-remove {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.bd-item-remove:hover {
+  color: var(--danger, #d83a3a);
+}
+.bd-scene-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 0;
+  font-weight: 600;
+}
+.bd-scene-n {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.bd-scene-h {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- Cast and Locations management (Arc-derived) ------------------------ */
 .manage-section-title {
   font-size: 11px;

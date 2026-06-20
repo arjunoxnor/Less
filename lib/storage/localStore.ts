@@ -28,6 +28,7 @@ export interface Prefs {
   sceneNumbers: boolean;
   revisionMode: boolean;
   autoContd: boolean;
+  breakdownHighlight: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -38,6 +39,7 @@ export const DEFAULT_PREFS: Prefs = {
   sceneNumbers: false,
   revisionMode: false,
   autoContd: false,
+  breakdownHighlight: true,
 };
 
 /** Load the saved document, or null if this is a first visit. */

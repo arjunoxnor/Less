@@ -22,6 +22,10 @@ import { acceptAutocomplete, type AcState } from "@/lib/editor/autocomplete";
 import { getSpeller } from "@/lib/editor/spellEngine";
 import { rescanSpelling, type SpellState } from "@/lib/editor/spellcheck";
 import { rescanContd } from "@/lib/editor/contd";
+import { rescanBreakdown } from "@/lib/editor/breakdownMarks";
+import { breakdownToText, BREAKDOWN_CATEGORIES, type BreakdownItem } from "@/lib/editor/breakdown";
+import { useBreakdown } from "@/lib/editor/useBreakdown";
+import { downloadBlob, safeFilename } from "@/lib/export/download";
 import {
   findPluginKey,
   setFindQuery,
@@ -45,6 +49,8 @@ import {
   saveProjectTitlePage,
   loadPageLock,
   savePageLock,
+  loadBreakdown,
+  saveBreakdown,
   markCloudCreated,
   isDirty as projIsDirty,
   setDirty as projSetDirty,
@@ -71,6 +77,7 @@ import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
 import { CastListPanel } from "./CastListPanel";
 import { ReportsPanel } from "./ReportsPanel";
 import { NotesPanel } from "./NotesPanel";
+import { BreakdownPanel } from "./BreakdownPanel";
 import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
 import { SpellMenu } from "./SpellMenu";
@@ -115,6 +122,7 @@ export function ScreenplayBody({
   const [showCast, setShowCast] = useState(false);
   const [showReports, setShowReports] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [showFind, setShowFind] = useState(false);
   const [showTitlePage, setShowTitlePage] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
@@ -133,11 +141,15 @@ export function ScreenplayBody({
   const [renameTick, setRenameTick] = useState(0);
   const [dualActive, setDualActive] = useState(false);
   const [pageLock, setPageLock] = useState<PageLock | null>(() => loadPageLock(projectId));
+  const [breakdownItems, setBreakdownItems] = useState<BreakdownItem[]>(() => loadBreakdown(projectId));
+  const [hasSelection, setHasSelection] = useState(false);
 
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
   const spellEnabledRef = useRef(prefs.spellCheck);
   const revisionEnabledRef = useRef(prefs.revisionMode);
   const contdEnabledRef = useRef(prefs.autoContd);
+  const breakdownItemsRef = useRef<BreakdownItem[]>(breakdownItems);
+  const breakdownEnabledRef = useRef(prefs.breakdownHighlight);
   const editorRef = useRef<Editor | null>(null);
 
   const debouncedSave = useMemo(
@@ -172,6 +184,8 @@ export function ScreenplayBody({
         onSpellState: setSpellState,
         isRevisionEnabled: () => revisionEnabledRef.current,
         isContdEnabled: () => contdEnabledRef.current,
+        getBreakdownItems: () => breakdownItemsRef.current,
+        isBreakdownEnabled: () => breakdownEnabledRef.current,
       }),
     []
   );
@@ -294,6 +308,86 @@ export function ScreenplayBody({
     }
   }, [prefs.autoContd, editor, computePageCount]);
 
+  // Keep the breakdown highlight plugin's live reads current, and repaint when
+  // the catalog or the toggle changes.
+  useEffect(() => {
+    breakdownItemsRef.current = breakdownItems;
+    if (editor) rescanBreakdown(editor.view);
+  }, [breakdownItems, editor]);
+
+  useEffect(() => {
+    breakdownEnabledRef.current = prefs.breakdownHighlight;
+    if (editor) rescanBreakdown(editor.view);
+  }, [prefs.breakdownHighlight, editor]);
+
+  // Track whether there is a non-empty selection (enables "Tag selection").
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => {
+      const { from, to } = editor.state.selection;
+      setHasSelection(to > from);
+    };
+    update();
+    editor.on("selectionUpdate", update);
+    editor.on("update", update);
+    return () => {
+      editor.off("selectionUpdate", update);
+      editor.off("update", update);
+    };
+  }, [editor]);
+
+  const breakdownResult = useBreakdown(editor, breakdownItems, showBreakdown);
+
+  const addBreakdownItem = useCallback(
+    (category: string, name: string) => {
+      const clean = name.trim();
+      if (!clean) return;
+      setBreakdownItems((prev) => {
+        // Dedupe on category + case-insensitive name so the same tag is not
+        // added twice from the selection and the manual field.
+        const exists = prev.some(
+          (it) => it.category === category && it.name.toLowerCase() === clean.toLowerCase()
+        );
+        const next = exists
+          ? prev
+          : [...prev, { id: crypto.randomUUID(), category, name: clean }];
+        saveBreakdown(projectId, next);
+        return next;
+      });
+    },
+    [projectId]
+  );
+
+  const removeBreakdownItem = useCallback(
+    (id: string) => {
+      setBreakdownItems((prev) => {
+        const next = prev.filter((it) => it.id !== id);
+        saveBreakdown(projectId, next);
+        return next;
+      });
+    },
+    [projectId]
+  );
+
+  const tagSelection = useCallback(
+    (category: string) => {
+      if (!editor) return;
+      const { from, to } = editor.state.selection;
+      if (to <= from) return;
+      const text = editor.state.doc.textBetween(from, to, " ").trim();
+      if (text) addBreakdownItem(category, text);
+    },
+    [editor, addBreakdownItem]
+  );
+
+  const exportBreakdown = useCallback(() => {
+    downloadBlob(
+      breakdownToText(breakdownResult, title),
+      safeFilename(title + " breakdown", "txt"),
+      "text/plain;charset=utf-8"
+    );
+  }, [breakdownResult, title]);
+
   const clearRevisions = useCallback(() => {
     editor?.chain().focus().clearRevisions().run();
   }, [editor]);
@@ -347,6 +441,14 @@ export function ScreenplayBody({
       editor?.chain().focus().setTextSelection(pos).scrollIntoView().run();
     },
     [editor]
+  );
+
+  const jumpToSceneNumber = useCallback(
+    (n: number) => {
+      const pos = outlineRef.current.scenes.find((s) => s.number === n)?.pos;
+      if (pos != null) jumpToScene(pos);
+    },
+    [jumpToScene]
   );
 
   useEffect(() => {
@@ -511,6 +613,7 @@ export function ScreenplayBody({
     cmds.push({ id: "cast", group: "Panel", label: "Cast and Locations", run: () => setShowCast(true) });
     cmds.push({ id: "reports", group: "Panel", label: "Reports", run: () => setShowReports(true) });
     cmds.push({ id: "notes", group: "Panel", label: "Notes", run: () => setShowNotes(true) });
+    cmds.push({ id: "breakdown", group: "Panel", label: "Breakdown", run: () => setShowBreakdown(true) });
     cmds.push({ id: "titlepage", group: "Panel", label: "Title page", run: () => setShowTitlePage(true) });
     if (user) {
       cmds.push({ id: "history", group: "Panel", label: "Version history", run: () => setShowHistory(true) });
@@ -523,6 +626,12 @@ export function ScreenplayBody({
     cmds.push({ id: "t-rev", group: "Toggle", label: (prefs.revisionMode ? "Turn off" : "Turn on") + " revision mode", run: () => onPrefsChange({ revisionMode: !prefs.revisionMode }) });
     cmds.push({ id: "t-contd", group: "Toggle", label: (prefs.autoContd ? "Turn off" : "Turn on") + " auto (CONT'D)", run: () => onPrefsChange({ autoContd: !prefs.autoContd }) });
     cmds.push({ id: "t-focus", group: "Toggle", label: "Focus mode", run: () => onPrefsChange({ focusMode: !prefs.focusMode }) });
+    cmds.push({ id: "t-bd", group: "Toggle", label: (prefs.breakdownHighlight ? "Hide" : "Show") + " breakdown highlights", run: () => onPrefsChange({ breakdownHighlight: !prefs.breakdownHighlight }) });
+    if (hasSelection) {
+      for (const c of BREAKDOWN_CATEGORIES) {
+        cmds.push({ id: "tag-" + c.id, group: "Tag", label: "Tag selection: " + c.label, run: () => tagSelection(c.id) });
+      }
+    }
     if (pageLock) {
       cmds.push({ id: "unlock", group: "Pages", label: "Unlock pages (resume normal numbering)", run: unlockPages });
     } else {
@@ -538,7 +647,7 @@ export function ScreenplayBody({
       });
     }
     return cmds;
-  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages]);
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection]);
 
   return (
     <div
@@ -576,6 +685,7 @@ export function ScreenplayBody({
           onCastClick={() => setShowCast((v) => !v)}
           onReportsClick={() => setShowReports((v) => !v)}
           onNotesClick={() => setShowNotes((v) => !v)}
+          onBreakdownClick={() => setShowBreakdown((v) => !v)}
           onTitlePageClick={() => setShowTitlePage(true)}
           onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
           onToggleSceneNumbers={() => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers })}
@@ -592,6 +702,7 @@ export function ScreenplayBody({
           castOpen={showCast}
           reportsOpen={showReports}
           notesOpen={showNotes}
+          breakdownOpen={showBreakdown}
         />
       </EditorChrome>
 
@@ -668,6 +779,22 @@ export function ScreenplayBody({
           onAddToCurrent={addNoteToCurrent}
           onRemove={removeNote}
           onClose={() => setShowNotes(false)}
+        />
+      )}
+
+      {showBreakdown && (
+        <BreakdownPanel
+          result={breakdownResult}
+          items={breakdownItems}
+          highlightOn={prefs.breakdownHighlight}
+          hasSelection={hasSelection}
+          onAdd={addBreakdownItem}
+          onTagSelection={tagSelection}
+          onRemove={removeBreakdownItem}
+          onToggleHighlight={() => onPrefsChange({ breakdownHighlight: !prefs.breakdownHighlight })}
+          onJumpScene={jumpToSceneNumber}
+          onExport={exportBreakdown}
+          onClose={() => setShowBreakdown(false)}
         />
       )}
 

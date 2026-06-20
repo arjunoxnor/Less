@@ -29,6 +29,7 @@ export function ScreenplayToolbar({
   onCastClick,
   onReportsClick,
   onNotesClick,
+  onBreakdownClick,
   onTitlePageClick,
   onToggleSpell,
   onToggleSceneNumbers,
@@ -45,6 +46,7 @@ export function ScreenplayToolbar({
   castOpen,
   reportsOpen,
   notesOpen,
+  breakdownOpen,
 }: {
   editor: Editor | null;
   currentElement: ElementType;
@@ -57,6 +59,7 @@ export function ScreenplayToolbar({
   onCastClick: () => void;
   onReportsClick: () => void;
   onNotesClick: () => void;
+  onBreakdownClick: () => void;
   onTitlePageClick: () => void;
   onToggleSpell: () => void;
   onToggleSceneNumbers: () => void;
@@ -73,6 +76,7 @@ export function ScreenplayToolbar({
   castOpen: boolean;
   reportsOpen: boolean;
   notesOpen: boolean;
+  breakdownOpen: boolean;
 }) {
   const setElement = (type: ElementType) => {
     editor?.chain().focus().setElement(type).run();
@@ -203,6 +207,9 @@ export function ScreenplayToolbar({
         </button>
         <button type="button" className={"tb-btn" + (notesOpen ? " tb-btn-active" : "")} onClick={onNotesClick} title="Script notes">
           Notes
+        </button>
+        <button type="button" className={"tb-btn" + (breakdownOpen ? " tb-btn-active" : "")} onClick={onBreakdownClick} title="Production breakdown tagging">
+          Breakdown
         </button>
         <button type="button" className="tb-btn" onClick={onTitlePageClick} title="Edit the title page">
           Title Page

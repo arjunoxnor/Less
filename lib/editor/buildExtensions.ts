@@ -8,6 +8,8 @@ import { AutoCaps } from "./autoCaps";
 import { AutoElement } from "./autoElement";
 import { ElementIcons } from "./elementIcons";
 import { buildContdMarkers } from "./contd";
+import { buildBreakdownMarks } from "./breakdownMarks";
+import type { BreakdownItem } from "./breakdown";
 import { buildAutocomplete, type AcState } from "./autocomplete";
 import { FindReplace } from "./findPlugin";
 import { buildSpellcheck, type SpellState } from "./spellcheck";
@@ -66,6 +68,10 @@ export function buildExtensions(opts?: {
   isRevisionEnabled?: () => boolean;
   /** Live read of the user's auto-(CONT'D) toggle. */
   isContdEnabled?: () => boolean;
+  /** Live read of the breakdown element catalog (for in-script highlighting). */
+  getBreakdownItems?: () => BreakdownItem[];
+  /** Live read of the user's breakdown-highlight toggle. */
+  isBreakdownEnabled?: () => boolean;
 }) {
   const getOutline = opts?.getOutline ?? (() => EMPTY_OUTLINE);
   const extensions = [
@@ -109,6 +115,12 @@ export function buildExtensions(opts?: {
   // Auto (CONT'D) markers, gated by a live-read toggle.
   if (opts?.isContdEnabled) {
     extensions.push(buildContdMarkers(opts.isContdEnabled));
+  }
+  // In-script breakdown highlights, gated by a live-read toggle.
+  if (opts?.getBreakdownItems) {
+    extensions.push(
+      buildBreakdownMarks(opts.getBreakdownItems, opts.isBreakdownEnabled ?? (() => true))
+    );
   }
   return extensions;
 }

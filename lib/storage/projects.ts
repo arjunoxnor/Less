@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
 import type { PageLock } from "@/lib/export/pageLock";
+import type { BreakdownItem } from "@/lib/editor/breakdown";
 import { lsGet, lsSet } from "./localStore";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
@@ -58,6 +59,7 @@ const TOMBSTONE_KEY = "less:projects:tombstones";
 const docKey = (id: string) => `less:project:${id}:doc`;
 const tpKey = (id: string) => `less:project:${id}:titlePage`;
 const lockKey = (id: string) => `less:project:${id}:pageLock`;
+const breakdownKey = (id: string) => `less:project:${id}:breakdown`;
 const dirtyKey = (id: string) => `less:project:${id}:dirty`;
 const lastSavedKey = (id: string) => `less:project:${id}:lastSavedAt`;
 
@@ -174,6 +176,24 @@ export function savePageLock(id: string, lock: PageLock | null): void {
   else lsSet(lockKey(id), JSON.stringify(lock));
 }
 
+/* --- Breakdown tags (local-only; production element catalog) -------------- */
+
+export function loadBreakdown(id: string): BreakdownItem[] {
+  const raw = lsGet(breakdownKey(id));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as BreakdownItem[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveBreakdown(id: string, items: BreakdownItem[]): void {
+  if (!items.length) lsSet(breakdownKey(id), null);
+  else lsSet(breakdownKey(id), JSON.stringify(items));
+}
+
 /** Create a new local project (instant, offline-safe). */
 export function createProject(
   type: ProjectType,
@@ -224,6 +244,7 @@ export function deleteProject(id: string): void {
   lsSet(docKey(id), null);
   lsSet(tpKey(id), null);
   lsSet(lockKey(id), null);
+  lsSet(breakdownKey(id), null);
   lsSet(dirtyKey(id), null);
   lsSet(lastSavedKey(id), null);
   if (getLastOpenedId() === id) setLastOpenedId(null);
@@ -299,6 +320,7 @@ export function dropCloudProjects(): void {
       lsSet(docKey(m.id), null);
       lsSet(tpKey(m.id), null);
       lsSet(lockKey(m.id), null);
+      lsSet(breakdownKey(m.id), null);
       lsSet(dirtyKey(m.id), null);
       lsSet(lastSavedKey(m.id), null);
     } else {
