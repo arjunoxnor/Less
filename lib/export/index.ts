@@ -44,13 +44,14 @@ function normalizeDual(lines: ScriptLine[]): ScriptLine[] {
 export async function exportDoc(
   doc: JSONContent,
   format: ExportFormat,
-  titlePage?: TitlePage | null
+  titlePage?: TitlePage | null,
+  opts?: { sceneNumbers?: boolean }
 ): Promise<void> {
   const lines = docToLines(doc);
   const title = deriveTitle(doc);
 
   if (format === "pdf") {
-    const bytes = await exportPdf(lines, titlePage);
+    const bytes = await exportPdf(lines, titlePage, opts);
     // Copy into a plain ArrayBuffer: pdf-lib types its output as
     // Uint8Array<ArrayBufferLike>, which BlobPart will not accept directly.
     const buffer = new ArrayBuffer(bytes.byteLength);

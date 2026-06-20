@@ -262,9 +262,13 @@ export function ScreenplayBody({
 
   const handleExport = useCallback(
     (format: ExportFormat) => {
-      if (editor) void exportDoc(editor.getJSON(), format, titlePage ?? undefined);
+      if (editor) {
+        void exportDoc(editor.getJSON(), format, titlePage ?? undefined, {
+          sceneNumbers: prefs.sceneNumbers,
+        });
+      }
     },
-    [editor, titlePage]
+    [editor, titlePage, prefs.sceneNumbers]
   );
 
   const handleImport = useCallback(
@@ -381,7 +385,14 @@ export function ScreenplayBody({
   );
 
   return (
-    <div className={"app" + ` font-${prefs.font}` + (prefs.focusMode ? " focus-mode" : "")}>
+    <div
+      className={
+        "app" +
+        ` font-${prefs.font}` +
+        (prefs.focusMode ? " focus-mode" : "") +
+        (prefs.sceneNumbers ? " show-scene-numbers" : "")
+      }
+    >
       <EditorChrome
         onBack={onBack}
         title={title}
@@ -410,8 +421,10 @@ export function ScreenplayBody({
           onReportsClick={() => setShowReports((v) => !v)}
           onTitlePageClick={() => setShowTitlePage(true)}
           onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
+          onToggleSceneNumbers={() => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers })}
           onToggleDual={toggleDual}
           dualActive={dualActive}
+          sceneNumbersOn={prefs.sceneNumbers}
           scenesOpen={showScenes}
           findOpen={showFind}
           castOpen={showCast}

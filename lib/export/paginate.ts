@@ -6,6 +6,7 @@ import {
   CHAR_W,
   LINE,
   LINES_PER_PAGE,
+  RIGHT_EDGE,
   TOP_BASELINE,
   rightAlignX,
   sanitize,
@@ -71,6 +72,8 @@ interface Block {
   cueName?: string;
   /** For a character cue: slots needed so the cue can legally start a page. */
   keepWithNextSlots?: number;
+  /** 1-based scene number, set on scene_heading blocks (for margin printing). */
+  sceneNumber?: number;
 }
 
 /** How many slots a cue must reserve for its first dialogue block of N rows. */
@@ -142,6 +145,7 @@ function buildDualRows(blocks: Block[], originX: number): Row[] {
 function buildBlocks(lines: ScriptLine[]): Block[] {
   const blocks: Block[] = [];
   let currentCue: string | undefined;
+  let sceneCounter = 0;
 
   for (const line of lines) {
     const kind = line.element;
@@ -167,6 +171,7 @@ function buildBlocks(lines: ScriptLine[]): Block[] {
       splittable: kind === "dialogue",
       dual: line.dual === true,
       cueName: kind === "dialogue" ? currentCue : undefined,
+      sceneNumber: kind === "scene_heading" ? ++sceneCounter : undefined,
     });
   }
 
@@ -183,8 +188,12 @@ function buildBlocks(lines: ScriptLine[]): Block[] {
 }
 
 /** Pass 2: place blocks onto pages, applying the break rules. */
-export function paginate(lines: ScriptLine[]): PaginateResult {
+export function paginate(
+  lines: ScriptLine[],
+  opts?: { sceneNumbers?: boolean }
+): PaginateResult {
   const blocks = buildBlocks(lines);
+  const sceneNumbers = opts?.sceneNumbers ?? false;
 
   const pages: Page[] = [];
   let pageNumber = 1;
@@ -423,6 +432,18 @@ export function paginate(lines: ScriptLine[]): PaginateResult {
       placeDialogue(block.rows, block.cueName);
     } else if (block.kind === "action" && AVOID_ACTION_WIDOWS) {
       placeAction(block.rows);
+    } else if (block.kind === "scene_heading" && sceneNumbers && block.sceneNumber != null) {
+      // Print the scene number in both margins, level with the heading's first
+      // row, then place the heading itself.
+      if (remainingSlots() <= 0) newPage();
+      const num = String(block.sceneNumber);
+      const headY = y;
+      ops.push({ text: num, x: Math.max(2, LEFT - (num.length + 1) * CHAR_W), y: headY });
+      ops.push({ text: num, x: RIGHT_EDGE + CHAR_W, y: headY });
+      for (const r of block.rows) {
+        if (remainingSlots() <= 0) newPage();
+        place(r.text, r.x);
+      }
     } else {
       placeFlow(block.rows);
     }

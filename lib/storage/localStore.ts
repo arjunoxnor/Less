@@ -25,6 +25,7 @@ export interface Prefs {
   theme: ThemeChoice;
   focusMode: boolean;
   spellCheck: boolean;
+  sceneNumbers: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -32,6 +33,7 @@ export const DEFAULT_PREFS: Prefs = {
   theme: "light",
   focusMode: false,
   spellCheck: true,
+  sceneNumbers: false,
 };
 
 /** Load the saved document, or null if this is a first visit. */

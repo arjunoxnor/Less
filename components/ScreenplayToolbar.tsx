@@ -30,8 +30,10 @@ export function ScreenplayToolbar({
   onReportsClick,
   onTitlePageClick,
   onToggleSpell,
+  onToggleSceneNumbers,
   onToggleDual,
   dualActive,
+  sceneNumbersOn,
   scenesOpen,
   findOpen,
   castOpen,
@@ -49,8 +51,10 @@ export function ScreenplayToolbar({
   onReportsClick: () => void;
   onTitlePageClick: () => void;
   onToggleSpell: () => void;
+  onToggleSceneNumbers: () => void;
   onToggleDual: () => void;
   dualActive: boolean;
+  sceneNumbersOn: boolean;
   scenesOpen: boolean;
   findOpen: boolean;
   castOpen: boolean;
@@ -193,6 +197,14 @@ export function ScreenplayToolbar({
           title="Spell check"
         >
           Spelling
+        </button>
+        <button
+          type="button"
+          className={"tb-btn" + (sceneNumbersOn ? " tb-btn-active" : "")}
+          onClick={onToggleSceneNumbers}
+          title="Show and print scene numbers"
+        >
+          Scene #
         </button>
       </div>
     </>

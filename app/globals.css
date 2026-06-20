@@ -1274,3 +1274,28 @@ body {
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* ---- Scene numbers (Phase 9) -------------------------------------------- */
+/* A pure CSS counter prints the scene number in both gutters when enabled.
+   The PDF prints them too (the pagination engine emits the margin ops). */
+.show-scene-numbers .sp-prose {
+  counter-reset: scene;
+}
+.show-scene-numbers .sp-prose .sp-scene_heading {
+  position: relative;
+}
+.show-scene-numbers .sp-prose .sp-scene_heading::before {
+  counter-increment: scene;
+  content: counter(scene);
+  position: absolute;
+  left: -1.15in;
+  font-weight: 400;
+  color: var(--muted);
+}
+.show-scene-numbers .sp-prose .sp-scene_heading::after {
+  content: counter(scene);
+  position: absolute;
+  right: -0.8in;
+  font-weight: 400;
+  color: var(--muted);
+}

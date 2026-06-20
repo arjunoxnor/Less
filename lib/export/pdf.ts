@@ -88,14 +88,15 @@ function drawTitlePage(pdf: PDFDocument, font: PDFFont, tp: TitlePage) {
 
 export async function exportPdf(
   lines: ScriptLine[],
-  titlePage?: TitlePage | null
+  titlePage?: TitlePage | null,
+  opts?: { sceneNumbers?: boolean }
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Courier);
 
   if (hasTitlePage(titlePage)) drawTitlePage(pdf, font, titlePage!);
 
-  const { pages } = paginate(lines);
+  const { pages } = paginate(lines, opts);
   for (const p of pages) {
     const page = pdf.addPage([PAGE_W, PAGE_H]);
     for (const op of p.ops) drawText(page, font, op.text, op.x, op.y);
