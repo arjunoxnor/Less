@@ -873,3 +873,321 @@ body {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* ============================================================================
+   Phase 7: projects home, project cards, editor chrome, plain documents
+   ========================================================================== */
+
+.tb-btn-danger {
+  color: #e0533b;
+}
+.tb-btn-danger:hover {
+  border-color: #e0533b;
+  background: rgba(224, 83, 59, 0.12);
+}
+
+.modal-text {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  color: var(--toolbar-fg);
+  line-height: 1.5;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* ---- Status segmented control (shared by chrome + cards + new modal) ----- */
+
+.status-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.status-seg .seg {
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--btn-bg);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.status-seg .seg:last-child {
+  border-right: none;
+}
+.status-seg .seg-active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+}
+
+/* ---- Projects home ------------------------------------------------------- */
+
+.home {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--toolbar-fg);
+}
+.home-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-wrap: wrap;
+}
+.home-new {
+  font-weight: 600;
+}
+.home-body {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 28px 18px 80px;
+}
+.home-section {
+  margin-bottom: 30px;
+}
+.home-section-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.home-count {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 7px;
+  line-height: 16px;
+}
+.home-section-empty {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.home-continue {
+  margin-bottom: 30px;
+}
+.home-continue-label {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.home-continue .project-card {
+  max-width: 360px;
+}
+.home-empty {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--muted);
+}
+.home-empty h2 {
+  font-size: 22px;
+  color: var(--toolbar-fg);
+  margin: 0 0 10px;
+}
+.home-empty p {
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 420px;
+  margin: 0 auto 22px;
+}
+
+/* ---- Project card -------------------------------------------------------- */
+
+.project-card {
+  background: var(--toolbar-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.project-card:hover {
+  border-color: var(--accent);
+}
+.project-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.project-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-rename {
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+.badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--btn-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.badge-screenplay {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+  border-color: transparent;
+}
+.project-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+.project-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.project-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ---- Editor chrome (project bar above the type toolbar) ----------------- */
+
+.chrome-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+.chrome-back::before {
+  content: "‹ ";
+}
+.chrome-title {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 5px 9px;
+  min-width: 140px;
+  max-width: 320px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--toolbar-fg);
+}
+.chrome-title:hover {
+  border-color: var(--border);
+}
+.chrome-title:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--page-bg);
+}
+
+/* ---- Plain document surface --------------------------------------------- */
+
+.pl-doc {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.pl-prose {
+  width: 100%;
+  max-width: 46rem;
+  min-height: 60vh;
+  background: var(--page-bg);
+  color: var(--page-fg);
+  box-shadow: var(--shadow);
+  border-radius: 4px;
+  padding: 56px 64px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  outline: none;
+}
+.pl-prose:focus {
+  outline: none;
+}
+.pl-prose h1 {
+  font-size: 28px;
+  line-height: 1.25;
+  margin: 0.6em 0 0.3em;
+}
+.pl-prose h2 {
+  font-size: 22px;
+  line-height: 1.3;
+  margin: 0.6em 0 0.3em;
+}
+.pl-prose h3 {
+  font-size: 18px;
+  margin: 0.6em 0 0.3em;
+}
+.pl-prose p {
+  margin: 0 0 0.8em;
+}
+.pl-prose ul,
+.pl-prose ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.5em;
+}
+.pl-prose li {
+  margin: 0.2em 0;
+}
+.pl-prose blockquote {
+  margin: 0 0 0.8em;
+  padding-left: 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.pl-prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+.pl-prose a {
+  color: var(--accent);
+}
+/* Placeholder scoped to the plain schema so it never bleeds into .sp-prose. */
+.pl-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--placeholder);
+  pointer-events: none;
+}

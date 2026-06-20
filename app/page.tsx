@@ -1,7 +1,7 @@
-import { ScreenplayEditor } from "@/components/ScreenplayEditor";
+import { AppShell } from "@/components/AppShell";
 
-// The whole app is currently this one page: the editor. No account is required
-// to start writing — signup only gets prompted later, when saving to the cloud.
+// The single static-export entry. AppShell owns the projects home and the
+// editor; no account is required to start writing.
 export default function Home() {
-  return <ScreenplayEditor />;
+  return <AppShell />;
 }

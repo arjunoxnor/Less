@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
+import type { User } from "@supabase/supabase-js";
 
 import { buildExtensions } from "@/lib/editor/buildExtensions";
 import { docToLines } from "@/lib/export/flatten";
 import { paginate } from "@/lib/export/paginate";
-import { SAMPLE_SCRIPT } from "@/lib/editor/sampleScript";
+import { deriveTitle } from "@/lib/editor/docUtils";
 import { currentElementType } from "@/lib/editor/keymap";
 import type { ElementType } from "@/lib/editor/elements";
 import { useOutline } from "@/lib/editor/useOutline";
@@ -27,18 +28,23 @@ import {
   renameCharacterEverywhere,
 } from "@/lib/editor/renameCharacter";
 import type { Outline } from "@/types/screenplay";
+import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
-  DEFAULT_PREFS,
-  debounce,
-  loadDoc,
-  loadPrefs,
-  saveDoc,
-  savePrefs,
-  type Prefs,
-} from "@/lib/storage/localStore";
+  EMPTY_SCREENPLAY,
+  loadProjectDoc,
+  saveProjectDoc,
+  loadProjectTitlePage,
+  saveProjectTitlePage,
+  markCloudCreated,
+  isDirty as projIsDirty,
+  setDirty as projSetDirty,
+  getLastSavedAt as projGetLastSavedAt,
+  setLastSavedAt as projSetLastSavedAt,
+  type ProjectStatus,
+} from "@/lib/storage/projects";
 import { modKeyLabel } from "@/lib/platform";
 import { isCloudConfigured } from "@/lib/supabase/client";
-import { useAuth, signOut } from "@/lib/supabase/auth";
+import { signOut } from "@/lib/supabase/auth";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
 import {
   exportDoc,
@@ -46,7 +52,8 @@ import {
   type ExportFormat,
   type ImportFormat,
 } from "@/lib/export";
-import { Toolbar } from "./Toolbar";
+import { EditorChrome } from "./EditorChrome";
+import { ScreenplayToolbar } from "./ScreenplayToolbar";
 import { StatusBar } from "./StatusBar";
 import { AuthModal } from "./AuthModal";
 import { HistoryPanel } from "./HistoryPanel";
@@ -57,13 +64,32 @@ import { AutocompleteMenu } from "./AutocompleteMenu";
 import { SpellMenu } from "./SpellMenu";
 import { TitlePageModal } from "./TitlePageModal";
 
-export function ScreenplayEditor() {
-  // Read any saved script synchronously on the client; fall back to the sample.
-  // (On the server this returns the sample, but the editor only instantiates on
-  // the client — immediatelyRender:false — so there's no hydration mismatch.)
-  const initialContent = useMemo(() => loadDoc() ?? SAMPLE_SCRIPT, []);
+export function ScreenplayBody({
+  projectId,
+  title,
+  onRename,
+  status,
+  onStatusChange,
+  onBack,
+  prefs,
+  onPrefsChange,
+  user,
+}: {
+  projectId: string;
+  title: string;
+  onRename: (title: string) => void;
+  status: ProjectStatus;
+  onStatusChange: (status: ProjectStatus) => void;
+  onBack: () => void;
+  prefs: Prefs;
+  onPrefsChange: (next: Partial<Prefs>) => void;
+  user: User | null;
+}) {
+  const initialContent = useMemo(
+    () => loadProjectDoc(projectId) ?? EMPTY_SCREENPLAY,
+    [projectId]
+  );
 
-  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [currentElement, setCurrentElement] = useState<ElementType>("action");
   const [pageCount, setPageCount] = useState(1);
   const [wordCount, setWordCount] = useState(0);
@@ -71,11 +97,10 @@ export function ScreenplayEditor() {
   const [mod, setMod] = useState("Ctrl");
   const [showAuth, setShowAuth] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-
-  // Phase 4 navigation state, all owned here (like the other panels above).
   const [showScenes, setShowScenes] = useState(false);
   const [showCast, setShowCast] = useState(false);
   const [showFind, setShowFind] = useState(false);
+  const [showTitlePage, setShowTitlePage] = useState(false);
   const [caretLine, setCaretLine] = useState(0);
   const [findState, setFindState] = useState<FindInputs>({
     query: "",
@@ -89,34 +114,24 @@ export function ScreenplayEditor() {
   const [renameTick, setRenameTick] = useState(0);
   const [dualActive, setDualActive] = useState(false);
 
-  // The latest outline, read lazily by the autocomplete plugin (built once).
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
-  // Live read of the Spelling toggle, so the once-built spell plugin always sees
-  // the current setting without being reconfigured.
-  const spellEnabledRef = useRef(DEFAULT_PREFS.spellCheck);
+  const spellEnabledRef = useRef(prefs.spellCheck);
+  const editorRef = useRef<Editor | null>(null);
 
-  // Debounced autosave. Local storage is the source of truth for this session;
-  // we write 600ms after the writer pauses so we're never the reason work is lost.
   const debouncedSave = useMemo(
     () =>
-      debounce((doc: object) => {
-        saveDoc(doc);
+      debounce((doc: JSONContent) => {
+        saveProjectDoc(projectId, doc);
         setSaved(true);
       }, 600),
-    []
+    [projectId]
   );
 
-  // Word count is cheap and synchronous on every change.
   const measure = useCallback((ed: Editor) => {
     const text = ed.getText({ blockSeparator: "\n" }).trim();
     setWordCount(text ? text.split(/\s+/).length : 0);
   }, []);
 
-  // The page count comes from the real pagination engine, so the number on
-  // screen equals the number of pages in the exported PDF. The engine is pure
-  // O(rows) array work; debounce it so a long script is not re-paginated on
-  // every keystroke. (It assumes monospace Courier 10cpi, which is what the two
-  // shipped fonts are; a proportional font would reflect print, not screen wrap.)
   const computePageCount = useCallback((doc: JSONContent) => {
     setPageCount(paginate(docToLines(doc)).pageCount);
   }, []);
@@ -125,10 +140,6 @@ export function ScreenplayEditor() {
     [computePageCount]
   );
 
-  // Built once. outlineRef and setAcState are stable, so the extension list (and
-  // the editor) never needs to be reconfigured on re-render. Recreating it each
-  // render would reconfigure the plugins, which (with the autocomplete plugin
-  // pushing state back to React) would loop.
   const extensions = useMemo(
     () =>
       buildExtensions({
@@ -146,19 +157,15 @@ export function ScreenplayEditor() {
     extensions,
     content: initialContent,
     editorProps: {
-      // The nspell engine owns spelling, so the native browser checker is off
-      // (it cannot be made screenplay-aware or styled). Native stays the silent
-      // fallback only if the dictionary fails to load.
       attributes: { class: "sp-prose", spellcheck: "false" },
     },
     onCreate: ({ editor }) => {
+      editorRef.current = editor;
       setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
       setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
       measure(editor);
-      computePageCount(editor.getJSON()); // immediate, so the first count is right
-      // Dev-only handle for debugging in the browser console. Stripped from
-      // production builds.
+      computePageCount(editor.getJSON());
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __lessEditor?: Editor }).__lessEditor = editor;
       }
@@ -178,12 +185,9 @@ export function ScreenplayEditor() {
     },
   });
 
-  // Live outline, shared by all navigation panels. Keep the ref fresh so the
-  // autocomplete plugin (built once) always reads the current candidates.
   const outline = useOutline(editor);
   outlineRef.current = outline;
 
-  // The scene the caret currently sits in: the last heading at or above it.
   const currentSceneNumber = useMemo(() => {
     let n: number | null = null;
     for (const s of outline.scenes) {
@@ -193,9 +197,25 @@ export function ScreenplayEditor() {
     return n;
   }, [outline.scenes, caretLine]);
 
-  // Auth + cloud sync. Both no-op gracefully when Supabase isn't configured,
-  // so the editor always works local-first regardless.
-  const { user } = useAuth();
+  const syncOpts = useMemo(
+    () => ({
+      projectId,
+      type: "screenplay" as const,
+      status,
+      deriveTitle,
+      saveLocalDoc: (d: JSONContent) => saveProjectDoc(projectId, d),
+      loadLocalTitlePage: () => loadProjectTitlePage(projectId),
+      saveLocalTitlePage: (tp: ReturnType<typeof loadProjectTitlePage>) =>
+        saveProjectTitlePage(projectId, tp),
+      isDirty: () => projIsDirty(projectId),
+      setDirty: (b: boolean) => projSetDirty(projectId, b),
+      getLastSavedAt: () => projGetLastSavedAt(projectId),
+      setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
+      onCloudCreated: (id: string) => markCloudCreated(id),
+    }),
+    [projectId, status]
+  );
+
   const {
     status: syncStatus,
     pulledTick,
@@ -204,14 +224,21 @@ export function ScreenplayEditor() {
     importContent,
     titlePage,
     setTitlePage,
-  } = useCloudSync(editor, user);
-  const [showTitlePage, setShowTitlePage] = useState(false);
+    flush,
+  } = useCloudSync(editor, user, syncOpts);
 
-  // When sync loads new content into the editor (a cross-device pull, a version
-  // restore, an import, or a sign-out reset), the 'update' event is suppressed.
-  // Cancel any pending autosave first: it was queued with the OLD document and
-  // would otherwise fire 600ms later and overwrite the freshly loaded content
-  // in local storage. Then recompute counts and refresh the saved indicator.
+  // Flush local + cloud on the way out of this project.
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  useEffect(() => {
+    return () => {
+      debouncedSave.cancel();
+      const ed = editorRef.current;
+      if (ed) saveProjectDoc(projectId, ed.getJSON());
+      flushRef.current();
+    };
+  }, [projectId, debouncedSave]);
+
   useEffect(() => {
     if (editor && pulledTick > 0) {
       debouncedSave.cancel();
@@ -222,44 +249,15 @@ export function ScreenplayEditor() {
     }
   }, [pulledTick, editor, measure, debouncedSave, debouncedPageCount, computePageCount]);
 
-  // After mount: load preferences and resolve the platform shortcut symbol.
   useEffect(() => {
-    setPrefs(loadPrefs());
     setMod(modKeyLabel());
   }, []);
 
-  // Persist prefs and apply the theme to the document root (so the whole page,
-  // including the gutters around the script, follows light/dark mode).
-  useEffect(() => {
-    savePrefs(prefs);
-    if (typeof document !== "undefined") {
-      document.documentElement.dataset.theme = prefs.theme;
-    }
-  }, [prefs]);
-
-  // Keep the spell plugin's live toggle in sync and rescan immediately when the
-  // writer flips Spelling on or off (a pref change does not dispatch an editor
-  // transaction, so the plugin would not otherwise notice).
   useEffect(() => {
     spellEnabledRef.current = prefs.spellCheck;
     if (editor) rescanSpelling(editor.view);
   }, [prefs.spellCheck, editor]);
 
-  // Escape leaves focus mode.
-  useEffect(() => {
-    if (!prefs.focusMode) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPrefs((p) => ({ ...p, focusMode: false }));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [prefs.focusMode]);
-
-  const onPrefsChange = useCallback((next: Partial<Prefs>) => {
-    setPrefs((p) => ({ ...p, ...next }));
-  }, []);
-
-  // Export the live document (and its title page) to a downloaded file.
   const handleExport = useCallback(
     (format: ExportFormat) => {
       if (editor) void exportDoc(editor.getJSON(), format, titlePage ?? undefined);
@@ -267,24 +265,18 @@ export function ScreenplayEditor() {
     [editor, titlePage]
   );
 
-  // Import a picked file. importFile routes by extension, so the format arg is
-  // only used by the Toolbar to label the picker. On failure we surface the
-  // plain-English message and leave the current document untouched.
   const handleImport = useCallback(
     async (_format: ImportFormat, file: File) => {
       try {
         const { doc, titlePage: importedTp } = await importFile(file);
         importContent(doc, importedTp);
       } catch (e) {
-        window.alert(
-          e instanceof Error ? e.message : "Could not import that file."
-        );
+        window.alert(e instanceof Error ? e.message : "Could not import that file.");
       }
     },
     [importContent]
   );
 
-  // Move the caret into a line and scroll it into view (scenes + cast jumps).
   const jumpToScene = useCallback(
     (pos: number) => {
       editor?.chain().focus().setTextSelection(pos).scrollIntoView().run();
@@ -292,8 +284,6 @@ export function ScreenplayEditor() {
     [editor]
   );
 
-  // Push the current search into the find plugin; clear highlights when the
-  // panel is closed so they never linger over the page.
   useEffect(() => {
     if (!editor) return;
     if (showFind) {
@@ -306,7 +296,6 @@ export function ScreenplayEditor() {
     }
   }, [editor, showFind, findState.query, findState.caseSensitive]);
 
-  // Mirror the plugin's match count / active index into React for the panel.
   useEffect(() => {
     if (!editor) return;
     const sync = () => {
@@ -325,7 +314,6 @@ export function ScreenplayEditor() {
     };
   }, [editor]);
 
-  // Mod+F opens find; Escape closes it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
@@ -342,7 +330,6 @@ export function ScreenplayEditor() {
 
   const activeFindIndex = () =>
     editor ? findPluginKey.getState(editor.state)?.active ?? 0 : 0;
-
   const onFindPrev = useCallback(() => {
     if (editor) gotoMatch(editor.view, activeFindIndex() - 1);
   }, [editor]);
@@ -357,7 +344,7 @@ export function ScreenplayEditor() {
     [editor, findState.replace]
   );
 
-  const onRename = useCallback(
+  const onRenameChar = useCallback(
     (from: string, to: string, includeMentions: boolean) =>
       editor
         ? renameCharacterEverywhere(editor.view, from, to, { includeMentions })
@@ -392,38 +379,41 @@ export function ScreenplayEditor() {
   );
 
   return (
-    <div
-      className={
-        "app" +
-        ` font-${prefs.font}` +
-        (prefs.focusMode ? " focus-mode" : "")
-      }
-    >
-      <Toolbar
-        editor={editor}
-        currentElement={currentElement}
+    <div className={"app" + ` font-${prefs.font}` + (prefs.focusMode ? " focus-mode" : "")}>
+      <EditorChrome
+        onBack={onBack}
+        title={title}
+        onRename={onRename}
+        status={status}
+        onStatusChange={onStatusChange}
         prefs={prefs}
         onPrefsChange={onPrefsChange}
-        mod={mod}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}
         onSignInClick={() => setShowAuth(true)}
         onSignOutClick={() => void signOut()}
         onHistoryClick={() => setShowHistory(true)}
-        onExport={handleExport}
-        onImport={(format, file) => void handleImport(format, file)}
-        onScenesClick={() => setShowScenes((v) => !v)}
-        onFindClick={handleFindClick}
-        onCastClick={() => setShowCast((v) => !v)}
-        onTitlePageClick={() => setShowTitlePage(true)}
-        onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
-        onToggleDual={toggleDual}
-        dualActive={dualActive}
-        scenesOpen={showScenes}
-        findOpen={showFind}
-        castOpen={showCast}
-      />
+      >
+        <ScreenplayToolbar
+          editor={editor}
+          currentElement={currentElement}
+          prefs={prefs}
+          mod={mod}
+          onExport={handleExport}
+          onImport={(format, file) => void handleImport(format, file)}
+          onScenesClick={() => setShowScenes((v) => !v)}
+          onFindClick={handleFindClick}
+          onCastClick={() => setShowCast((v) => !v)}
+          onTitlePageClick={() => setShowTitlePage(true)}
+          onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
+          onToggleDual={toggleDual}
+          dualActive={dualActive}
+          scenesOpen={showScenes}
+          findOpen={showFind}
+          castOpen={showCast}
+        />
+      </EditorChrome>
 
       <div className="page-scroll">
         <div className="page-wrap">
@@ -439,11 +429,7 @@ export function ScreenplayEditor() {
       />
 
       {prefs.focusMode && (
-        <button
-          type="button"
-          className="focus-exit"
-          onClick={() => onPrefsChange({ focusMode: false })}
-        >
+        <button type="button" className="focus-exit" onClick={() => onPrefsChange({ focusMode: false })}>
           Exit focus (Esc)
         </button>
       )}
@@ -490,7 +476,7 @@ export function ScreenplayEditor() {
           onNext={onFindNext}
           onReplaceOne={onReplaceOne}
           onReplaceAll={onReplaceAll}
-          onRename={onRename}
+          onRename={onRenameChar}
           getPreview={getRenamePreview}
           initialRenameFrom={renameFrom}
           renameTick={renameTick}
@@ -521,11 +507,7 @@ export function ScreenplayEditor() {
       )}
 
       {spellState?.open && editor && (
-        <SpellMenu
-          state={spellState}
-          view={editor.view}
-          onClose={() => setSpellState(null)}
-        />
+        <SpellMenu state={spellState} view={editor.view} onClose={() => setSpellState(null)} />
       )}
     </div>
   );

@@ -127,6 +127,10 @@ export const setLastSavedAt = (iso: string | null) => set(LAST_SAVED_KEY, iso);
 export const isDirty = () => get(DIRTY_KEY) === "1";
 export const setDirty = (dirty: boolean) => set(DIRTY_KEY, dirty ? "1" : "0");
 
+// Low-level string get/set, reused by the multi-project storage module so all
+// localStorage access shares the same SSR guard and swallow-on-failure behavior.
+export { get as lsGet, set as lsSet };
+
 /**
  * Make a debounced version of a function (used for autosave). The returned
  * function carries a `cancel()` that drops any pending call, so callers can

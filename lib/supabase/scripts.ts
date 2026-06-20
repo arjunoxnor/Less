@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
+import type { ProjectStatus, ProjectType } from "@/lib/storage/projects";
 import { getSupabase } from "./client";
 
 /**
@@ -15,6 +16,8 @@ export interface ScriptRow {
   title: string;
   content: JSONContent;
   title_page?: TitlePage | null;
+  type: ProjectType;
+  status: ProjectStatus;
   updated_at: string;
   created_at: string;
 }
@@ -22,6 +25,8 @@ export interface ScriptRow {
 export interface ScriptSummary {
   id: string;
   title: string;
+  type: ProjectType;
+  status: ProjectStatus;
   updated_at: string;
 }
 
@@ -33,21 +38,36 @@ export interface VersionRow {
   created_at: string;
 }
 
-/** Create a new script owned by `userId`. */
+/**
+ * Create a new script owned by `userId`. Pass opts.id to insert with an explicit
+ * id so the cloud row id equals the local project id (no remap on sync).
+ */
 export async function createScript(
   userId: string,
   title: string,
   content: JSONContent,
-  titlePage?: TitlePage | null
+  opts?: {
+    id?: string;
+    type?: ProjectType;
+    status?: ProjectStatus;
+    titlePage?: TitlePage | null;
+  }
 ): Promise<ScriptRow | null> {
   const sb = getSupabase();
   if (!sb) return null;
-  const row: Record<string, unknown> = { user_id: userId, title, content };
-  if (titlePage) row.title_page = titlePage;
+  const row: Record<string, unknown> = {
+    user_id: userId,
+    title,
+    content,
+    type: opts?.type ?? "screenplay",
+    status: opts?.status ?? "not_started",
+  };
+  if (opts?.id) row.id = opts.id;
+  if (opts?.titlePage) row.title_page = opts.titlePage;
   const { data, error } = await sb
     .from("scripts")
     .insert(row)
-    .select("id, title, content, title_page, created_at, updated_at")
+    .select("id, title, content, title_page, type, status, created_at, updated_at")
     .single();
   if (error) throw error;
   return data as ScriptRow;
@@ -59,23 +79,48 @@ export async function fetchScript(id: string): Promise<ScriptRow | null> {
   if (!sb) return null;
   const { data, error } = await sb
     .from("scripts")
-    .select("id, title, content, title_page, created_at, updated_at")
+    .select("id, title, content, title_page, type, status, created_at, updated_at")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
   return (data as ScriptRow) ?? null;
 }
 
-/** The user's scripts, newest first. (Used by the future script picker.) */
+/** The user's scripts, newest first. Drives the projects dashboard. */
 export async function listScripts(): Promise<ScriptSummary[]> {
   const sb = getSupabase();
   if (!sb) return [];
   const { data, error } = await sb
     .from("scripts")
-    .select("id, title, updated_at")
+    .select("id, title, type, status, updated_at")
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data as ScriptSummary[]) ?? [];
+}
+
+/** Update a script's manual status (no content snapshot). */
+export async function setScriptStatus(
+  id: string,
+  status: ProjectStatus
+): Promise<string | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from("scripts")
+    .update({ status })
+    .eq("id", id)
+    .select("updated_at")
+    .single();
+  if (error) throw error;
+  return (data as { updated_at: string }).updated_at;
+}
+
+/** Delete a script (RLS-scoped; cascades its versions). */
+export async function deleteScript(id: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from("scripts").delete().eq("id", id);
+  if (error) throw error;
 }
 
 /** Save content/title (and optional title page) to an existing script. */

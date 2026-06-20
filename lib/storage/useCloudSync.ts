@@ -9,26 +9,13 @@ import {
   createScript,
   createSnapshot,
   fetchScript,
-  listScripts,
   listVersions,
   saveScript,
   type VersionRow,
 } from "@/lib/supabase/scripts";
-import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
-import { SAMPLE_SCRIPT } from "@/lib/editor/sampleScript";
 import { trimTitlePage, type TitlePage } from "@/lib/export/titlePage";
-import {
-  debounce,
-  getActiveScriptId,
-  getLastSavedAt,
-  isDirty,
-  loadTitlePage,
-  saveDoc,
-  saveTitlePage,
-  setActiveScriptId,
-  setDirty,
-  setLastSavedAt,
-} from "./localStore";
+import { debounce } from "./localStore";
+import type { ProjectStatus, ProjectType } from "./projects";
 
 export type SyncStatus =
   | "local" // not signed in — local only
@@ -40,58 +27,74 @@ export type SyncStatus =
 const PUSH_DEBOUNCE_MS = 1500;
 const SNAPSHOT_THROTTLE_MS = 3 * 60 * 1000; // at most one snapshot per 3 min
 
+/** Everything the per-project sync engine needs, injected by the editor body. */
+export interface CloudSyncOpts {
+  projectId: string;
+  type: ProjectType;
+  status: ProjectStatus;
+  deriveTitle: (doc: JSONContent) => string;
+  saveLocalDoc: (doc: JSONContent) => void;
+  loadLocalTitlePage: () => TitlePage | null;
+  saveLocalTitlePage: (tp: TitlePage | null) => void;
+  isDirty: () => boolean;
+  setDirty: (dirty: boolean) => void;
+  getLastSavedAt: () => string | null;
+  setLastSavedAt: (iso: string | null) => void;
+  /** Called after this project's cloud row is first created. */
+  onCloudCreated?: (id: string) => void;
+}
+
 /**
- * Ties the editor to the cloud while keeping local-first guarantees:
+ * Ties ONE open project's editor to the cloud while keeping local-first
+ * guarantees. It is mounted per project (the editor host remounts on switch),
+ * so it never has to swap documents under a live editor.
  *
  *  - Local storage is always written first (instant, never lost).
- *  - When signed in, changes also push to Supabase in the background.
- *  - On load it reconciles local vs cloud safely (never silently loses work,
- *    including edits typed while the cloud copy is still loading).
+ *  - When signed in, changes push to Supabase in the background.
+ *  - On open it reconciles this project's local vs cloud copy safely (never
+ *    silently loses work, including edits typed while the cloud copy loads).
  *  - Offline edits keep working and flush when the connection returns.
- *  - Periodic immutable snapshots give you a rollback safety net.
- *  - On sign-out it fully resets, so one user's work can never bleed into the
- *    next user on a shared browser.
+ *  - Periodic immutable snapshots give a rollback safety net.
+ *
+ * The dashboard-level list reconcile (which projects exist where) lives in
+ * useProjects; this hook only owns the open project's body.
  */
-export function useCloudSync(editor: Editor | null, user: User | null) {
+export function useCloudSync(
+  editor: Editor | null,
+  user: User | null,
+  opts: CloudSyncOpts
+) {
   const [status, setStatus] = useState<SyncStatus>("local");
-  const [activeId, setActiveId] = useState<string | null>(null);
-  // Bumped whenever we load cloud/snapshot content into the editor with the
-  // 'update' event suppressed, so the surrounding UI (word/page count, the
-  // "Saved" label) knows to recompute against the freshly loaded document.
+  // Bumped whenever we load cloud/snapshot/import content into the editor with
+  // the 'update' event suppressed, so the surrounding UI recomputes.
   const [pulledTick, setPulledTick] = useState(0);
 
-  // The title page is metadata beside the doc (not editor state): keep it in a
-  // ref for the sync paths and a React state for the modal.
-  const titlePageRef = useRef<TitlePage | null>(loadTitlePage());
+  // The title page is metadata beside the doc (not editor state).
+  const titlePageRef = useRef<TitlePage | null>(opts.loadLocalTitlePage());
   const [titlePage, setTitlePageState] = useState<TitlePage | null>(
     titlePageRef.current
   );
 
-  // Refs so the editor 'update' subscription never goes stale.
+  // Latest opts + user in refs so subscriptions never go stale.
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
   const userRef = useRef<User | null>(user);
-  const activeIdRef = useRef<string | null>(null);
+  userRef.current = user;
   const lastSnapshotAt = useRef<number>(0);
   const reconciledFor = useRef<string | null>(null);
-  const prevUserId = useRef<string | null>(null); // detect real sign-out transitions
 
-  userRef.current = user;
+  const projectId = opts.projectId;
 
-  const setActive = useCallback((id: string | null) => {
-    activeIdRef.current = id;
-    setActiveScriptId(id);
-    setActiveId(id);
-  }, []);
-
-  // Load content into the editor WITHOUT firing 'update' (so we don't trigger a
-  // save loop), mirror it to local storage, and signal the UI to recompute.
+  // Load content into the editor WITHOUT firing 'update', mirror it to local
+  // storage, and signal the UI to recompute.
   const pullInto = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
       if (!editor) return;
       editor.commands.setContent(content, { emitUpdate: false });
-      saveDoc(content);
+      optsRef.current.saveLocalDoc(content);
       if (tp !== undefined) {
         titlePageRef.current = tp;
-        saveTitlePage(tp);
+        optsRef.current.saveLocalTitlePage(tp);
         setTitlePageState(tp);
       }
       setPulledTick((t) => t + 1);
@@ -101,36 +104,32 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
 
   // Push the current document to the cloud (with a throttled snapshot).
   const pushNow = useCallback(async () => {
-    const id = activeIdRef.current;
     const u = userRef.current;
     const ed = editor;
-    if (!id || !u || !ed) return;
+    if (!u || !ed) return;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       setStatus("offline");
       return;
     }
+    const o = optsRef.current;
     try {
       const doc = ed.getJSON();
       const tp = titlePageRef.current;
       const snapshotJson = JSON.stringify(doc);
       const tpSnapshot = JSON.stringify(tp);
-      const ts = await saveScript(id, doc, deriveTitle(doc), tp);
-      if (ts) setLastSavedAt(ts);
-      // Only mark clean if neither the document NOR the title page changed during
-      // the save round trip; otherwise leave dirty=true so the pending / offline
-      // flush still delivers the change (the title page is a separate channel).
+      const ts = await saveScript(o.projectId, doc, o.deriveTitle(doc), tp);
+      if (ts) o.setLastSavedAt(ts);
+      // Only mark clean if neither doc nor title page changed during the round trip.
       if (
         JSON.stringify(ed.getJSON()) === snapshotJson &&
         JSON.stringify(titlePageRef.current) === tpSnapshot
       ) {
-        setDirty(false);
+        o.setDirty(false);
       }
-
-      // Snapshot, throttled, so history doesn't fill with every keystroke burst.
       const now = Date.now();
       if (now - lastSnapshotAt.current > SNAPSHOT_THROTTLE_MS) {
         lastSnapshotAt.current = now;
-        createSnapshot(id, u.id, doc, tp).catch((e) =>
+        createSnapshot(o.projectId, u.id, doc, tp).catch((e) =>
           console.error("snapshot failed", e)
         );
       }
@@ -146,94 +145,60 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     debouncedPush.current = debounce(() => void pushNow(), PUSH_DEBOUNCE_MS);
   }, [pushNow]);
 
-  // --- Reconciliation: runs once when a signed-in user + editor are ready ---
+  // --- Reconcile this project once when a signed-in user + editor are ready ---
   useEffect(() => {
     if (!editor || !user) {
       if (!user) setStatus("local");
       return;
     }
-    if (reconciledFor.current === user.id) return; // already reconciled
-    reconciledFor.current = user.id;
+    const key = `${user.id}:${projectId}`;
+    if (reconciledFor.current === key) return;
+    reconciledFor.current = key;
 
     (async () => {
+      const o = optsRef.current;
       setStatus("syncing");
       const localDoc = editor.getJSON();
-      let id = getActiveScriptId();
-
       try {
-        if (id) {
-          const cloud = await fetchScript(id);
-          if (!cloud) {
-            id = null; // gone / not ours — fall through to first-sign-in path
-          } else {
-            const lastSaved = getLastSavedAt();
-            const cloudNewer =
-              !lastSaved || new Date(cloud.updated_at) > new Date(lastSaved);
-            // The editor stayed interactive during the fetch above, so re-read
-            // it: anything typed in that window must NOT be clobbered.
-            const live = editor.getJSON();
-            const typedDuringFetch =
-              JSON.stringify(live) !== JSON.stringify(localDoc);
-            if (isDirty() || typedDuringFetch) {
-              // Un-pushed local edits (incl. in-flight typing) win.
-              const ts = await saveScript(
-                id,
-                live,
-                deriveTitle(live),
-                titlePageRef.current
-              );
-              if (ts) setLastSavedAt(ts);
-              setDirty(false);
-            } else if (cloudNewer) {
-              // Another device moved ahead — pull cloud (and its title page) in.
-              pullInto(cloud.content, cloud.title_page ?? null);
-              setLastSavedAt(cloud.updated_at);
-            }
-          }
-        }
-
-        if (!id) {
-          // First time signing in on this device. Re-read live content so any
-          // typing during the (possible) fetch above is preserved.
+        const cloud = await fetchScript(projectId);
+        if (cloud) {
+          const lastSaved = o.getLastSavedAt();
+          const cloudNewer =
+            !lastSaved || new Date(cloud.updated_at) > new Date(lastSaved);
+          // The editor stayed interactive during the fetch: re-read it so any
+          // typing in that window is never clobbered.
           const live = editor.getJSON();
-          if (isMeaningfulDoc(live)) {
-            // Preserve the anonymous work (and any title page) as a new script.
-            const row = await createScript(
-              user.id,
-              deriveTitle(live),
+          const typedDuringFetch =
+            JSON.stringify(live) !== JSON.stringify(localDoc);
+          if (o.isDirty() || typedDuringFetch) {
+            const ts = await saveScript(
+              projectId,
               live,
+              o.deriveTitle(live),
               titlePageRef.current
             );
-            if (row) {
-              id = row.id;
-              setLastSavedAt(row.updated_at);
-            }
-          } else {
-            const existing = await listScripts();
-            if (existing.length) {
-              const cloud = await fetchScript(existing[0].id);
-              if (cloud) {
-                id = cloud.id;
-                pullInto(cloud.content, cloud.title_page ?? null);
-                setLastSavedAt(cloud.updated_at);
-              }
-            } else {
-              const row = await createScript(
-                user.id,
-                deriveTitle(live),
-                live,
-                titlePageRef.current
-              );
-              if (row) {
-                id = row.id;
-                setLastSavedAt(row.updated_at);
-              }
-            }
+            if (ts) o.setLastSavedAt(ts);
+            o.setDirty(false);
+          } else if (cloudNewer) {
+            pullInto(cloud.content, cloud.title_page ?? null);
+            o.setLastSavedAt(cloud.updated_at);
           }
-          setDirty(false);
+        } else {
+          // No cloud row yet (a local-only project opened while signed in):
+          // create it under the SAME id so local id == cloud id.
+          const live = editor.getJSON();
+          const row = await createScript(user.id, o.deriveTitle(live), live, {
+            id: projectId,
+            type: o.type,
+            status: o.status,
+            titlePage: titlePageRef.current,
+          });
+          if (row) {
+            o.setLastSavedAt(row.updated_at);
+            o.onCloudCreated?.(projectId);
+          }
+          o.setDirty(false);
         }
-
-        setActive(id);
         setStatus(
           typeof navigator !== "undefined" && !navigator.onLine
             ? "offline"
@@ -245,18 +210,16 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
         setStatus("error");
       }
     })();
-  }, [editor, user, setActive, pullInto]);
+  }, [editor, user, projectId, pullInto]);
 
   // --- Subscribe to edits: mark dirty + schedule a background push ---------
   useEffect(() => {
     if (!editor) return;
     const onUpdate = () => {
       if (!userRef.current) return;
-      // Mark dirty even before reconcile assigns an activeId, so edits made
-      // during the reconcile fetch window are never treated as "clean".
-      setDirty(true);
+      optsRef.current.setDirty(true);
       setStatus("syncing");
-      if (activeIdRef.current) debouncedPush.current();
+      debouncedPush.current();
     };
     editor.on("update", onUpdate);
     return () => {
@@ -267,7 +230,7 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
   // --- Flush pending edits when the connection returns ---------------------
   useEffect(() => {
     const onOnline = () => {
-      if (activeIdRef.current && isDirty()) void pushNow();
+      if (optsRef.current.isDirty()) void pushNow();
     };
     const onOffline = () => setStatus("offline");
     window.addEventListener("online", onOnline);
@@ -278,86 +241,61 @@ export function useCloudSync(editor: Editor | null, user: User | null) {
     };
   }, [pushNow]);
 
-  // --- Sign-out: stop sync, clear ALL bookkeeping, reset the editor --------
-  // Only fires on a genuine signed-in -> signed-out transition (not on the
-  // initial anonymous load), so anonymous local work is never wiped.
+  // Signed out: stop syncing (the host unmounts to home, so no editor reset here).
   useEffect(() => {
-    const had = prevUserId.current;
-    prevUserId.current = user?.id ?? null;
-    if (user) return;
-    if (!had) return; // initial load / already anonymous — leave local work alone
+    if (!user) setStatus("local");
+  }, [user]);
 
-    reconciledFor.current = null;
-    activeIdRef.current = null;
-    setActiveId(null);
-    // Clear persisted cloud bookkeeping so the next user on this browser does
-    // NOT inherit the previous user's script id, timestamps, or content.
-    setActiveScriptId(null);
-    setLastSavedAt(null);
-    setDirty(false);
-    // Clear the title page too, so the next user does not inherit it.
-    titlePageRef.current = null;
-    saveTitlePage(null);
-    setTitlePageState(null);
-    if (editor) {
-      editor.commands.setContent(SAMPLE_SCRIPT, { emitUpdate: false });
-      saveDoc(SAMPLE_SCRIPT);
-      setPulledTick((t) => t + 1);
-    }
-    setStatus("local");
-  }, [user, editor]);
-
-  /** For the history panel: list snapshots of the active script. */
-  const getVersions = useCallback(async (): Promise<VersionRow[]> => {
-    if (!activeIdRef.current) return [];
-    return listVersions(activeIdRef.current);
-  }, []);
+  /** For the history panel: snapshots of this project. */
+  const getVersions = useCallback(
+    async (): Promise<VersionRow[]> => listVersions(projectId),
+    [projectId]
+  );
 
   /** Edit the title page: persist locally, mark dirty, schedule a cloud push. */
   const setTitlePage = useCallback((tp: TitlePage | null) => {
     const next = trimTitlePage(tp);
     titlePageRef.current = next;
-    saveTitlePage(next);
+    optsRef.current.saveLocalTitlePage(next);
     setTitlePageState(next);
-    setDirty(true);
-    if (userRef.current && activeIdRef.current) debouncedPush.current();
+    optsRef.current.setDirty(true);
+    if (userRef.current) debouncedPush.current();
   }, []);
 
   /** Restore a snapshot's content (and its title page) into the editor. */
   const restoreVersion = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
       pullInto(content, tp);
-      setDirty(true);
+      optsRef.current.setDirty(true);
       void pushNow();
     },
     [pullInto, pushNow]
   );
 
-  /**
-   * Load imported content into the editor. Behaviorally identical to a version
-   * restore: it suppresses the 'update' event (so it never races the debounced
-   * local save), mirrors to local storage, refreshes the UI via pulledTick, and
-   * pushes to the active cloud script when signed in. Marking dirty first means
-   * a mid-flight reconcile treats the import as un-pushed local work and never
-   * clobbers it.
-   */
+  /** Load imported content into the editor (same path as a version restore). */
   const importContent = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
       pullInto(content, tp);
-      setDirty(true);
+      optsRef.current.setDirty(true);
       void pushNow();
     },
     [pullInto, pushNow]
   );
 
+  /** Flush any pending debounced push now (used on navigating away). */
+  const flush = useCallback(() => {
+    debouncedPush.current.cancel();
+    if (userRef.current && optsRef.current.isDirty()) void pushNow();
+  }, [pushNow]);
+
   return {
     status,
-    activeId,
     pulledTick,
     getVersions,
     restoreVersion,
     importContent,
     titlePage,
     setTitlePage,
+    flush,
   };
 }
