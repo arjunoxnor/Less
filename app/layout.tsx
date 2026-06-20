@@ -13,7 +13,7 @@ const courierPrime = Courier_Prime({
 });
 
 export const metadata: Metadata = {
-  title: "LESS — Last Ever Screenwriting Software",
+  title: "LESS: Last Ever Screenwriting Software",
   description:
     "A free, fast, web-based screenwriting app that respects your time and never holds your scripts hostage.",
 };

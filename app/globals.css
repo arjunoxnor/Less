@@ -102,6 +102,9 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Wrap within a group too, so the dense nav group degrades to extra rows on
+     narrow screens instead of overflowing horizontally. */
+  flex-wrap: wrap;
 }
 
 .toolbar-spacer {
@@ -1519,8 +1522,8 @@ body {
   font-size: 13px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
 }
 .bd-add-row {
   display: flex;
@@ -1591,7 +1594,7 @@ body {
   padding: 0 2px;
 }
 .bd-item-remove:hover {
-  color: var(--danger, #d83a3a);
+  color: #e0533b;
 }
 .bd-scene-title {
   display: flex;
@@ -1600,7 +1603,7 @@ body {
   width: 100%;
   border: none;
   background: none;
-  color: var(--fg);
+  color: var(--toolbar-fg);
   text-align: left;
   cursor: pointer;
   padding: 4px 0;

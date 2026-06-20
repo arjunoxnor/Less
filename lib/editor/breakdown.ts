@@ -212,7 +212,7 @@ export function computeBreakdown(
 /** A plain-text breakdown report, suitable for download. */
 export function breakdownToText(result: BreakdownResult, title: string): string {
   const out: string[] = [];
-  out.push(`BREAKDOWN — ${title || "Untitled"}`);
+  out.push(`BREAKDOWN: ${title || "Untitled"}`);
   out.push("");
   out.push("BY CATEGORY");
   if (result.byCategory.length === 0) {

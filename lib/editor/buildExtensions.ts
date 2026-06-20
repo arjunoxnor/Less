@@ -33,7 +33,7 @@ function placeholderFor(element: ElementType): string {
     case "transition":
       return "CUT TO:";
     default:
-      return "Action — describe what we see.";
+      return "Action: describe what we see.";
   }
 }
 

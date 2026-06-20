@@ -358,7 +358,7 @@ export function ProjectsHome({
                 >
                   {SCREENPLAY_TEMPLATES.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.label} — {t.description}
+                      {t.label}: {t.description}
                     </option>
                   ))}
                 </select>
