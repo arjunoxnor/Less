@@ -1299,3 +1299,85 @@ body {
   font-weight: 400;
   color: var(--muted);
 }
+
+/* ---- Script notes (Phase 10) -------------------------------------------- */
+/* A small amber dot in the left gutter marks a noted line. */
+.sp-prose .sp-line[data-note] {
+  position: relative;
+}
+.sp-prose .sp-line[data-note]::before {
+  content: "";
+  position: absolute;
+  left: -0.5in;
+  top: 0.35em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e0a23b;
+}
+.notes-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.notes-input {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--page-bg);
+  color: var(--page-fg);
+  resize: vertical;
+}
+.notes-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.notes-add-btn {
+  align-self: flex-start;
+}
+.note-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.note-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--toolbar-fg);
+  cursor: pointer;
+  padding: 0;
+}
+.note-text {
+  font-size: 13px;
+}
+.note-line {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-remove {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.note-remove:hover {
+  color: #e0533b;
+}

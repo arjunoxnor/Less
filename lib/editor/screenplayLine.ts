@@ -22,6 +22,8 @@ declare module "@tiptap/core" {
       setElement: (type: ElementType) => ReturnType;
       /** Toggle dual (side-by-side) dialogue on the current cue cluster. */
       toggleDual: () => ReturnType;
+      /** Set (or clear, when empty) a script note on the current line. */
+      setNote: (text: string) => ReturnType;
     };
   }
 }
@@ -60,6 +62,14 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
         default: false,
         parseHTML: (el) => el.getAttribute("data-dual") === "true",
         renderHTML: (attrs) => (attrs.dual ? { "data-dual": "true" } : {}),
+      },
+      // A script note attached to this line. Sparse like `dual`: renderHTML emits
+      // nothing when empty, so notes never touch the screenplay text or export
+      // (the flat ScriptLine carries no note), and existing docs are unchanged.
+      note: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-note") ?? "",
+        renderHTML: (attrs) => (attrs.note ? { "data-note": attrs.note as string } : {}),
       },
     };
   },
@@ -167,6 +177,23 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
             apply(cueIdx);
             for (let i = cueIdx + 1; i < lines.length && isCueBody(i); i++) apply(i);
             dispatch(tr);
+          }
+          return true;
+        },
+
+      setNote:
+        (text: string) =>
+        ({ state, dispatch }) => {
+          // The line node is the depth-1 ancestor of the caret.
+          const $from = state.selection.$from;
+          const pos = $from.before(1);
+          const node = state.doc.nodeAt(pos);
+          if (!node || node.type.name !== this.name) return false;
+          if ((node.attrs.note ?? "") === text) return false;
+          if (dispatch) {
+            dispatch(
+              state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, note: text })
+            );
           }
           return true;
         },

@@ -4,10 +4,12 @@ import type {
   CastEntry,
   CharacterEntry,
   LocationEntry,
+  NoteEntry,
   Outline,
   SceneEntry,
   TransitionEntry,
 } from "@/types/screenplay";
+import type { ElementType } from "@/lib/editor/elements";
 
 /**
  * Pure, editor-agnostic derivation. One walk of the document yields everything
@@ -150,6 +152,7 @@ export function buildOutline(doc: PMNode): Outline {
   const subLocMap = new Map<string, Set<string>>();
   const transMap = new Map<string, TransitionEntry>();
   const charMap = new Map<string, CharAccum>();
+  const notes: NoteEntry[] = [];
 
   let sceneCounter = 0;
   let printedLines = 0;
@@ -160,6 +163,11 @@ export function buildOutline(doc: PMNode): Outline {
     const element = isElementType(raw) ? raw : "action";
     const text = node.textContent.trim();
     const pos = offset + 1; // inside the line's content
+
+    const noteText = (node.attrs as { note?: unknown }).note;
+    if (typeof noteText === "string" && noteText.trim()) {
+      notes.push({ note: noteText, lineText: text, pos, element: element as ElementType });
+    }
 
     if (element === "scene_heading") {
       sceneCounter++;
@@ -268,7 +276,7 @@ export function buildOutline(doc: PMNode): Outline {
     (a, b) => b.count - a.count || b.lastIndex - a.lastIndex
   );
 
-  return { scenes, locations, characters, cast, transitions };
+  return { scenes, locations, characters, cast, transitions, notes };
 }
 
 /** An empty outline, used before an editor exists. */
@@ -278,4 +286,5 @@ export const EMPTY_OUTLINE: Outline = {
   characters: [],
   cast: [],
   transitions: [],
+  notes: [],
 };

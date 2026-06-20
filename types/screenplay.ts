@@ -72,6 +72,16 @@ export interface TransitionEntry {
   lastIndex: number;
 }
 
+/** A script note attached to a line, with where to jump to. */
+export interface NoteEntry {
+  note: string;
+  /** The text of the line the note is on (for the panel preview). */
+  lineText: string;
+  /** Jump target inside the noted line. */
+  pos: number;
+  element: ElementType;
+}
+
 /** Everything derived from one walk of the document. */
 export interface Outline {
   scenes: SceneEntry[];
@@ -79,4 +89,5 @@ export interface Outline {
   characters: CharacterEntry[];
   cast: CastEntry[];
   transitions: TransitionEntry[];
+  notes: NoteEntry[];
 }

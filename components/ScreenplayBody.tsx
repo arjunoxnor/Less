@@ -60,6 +60,7 @@ import { HistoryPanel } from "./HistoryPanel";
 import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
 import { CastListPanel } from "./CastListPanel";
 import { ReportsPanel } from "./ReportsPanel";
+import { NotesPanel } from "./NotesPanel";
 import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
 import { SpellMenu } from "./SpellMenu";
@@ -101,6 +102,7 @@ export function ScreenplayBody({
   const [showScenes, setShowScenes] = useState(false);
   const [showCast, setShowCast] = useState(false);
   const [showReports, setShowReports] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [showFind, setShowFind] = useState(false);
   const [showTitlePage, setShowTitlePage] = useState(false);
   const [caretLine, setCaretLine] = useState(0);
@@ -379,6 +381,19 @@ export function ScreenplayBody({
     editor?.chain().focus().toggleDual().run();
   }, [editor]);
 
+  const addNoteToCurrent = useCallback(
+    (text: string) => {
+      editor?.chain().focus().setNote(text).run();
+    },
+    [editor]
+  );
+  const removeNote = useCallback(
+    (pos: number) => {
+      editor?.chain().setTextSelection(pos).setNote("").run();
+    },
+    [editor]
+  );
+
   const setFindPatch = useCallback(
     (patch: Partial<FindInputs>) => setFindState((s) => ({ ...s, ...patch })),
     []
@@ -419,6 +434,7 @@ export function ScreenplayBody({
           onFindClick={handleFindClick}
           onCastClick={() => setShowCast((v) => !v)}
           onReportsClick={() => setShowReports((v) => !v)}
+          onNotesClick={() => setShowNotes((v) => !v)}
           onTitlePageClick={() => setShowTitlePage(true)}
           onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
           onToggleSceneNumbers={() => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers })}
@@ -429,6 +445,7 @@ export function ScreenplayBody({
           findOpen={showFind}
           castOpen={showCast}
           reportsOpen={showReports}
+          notesOpen={showNotes}
         />
       </EditorChrome>
 
@@ -490,6 +507,16 @@ export function ScreenplayBody({
           title={title}
           onJump={jumpToScene}
           onClose={() => setShowReports(false)}
+        />
+      )}
+
+      {showNotes && (
+        <NotesPanel
+          notes={outline.notes}
+          onJump={jumpToScene}
+          onAddToCurrent={addNoteToCurrent}
+          onRemove={removeNote}
+          onClose={() => setShowNotes(false)}
         />
       )}
 
