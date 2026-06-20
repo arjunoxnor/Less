@@ -187,9 +187,9 @@ function computeCharacter(
   }
 
   // Name mode: complete a previously-used character, ranked by how much they
-  // speak (and recency) so the leads surface first.
+  // speak (and recency) so the leads surface first. On an EMPTY cue the query
+  // is "" and the whole cast is offered at once (the way Arc Studio does it).
   const query = cueBaseName(upToCaret);
-  if (!query) return closed(lineStart);
   const ownName = cueBaseName(fullText).toUpperCase();
   const pool: Cand[] = outline.characters
     // Hygiene: a stray one-letter cue (a typo) never pollutes suggestions.

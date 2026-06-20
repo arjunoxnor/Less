@@ -16,6 +16,7 @@ import { EMPTY_OUTLINE } from "@/lib/editor/outline";
 import { acceptAutocomplete, type AcState } from "@/lib/editor/autocomplete";
 import { getSpeller } from "@/lib/editor/spellEngine";
 import { rescanSpelling, type SpellState } from "@/lib/editor/spellcheck";
+import { rescanContd } from "@/lib/editor/contd";
 import {
   findPluginKey,
   setFindQuery,
@@ -122,6 +123,7 @@ export function ScreenplayBody({
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
   const spellEnabledRef = useRef(prefs.spellCheck);
   const revisionEnabledRef = useRef(prefs.revisionMode);
+  const contdEnabledRef = useRef(prefs.autoContd);
   const editorRef = useRef<Editor | null>(null);
 
   const debouncedSave = useMemo(
@@ -139,7 +141,7 @@ export function ScreenplayBody({
   }, []);
 
   const computePageCount = useCallback((doc: JSONContent) => {
-    setPageCount(paginate(docToLines(doc)).pageCount);
+    setPageCount(paginate(docToLines(doc), { autoContd: contdEnabledRef.current }).pageCount);
   }, []);
   const debouncedPageCount = useMemo(
     () => debounce((doc: JSONContent) => computePageCount(doc), 300),
@@ -155,6 +157,7 @@ export function ScreenplayBody({
         isSpellEnabled: () => spellEnabledRef.current,
         onSpellState: setSpellState,
         isRevisionEnabled: () => revisionEnabledRef.current,
+        isContdEnabled: () => contdEnabledRef.current,
       }),
     []
   );
@@ -269,6 +272,14 @@ export function ScreenplayBody({
     revisionEnabledRef.current = prefs.revisionMode;
   }, [prefs.revisionMode]);
 
+  useEffect(() => {
+    contdEnabledRef.current = prefs.autoContd;
+    if (editor) {
+      rescanContd(editor.view);
+      computePageCount(editor.getJSON());
+    }
+  }, [prefs.autoContd, editor, computePageCount]);
+
   const clearRevisions = useCallback(() => {
     editor?.chain().focus().clearRevisions().run();
   }, [editor]);
@@ -278,10 +289,11 @@ export function ScreenplayBody({
       if (editor) {
         void exportDoc(editor.getJSON(), format, titlePage ?? undefined, {
           sceneNumbers: prefs.sceneNumbers,
+          autoContd: prefs.autoContd,
         });
       }
     },
-    [editor, titlePage, prefs.sceneNumbers]
+    [editor, titlePage, prefs.sceneNumbers, prefs.autoContd]
   );
 
   const handleImport = useCallback(
@@ -461,10 +473,12 @@ export function ScreenplayBody({
           onToggleSceneNumbers={() => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers })}
           onToggleRevisions={() => onPrefsChange({ revisionMode: !prefs.revisionMode })}
           onClearRevisions={clearRevisions}
+          onToggleContd={() => onPrefsChange({ autoContd: !prefs.autoContd })}
           onToggleDual={toggleDual}
           dualActive={dualActive}
           sceneNumbersOn={prefs.sceneNumbers}
           revisionModeOn={prefs.revisionMode}
+          contdOn={prefs.autoContd}
           scenesOpen={showScenes}
           findOpen={showFind}
           castOpen={showCast}

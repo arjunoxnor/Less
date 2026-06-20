@@ -1403,6 +1403,12 @@ body {
   height: 14px;
 }
 
+/* Auto (CONT'D) marker drawn after a continuation cue (not in the document). */
+.sp-contd {
+  user-select: none;
+  pointer-events: none;
+}
+
 /* ---- Cast and Locations management (Arc-derived) ------------------------ */
 .manage-section-title {
   font-size: 11px;

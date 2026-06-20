@@ -13,6 +13,7 @@ import {
   wrap,
 } from "./layout";
 import { cueBaseName } from "@/lib/editor/outline";
+import { computeContinuations, CONTD } from "@/lib/editor/contd";
 
 /**
  * Rule-aware screenplay pagination.
@@ -147,15 +148,22 @@ function buildDualRows(blocks: Block[], originX: number): Row[] {
 }
 
 /** Pass 1: turn lines into laid-out blocks of physical rows. */
-function buildBlocks(lines: ScriptLine[]): Block[] {
+function buildBlocks(lines: ScriptLine[], contdFlags?: boolean[] | null): Block[] {
   const blocks: Block[] = [];
   let currentCue: string | undefined;
   let sceneCounter = 0;
 
-  for (const line of lines) {
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
     const kind = line.element;
     const el = LAYOUT[kind] ?? LAYOUT.action;
-    const text = sanitize(line.text ?? "");
+    // Auto (CONT'D): a continuation cue prints NAME (CONT'D); the base name is
+    // still recovered by cueBaseName, so currentCue and the cast stay correct.
+    const rawText =
+      kind === "character" && contdFlags?.[li]
+        ? (line.text ?? "") + CONTD
+        : line.text ?? "";
+    const text = sanitize(rawText);
     const rows: Row[] = wrap(text, el.maxChars).map((s) => ({
       text: s,
       x: el.rightAlign ? rightAlignX(s) : el.x,
@@ -196,9 +204,10 @@ function buildBlocks(lines: ScriptLine[]): Block[] {
 /** Pass 2: place blocks onto pages, applying the break rules. */
 export function paginate(
   lines: ScriptLine[],
-  opts?: { sceneNumbers?: boolean }
+  opts?: { sceneNumbers?: boolean; autoContd?: boolean }
 ): PaginateResult {
-  const blocks = buildBlocks(lines);
+  const contdFlags = opts?.autoContd ? computeContinuations(lines) : null;
+  const blocks = buildBlocks(lines, contdFlags);
   const sceneNumbers = opts?.sceneNumbers ?? false;
 
   const pages: Page[] = [];

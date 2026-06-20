@@ -34,10 +34,12 @@ export function ScreenplayToolbar({
   onToggleSceneNumbers,
   onToggleRevisions,
   onClearRevisions,
+  onToggleContd,
   onToggleDual,
   dualActive,
   sceneNumbersOn,
   revisionModeOn,
+  contdOn,
   scenesOpen,
   findOpen,
   castOpen,
@@ -60,10 +62,12 @@ export function ScreenplayToolbar({
   onToggleSceneNumbers: () => void;
   onToggleRevisions: () => void;
   onClearRevisions: () => void;
+  onToggleContd: () => void;
   onToggleDual: () => void;
   dualActive: boolean;
   sceneNumbersOn: boolean;
   revisionModeOn: boolean;
+  contdOn: boolean;
   scenesOpen: boolean;
   findOpen: boolean;
   castOpen: boolean;
@@ -237,6 +241,14 @@ export function ScreenplayToolbar({
             Clear marks
           </button>
         )}
+        <button
+          type="button"
+          className={"tb-btn" + (contdOn ? " tb-btn-active" : "")}
+          onClick={onToggleContd}
+          title="Auto (CONT'D) when a character speaks again"
+        >
+          CONT&apos;D
+        </button>
       </div>
     </>
   );

@@ -27,6 +27,7 @@ export interface Prefs {
   spellCheck: boolean;
   sceneNumbers: boolean;
   revisionMode: boolean;
+  autoContd: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -36,6 +37,7 @@ export const DEFAULT_PREFS: Prefs = {
   spellCheck: true,
   sceneNumbers: false,
   revisionMode: false,
+  autoContd: false,
 };
 
 /** Load the saved document, or null if this is a first visit. */

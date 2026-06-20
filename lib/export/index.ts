@@ -45,7 +45,7 @@ export async function exportDoc(
   doc: JSONContent,
   format: ExportFormat,
   titlePage?: TitlePage | null,
-  opts?: { sceneNumbers?: boolean }
+  opts?: { sceneNumbers?: boolean; autoContd?: boolean }
 ): Promise<void> {
   const lines = docToLines(doc);
   const title = deriveTitle(doc);

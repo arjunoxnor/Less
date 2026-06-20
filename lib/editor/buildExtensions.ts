@@ -7,6 +7,7 @@ import { ScreenplayKeymap } from "./keymap";
 import { AutoCaps } from "./autoCaps";
 import { AutoElement } from "./autoElement";
 import { ElementIcons } from "./elementIcons";
+import { buildContdMarkers } from "./contd";
 import { buildAutocomplete, type AcState } from "./autocomplete";
 import { FindReplace } from "./findPlugin";
 import { buildSpellcheck, type SpellState } from "./spellcheck";
@@ -63,6 +64,8 @@ export function buildExtensions(opts?: {
   onSpellState?: (state: SpellState | null) => void;
   /** Live read of the user's Revisions toggle (auto-marks edited lines). */
   isRevisionEnabled?: () => boolean;
+  /** Live read of the user's auto-(CONT'D) toggle. */
+  isContdEnabled?: () => boolean;
 }) {
   const getOutline = opts?.getOutline ?? (() => EMPTY_OUTLINE);
   const extensions = [
@@ -102,6 +105,10 @@ export function buildExtensions(opts?: {
   // Revision tracking marks edited lines while revision mode is on.
   if (opts?.isRevisionEnabled) {
     extensions.push(buildRevisionTracker(opts.isRevisionEnabled));
+  }
+  // Auto (CONT'D) markers, gated by a live-read toggle.
+  if (opts?.isContdEnabled) {
+    extensions.push(buildContdMarkers(opts.isContdEnabled));
   }
   return extensions;
 }

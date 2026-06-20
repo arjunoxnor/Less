@@ -89,7 +89,7 @@ function drawTitlePage(pdf: PDFDocument, font: PDFFont, tp: TitlePage) {
 export async function exportPdf(
   lines: ScriptLine[],
   titlePage?: TitlePage | null,
-  opts?: { sceneNumbers?: boolean }
+  opts?: { sceneNumbers?: boolean; autoContd?: boolean }
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Courier);
