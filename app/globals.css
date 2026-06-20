@@ -1382,6 +1382,25 @@ body {
   color: #e0533b;
 }
 
+/* ---- Cast and Locations management (Arc-derived) ------------------------ */
+.manage-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  padding: 12px 14px 4px;
+}
+.manage-rename {
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+
 /* ---- Revision marks (Phase 10) ------------------------------------------ */
 /* A red asterisk in the right gutter marks a revised line (PDF matches). */
 .sp-prose .sp-line[data-revised] {

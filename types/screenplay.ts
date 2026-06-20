@@ -53,6 +53,8 @@ export interface LocationEntry {
   scenes: number;
   /** Line index of the most recent sighting, for recency ranking. */
   lastIndex: number;
+  /** Jump target: the first scene heading that uses this location. */
+  pos: number;
   /** Sub-locations seen under this parent (e.g. KITCHEN under HOUSE). */
   subLocations: string[];
 }

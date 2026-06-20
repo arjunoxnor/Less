@@ -192,7 +192,8 @@ function computeCharacter(
   if (!query) return closed(lineStart);
   const ownName = cueBaseName(fullText).toUpperCase();
   const pool: Cand[] = outline.characters
-    .filter((c) => c.name.toUpperCase() !== ownName)
+    // Hygiene: a stray one-letter cue (a typo) never pollutes suggestions.
+    .filter((c) => c.name.trim().length >= 2 && c.name.toUpperCase() !== ownName)
     .map((c) => ({
       text: c.name,
       hint: c.lines === 1 ? "1 line" : `${c.lines} lines`,
@@ -340,12 +341,14 @@ function computeSceneHeading(
   const locEnd = hasTime ? sepIdx : fullText.length;
   const query = fullText.slice(prefixEnd, locEnd).trim().toUpperCase();
   if (!query) return closed(lineStart);
-  const pool: Cand[] = outline.locations.map((l) => ({
-    text: l.name,
-    hint: l.scenes === 1 ? "1 scene" : `${l.scenes} scenes`,
-    freq: l.scenes,
-    recency: l.lastIndex,
-  }));
+  const pool: Cand[] = outline.locations
+    .filter((l) => l.name.trim().length >= 2)
+    .map((l) => ({
+      text: l.name,
+      hint: l.scenes === 1 ? "1 scene" : `${l.scenes} scenes`,
+      freq: l.scenes,
+      recency: l.lastIndex,
+    }));
   const items = rankCandidates(query, pool, { fuzzy: true });
   if (items.length === 0) return closed(lineStart);
   return open(items, lineStart + prefixEnd, lineStart + locEnd, lineStart);

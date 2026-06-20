@@ -27,6 +27,7 @@ import {
   previewRename,
   renameCharacterEverywhere,
 } from "@/lib/editor/renameCharacter";
+import { renameLocationEverywhere } from "@/lib/editor/renameLocation";
 import type { Outline } from "@/types/screenplay";
 import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
@@ -381,11 +382,21 @@ export function ScreenplayBody({
     setRenameFrom(null);
     setShowFind((v) => !v);
   }, []);
-  const onCastRename = useCallback((name: string) => {
-    setRenameFrom(name);
-    setRenameTick((t) => t + 1);
-    setShowFind(true);
-  }, []);
+
+  // Inline rename from the Cast and Locations panel: cue-only / heading-only,
+  // one undo step, no mention rewriting (the Find panel covers that case).
+  const onRenameCharacter = useCallback(
+    (from: string, to: string) => {
+      if (editor) renameCharacterEverywhere(editor.view, from, to, { includeMentions: false });
+    },
+    [editor]
+  );
+  const onRenameLocation = useCallback(
+    (from: string, to: string) => {
+      if (editor) renameLocationEverywhere(editor.view, from, to);
+    },
+    [editor]
+  );
 
   const toggleDual = useCallback(() => {
     editor?.chain().focus().toggleDual().run();
@@ -506,8 +517,10 @@ export function ScreenplayBody({
       {showCast && (
         <CastListPanel
           cast={outline.cast}
+          locations={outline.locations}
           onJump={jumpToScene}
-          onRename={onCastRename}
+          onRenameCharacter={onRenameCharacter}
+          onRenameLocation={onRenameLocation}
           onClose={() => setShowCast(false)}
         />
       )}

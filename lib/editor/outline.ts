@@ -126,6 +126,7 @@ interface CharAccum {
 interface LocAccum {
   scenes: Set<number>;
   lastIndex: number;
+  pos: number;
 }
 
 /** Find the last " - " / " -- " separator in a location, splitting parent/sub. */
@@ -183,7 +184,7 @@ export function buildOutline(doc: PMNode): Outline {
         const key = location.toUpperCase();
         let le = locMap.get(key);
         if (!le) {
-          le = { scenes: new Set(), lastIndex: index };
+          le = { scenes: new Set(), lastIndex: index, pos };
           locMap.set(key, le);
         }
         le.scenes.add(sceneCounter);
@@ -268,6 +269,7 @@ export function buildOutline(doc: PMNode): Outline {
       name,
       scenes: v.scenes.size,
       lastIndex: v.lastIndex,
+      pos: v.pos,
       subLocations: [...(subLocMap.get(name) ?? [])],
     }))
     .sort((a, b) => b.scenes - a.scenes || a.name.localeCompare(b.name));
