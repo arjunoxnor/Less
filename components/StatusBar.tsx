@@ -8,11 +8,13 @@ import { ELEMENT_LABELS, type ElementType } from "@/lib/editor/elements";
  */
 export function StatusBar({
   pageCount,
+  pageTarget,
   wordCount,
   currentElement,
   saved,
 }: {
   pageCount: number;
+  pageTarget?: number;
   wordCount: number;
   currentElement: ElementType;
   saved: boolean;
@@ -25,8 +27,16 @@ export function StatusBar({
       <span className="status-spacer" />
       <span className="status-item">{wordCount.toLocaleString()} words</span>
       <span className="status-item">
-        {pageCount} {pageCount === 1 ? "page" : "pages"}
-        <span className="status-sub"> · ~{pageCount} min</span>
+        {pageTarget ? (
+          <>
+            {pageCount} / {pageTarget} {pageTarget === 1 ? "page" : "pages"}
+          </>
+        ) : (
+          <>
+            {pageCount} {pageCount === 1 ? "page" : "pages"}
+            <span className="status-sub"> · ~{pageCount} min</span>
+          </>
+        )}
       </span>
       <span className="status-item status-saved">
         {saved ? "Saved" : "Saving…"}

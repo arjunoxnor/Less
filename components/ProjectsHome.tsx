@@ -10,6 +10,7 @@ import type {
   ProjectType,
 } from "@/lib/storage/projects";
 import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
+import { hasTitlePage, type TitlePage } from "@/lib/export/titlePage";
 
 const STATUS_LABEL: Record<ProjectStatus, string> = {
   not_started: "Not started",
@@ -65,7 +66,11 @@ export function ProjectsHome({
   onPrefsChange: (next: Partial<Prefs>) => void;
   lastOpenedId: string | null;
   onOpen: (id: string) => void;
-  onCreate: (type: ProjectType, title: string, content?: JSONContent) => void;
+  onCreate: (
+    type: ProjectType,
+    title: string,
+    opts?: { content?: JSONContent; titlePage?: TitlePage | null; pageTarget?: number }
+  ) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onStatusChange: (id: string, status: ProjectStatus) => void;
@@ -76,6 +81,8 @@ export function ProjectsHome({
   const [newType, setNewType] = useState<ProjectType>("screenplay");
   const [newName, setNewName] = useState("");
   const [newTemplate, setNewTemplate] = useState("blank");
+  const [newWrittenBy, setNewWrittenBy] = useState("");
+  const [newPageTarget, setNewPageTarget] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -93,11 +100,27 @@ export function ProjectsHome({
       newType === "screenplay" && newTemplate !== "blank"
         ? buildTemplate(newTemplate) ?? undefined
         : undefined;
-    onCreate(newType, newName.trim(), content);
+    let titlePage: TitlePage | undefined;
+    let pageTarget: number | undefined;
+    if (newType === "screenplay") {
+      const name = newName.trim();
+      const wb = newWrittenBy.trim();
+      const tp: TitlePage = {
+        title: name || undefined,
+        credit: wb ? "Written by" : undefined,
+        author: wb || undefined,
+      };
+      if (hasTitlePage(tp)) titlePage = tp;
+      const pt = parseInt(newPageTarget, 10);
+      if (!Number.isNaN(pt) && pt > 0) pageTarget = pt;
+    }
+    onCreate(newType, newName.trim(), { content, titlePage, pageTarget });
     setShowNew(false);
     setNewName("");
     setNewType("screenplay");
     setNewTemplate("blank");
+    setNewWrittenBy("");
+    setNewPageTarget("");
   };
 
   const commitRename = (id: string) => {
@@ -225,10 +248,15 @@ export function ProjectsHome({
           <button
             type="button"
             className="tb-btn"
-            onClick={() => onPrefsChange({ theme: prefs.theme === "dark" ? "light" : "dark" })}
-            title="Toggle dark mode"
+            onClick={() =>
+              onPrefsChange({
+                theme:
+                  prefs.theme === "light" ? "dark" : prefs.theme === "dark" ? "system" : "light",
+              })
+            }
+            title="Theme: light, dark, or system. Click to cycle."
           >
-            {prefs.theme === "dark" ? "Light" : "Dark"}
+            {prefs.theme === "system" ? "System" : prefs.theme === "dark" ? "Dark" : "Light"}
           </button>
         </div>
         <button type="button" className="tb-btn tb-btn-active home-new" onClick={() => setShowNew(true)}>
@@ -335,6 +363,28 @@ export function ProjectsHome({
                   ))}
                 </select>
               </label>
+            )}
+            {newType === "screenplay" && (
+              <>
+                <label className="field">
+                  <span>Written by (optional)</span>
+                  <input
+                    placeholder="Your name"
+                    value={newWrittenBy}
+                    onChange={(e) => setNewWrittenBy(e.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Page target (optional)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 110"
+                    value={newPageTarget}
+                    onChange={(e) => setNewPageTarget(e.target.value)}
+                  />
+                </label>
+              </>
             )}
             <div className="modal-actions">
               <button type="button" className="tb-btn" onClick={() => setShowNew(false)}>

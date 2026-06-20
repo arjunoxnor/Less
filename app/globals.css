@@ -33,6 +33,8 @@ body {
   --btn-active-fg: #1d4fd8;
   --placeholder: #bdbdc6;
   --shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
+  /* A subtle blue ambient glow around the page (the user's accent of choice). */
+  --accent-glow: rgba(47, 109, 246, 0.18);
 }
 
 :root[data-theme="dark"] {
@@ -49,6 +51,7 @@ body {
   --btn-active-fg: #cfdcff;
   --placeholder: #5b5b66;
   --shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
+  --accent-glow: rgba(111, 155, 255, 0.22);
 }
 
 body {
@@ -265,7 +268,7 @@ body {
   padding: 1in 1in 1in 1.5in;
   background: var(--page-bg);
   color: var(--page-fg);
-  box-shadow: var(--shadow);
+  box-shadow: 0 0 100px -30px var(--accent-glow), var(--shadow);
   font-family: var(--sp-font);
   font-size: 12pt;
   line-height: 16px; /* 6 lines per inch */
@@ -1135,7 +1138,7 @@ body {
   min-height: 60vh;
   background: var(--page-bg);
   color: var(--page-fg);
-  box-shadow: var(--shadow);
+  box-shadow: 0 0 100px -30px var(--accent-glow), var(--shadow);
   border-radius: 4px;
   padding: 56px 64px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;

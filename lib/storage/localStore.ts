@@ -18,7 +18,7 @@ const LAST_SAVED_KEY = "less:lastSavedAt";
 const DIRTY_KEY = "less:dirty";
 
 export type FontChoice = "courier" | "courier-prime";
-export type ThemeChoice = "light" | "dark";
+export type ThemeChoice = "light" | "dark" | "system";
 
 export interface Prefs {
   font: FontChoice;

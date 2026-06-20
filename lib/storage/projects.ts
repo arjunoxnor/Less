@@ -28,6 +28,8 @@ export interface ProjectMeta {
   cloudCreated: boolean;
   /** True once the user names/renames it, so autosave stops auto-deriving the title. */
   titleManual?: boolean;
+  /** Optional goal page count, shown in the status bar (local-only). */
+  pageTarget?: number;
 }
 
 /** A full project: metadata plus its body. */
@@ -155,7 +157,12 @@ export function saveProjectTitlePage(id: string, tp: TitlePage | null): void {
 /** Create a new local project (instant, offline-safe). */
 export function createProject(
   type: ProjectType,
-  opts?: { title?: string; content?: JSONContent }
+  opts?: {
+    title?: string;
+    content?: JSONContent;
+    titlePage?: TitlePage | null;
+    pageTarget?: number;
+  }
 ): Project {
   const id = crypto.randomUUID();
   const content =
@@ -170,12 +177,14 @@ export function createProject(
     updatedAt: ts,
     cloudCreated: false,
     titleManual: Boolean(opts?.title?.trim()),
+    ...(opts?.pageTarget ? { pageTarget: opts.pageTarget } : {}),
   };
   lsSet(docKey(id), JSON.stringify(content));
+  if (opts?.titlePage) saveProjectTitlePage(id, opts.titlePage);
   const list = readIndex();
   list.unshift(meta);
   writeIndex(list);
-  return { ...meta, content, titlePage: null };
+  return { ...meta, content, titlePage: opts?.titlePage ?? null };
 }
 
 export function renameProject(id: string, title: string): void {

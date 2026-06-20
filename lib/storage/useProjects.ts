@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { JSONContent } from "@tiptap/core";
+import type { TitlePage } from "@/lib/export/titlePage";
 
 import {
   clearAllBookkeeping,
@@ -58,8 +59,17 @@ export function useProjects(user: User | null) {
   }, [refresh]);
 
   const create = useCallback(
-    (type: ProjectType, title?: string, content?: JSONContent): ProjectMeta => {
-      const meta = localCreate(type, { title, content });
+    (
+      type: ProjectType,
+      title?: string,
+      opts?: { content?: JSONContent; titlePage?: TitlePage | null; pageTarget?: number }
+    ): ProjectMeta => {
+      const meta = localCreate(type, {
+        title,
+        content: opts?.content,
+        titlePage: opts?.titlePage,
+        pageTarget: opts?.pageTarget,
+      });
       if (user && online()) {
         const doc = loadProjectDoc(meta.id);
         if (doc) {
@@ -67,6 +77,7 @@ export function useProjects(user: User | null) {
             id: meta.id,
             type,
             status: meta.status,
+            titlePage: opts?.titlePage,
           })
             .then(() => markCloudCreated(meta.id))
             .catch((e) => console.error("cloud create failed", e));

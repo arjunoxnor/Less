@@ -46,8 +46,21 @@ export function AppShell() {
 
   useEffect(() => {
     savePrefs(prefs);
-    if (typeof document !== "undefined") {
-      document.documentElement.dataset.theme = prefs.theme;
+    if (typeof document === "undefined") return;
+    const apply = () => {
+      const resolved =
+        prefs.theme === "system"
+          ? window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light"
+          : prefs.theme;
+      document.documentElement.dataset.theme = resolved;
+    };
+    apply();
+    if (prefs.theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
     }
   }, [prefs]);
 
@@ -100,8 +113,16 @@ export function AppShell() {
   }, [refresh]);
 
   const onCreate = useCallback(
-    (type: ProjectType, title: string, content?: import("@tiptap/core").JSONContent) => {
-      const meta = create(type, title || undefined, content);
+    (
+      type: ProjectType,
+      title: string,
+      opts?: {
+        content?: import("@tiptap/core").JSONContent;
+        titlePage?: import("@/lib/export/titlePage").TitlePage | null;
+        pageTarget?: number;
+      }
+    ) => {
+      const meta = create(type, title || undefined, opts);
       openProject(meta.id);
     },
     [create, openProject]

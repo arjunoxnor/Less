@@ -143,10 +143,15 @@ export function EditorChrome({
           <button
             type="button"
             className="tb-btn"
-            onClick={() => onPrefsChange({ theme: prefs.theme === "dark" ? "light" : "dark" })}
-            title="Toggle dark mode"
+            onClick={() =>
+              onPrefsChange({
+                theme:
+                  prefs.theme === "light" ? "dark" : prefs.theme === "dark" ? "system" : "light",
+              })
+            }
+            title="Theme: light, dark, or system. Click to cycle."
           >
-            {prefs.theme === "dark" ? "Light" : "Dark"}
+            {prefs.theme === "system" ? "System" : prefs.theme === "dark" ? "Dark" : "Light"}
           </button>
           <button
             type="button"

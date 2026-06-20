@@ -33,6 +33,7 @@ import type { Outline } from "@/types/screenplay";
 import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
   EMPTY_SCREENPLAY,
+  getProjectMeta,
   loadProjectDoc,
   saveProjectDoc,
   loadProjectTitlePage,
@@ -93,6 +94,7 @@ export function ScreenplayBody({
     () => loadProjectDoc(projectId) ?? EMPTY_SCREENPLAY,
     [projectId]
   );
+  const pageTarget = useMemo(() => getProjectMeta(projectId)?.pageTarget, [projectId]);
 
   const [currentElement, setCurrentElement] = useState<ElementType>("action");
   const [pageCount, setPageCount] = useState(1);
@@ -495,6 +497,7 @@ export function ScreenplayBody({
 
       <StatusBar
         pageCount={pageCount}
+        pageTarget={pageTarget}
         wordCount={wordCount}
         currentElement={currentElement}
         saved={saved}
