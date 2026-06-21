@@ -1539,6 +1539,60 @@ body {
   min-height: 48px;
 }
 
+/* ---- Nested-folder breadcrumb + current-folder bar --------------------- */
+.crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+.crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.crumb {
+  font-size: 15px;
+  color: var(--muted);
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.crumb:hover {
+  color: var(--toolbar-fg);
+  background: var(--btn-bg);
+}
+.crumb-cur {
+  color: var(--toolbar-fg);
+  font-weight: 700;
+  cursor: default;
+}
+.crumb-cur:hover {
+  background: none;
+}
+.crumb-drop {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-fg);
+  outline: 1px dashed var(--accent);
+}
+.crumb-sep {
+  color: var(--muted);
+  font-size: 14px;
+}
+.cur-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--toolbar-bg);
+}
+
 /* ---- Editor chrome (project bar above the type toolbar) ----------------- */
 
 .chrome-bar {

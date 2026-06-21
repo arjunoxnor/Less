@@ -42,6 +42,8 @@ export interface Folder {
   name: string;
   color: string;
   stage: Stage;
+  /** Parent folder id for nesting; undefined = top level. */
+  parentId?: string;
   /** Manual order in the list (drag to reorder). */
   order: number;
   /** Device-local fold state for the expander. */
@@ -78,15 +80,17 @@ export function listFolders(): Folder[] {
     .sort((a, b) => a.order - b.order || (a.createdAt < b.createdAt ? -1 : 1));
 }
 
-export function createFolder(name?: string): Folder {
+export function createFolder(name?: string, parentId?: string): Folder {
   const list = readAll();
+  const siblings = list.filter((f) => (f.parentId ?? null) === (parentId ?? null));
   const ts = nowIso();
   const folder: Folder = {
     id: crypto.randomUUID(),
     name: name?.trim() || "New folder",
     color: FOLDER_COLORS[list.length % FOLDER_COLORS.length],
     stage: "in_progress",
-    order: list.length ? Math.max(...list.map((f) => f.order)) + 1 : 0,
+    parentId: parentId ?? undefined,
+    order: siblings.length ? Math.max(...siblings.map((f) => f.order)) + 1 : 0,
     createdAt: ts,
     updatedAt: ts,
   };
@@ -96,13 +100,23 @@ export function createFolder(name?: string): Folder {
 
 export function updateFolder(
   id: string,
-  patch: Partial<Pick<Folder, "name" | "color" | "stage" | "collapsed">>
+  patch: Partial<Pick<Folder, "name" | "color" | "stage" | "collapsed">> & {
+    /** string nests under that folder; null moves to the top level. */
+    parentId?: string | null;
+  }
 ): void {
   const list = readAll();
   const i = list.findIndex((f) => f.id === id);
   if (i < 0) return;
-  const next = { ...list[i], ...patch };
+  const next: Folder = { ...list[i] };
   if (patch.name !== undefined) next.name = patch.name.trim() || "Untitled folder";
+  if (patch.color !== undefined) next.color = patch.color;
+  if (patch.stage !== undefined) next.stage = patch.stage;
+  if (patch.collapsed !== undefined) next.collapsed = patch.collapsed;
+  if (patch.parentId !== undefined) {
+    if (patch.parentId === null) delete next.parentId;
+    else next.parentId = patch.parentId;
+  }
   next.updatedAt = nowIso();
   list[i] = next;
   writeAll(list);

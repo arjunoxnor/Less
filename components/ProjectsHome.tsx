@@ -14,7 +14,6 @@ import {
   createFolder,
   updateFolder,
   deleteFolder,
-  reorderFolders,
   stageOfStatus,
   FOLDER_COLORS,
   STAGE_LABEL,
@@ -87,7 +86,12 @@ export function ProjectsHome({
   onCreate: (
     type: ProjectType,
     title: string,
-    opts?: { content?: JSONContent; titlePage?: TitlePage | null; pageTarget?: number }
+    opts?: {
+      content?: JSONContent;
+      titlePage?: TitlePage | null;
+      pageTarget?: number;
+      folderId?: string | null;
+    }
   ) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
@@ -112,10 +116,10 @@ export function ProjectsHome({
   const reloadFolders = () => setFolders(listFolders());
   useEffect(reloadFolders, []);
 
-  const [openFolder, setOpenFolder] = useState<string | null>(null);
+  // null = top level ("Projects"). The folder we are currently inside.
+  const [cwd, setCwd] = useState<string | null>(null);
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<Folder | null>(null);
 
-  // Drag bookkeeping. Refs hold the dragged item; dropHi drives the highlight.
   const dragKind = useRef<null | "project" | "folder">(null);
   const dragId = useRef<string | null>(null);
   const [dropHi, setDropHi] = useState<string | null>(null);
@@ -129,8 +133,10 @@ export function ProjectsHome({
     if (renaming) renameRef.current?.focus();
   }, [renaming]);
 
-  const continueProject =
-    lastOpenedId != null ? projects.find((p) => p.id === lastOpenedId) ?? null : null;
+  // If the folder we are inside disappears (deleted elsewhere), fall back to root.
+  useEffect(() => {
+    if (cwd && !folders.some((f) => f.id === cwd)) setCwd(null);
+  }, [folders, cwd]);
 
   const byOrder = (a: ProjectMeta, b: ProjectMeta) =>
     (a.order ?? Infinity) - (b.order ?? Infinity) ||
@@ -138,8 +144,31 @@ export function ProjectsHome({
 
   const chipsIn = (folderId: string | null) =>
     projects.filter((p) => (p.folderId ?? null) === folderId).sort(byOrder);
+  const subfolders = (parentId: string | null) =>
+    folders.filter((f) => (f.parentId ?? null) === parentId).sort((a, b) => a.order - b.order);
 
-  // Move a project into a container (folder id or null for loose), appended last.
+  // The breadcrumb path from root down to the current folder.
+  const path: Folder[] = [];
+  {
+    let c = folders.find((f) => f.id === cwd) ?? null;
+    while (c) {
+      path.unshift(c);
+      const pid = c.parentId;
+      c = pid ? folders.find((f) => f.id === pid) ?? null : null;
+    }
+  }
+  const currentFolder = folders.find((f) => f.id === cwd) ?? null;
+
+  // True if `ancestorId` is `nodeId` or an ancestor of it (cycle guard for nesting).
+  const isAncestor = (ancestorId: string, nodeId: string): boolean => {
+    let c: Folder | undefined = folders.find((f) => f.id === nodeId);
+    while (c) {
+      if (c.id === ancestorId) return true;
+      c = c.parentId ? folders.find((f) => f.id === c!.parentId) : undefined;
+    }
+    return false;
+  };
+
   const fileInto = (id: string, folderId: string | null) => {
     const cur = projects.find((p) => p.id === id);
     if ((cur?.folderId ?? null) === folderId) return;
@@ -151,8 +180,6 @@ export function ProjectsHome({
     onReorder(ids);
   };
 
-  // Drop a project before another chip: file into that chip's container (if
-  // needed) and order it just before the target.
   const moveBefore = (id: string, target: ProjectMeta) => {
     if (id === target.id) return;
     const container = target.folderId ?? null;
@@ -164,6 +191,13 @@ export function ProjectsHome({
     const cur = projects.find((p) => p.id === id);
     if ((cur?.folderId ?? null) !== container) onSetFolder(id, container);
     onReorder(ids);
+  };
+
+  const nestFolder = (id: string, parentId: string | null) => {
+    if (id === parentId) return;
+    if (parentId && isAncestor(id, parentId)) return; // no folder inside itself
+    updateFolder(id, { parentId });
+    reloadFolders();
   };
 
   const create = () => {
@@ -185,7 +219,7 @@ export function ProjectsHome({
       const pt = parseInt(newPageTarget, 10);
       if (!Number.isNaN(pt) && pt > 0) pageTarget = pt;
     }
-    onCreate(newType, newName.trim(), { content, titlePage, pageTarget });
+    onCreate(newType, newName.trim(), { content, titlePage, pageTarget, folderId: cwd });
     setShowNew(false);
     setNewName("");
     setNewType("screenplay");
@@ -202,17 +236,23 @@ export function ProjectsHome({
   };
 
   const addFolder = () => {
-    const f = createFolder();
+    const f = createFolder(undefined, cwd ?? undefined);
     reloadFolders();
-    setOpenFolder(f.id);
+    setCwd(f.id); // go inside it so it can be named
   };
 
   const removeFolder = (f: Folder) => {
-    projects.filter((p) => p.folderId === f.id).forEach((p) => onSetFolder(p.id, null));
+    // Lift its sub-folders and projects up to its parent; never delete content.
+    folders.filter((sf) => sf.parentId === f.id).forEach((sf) =>
+      updateFolder(sf.id, { parentId: f.parentId ?? null })
+    );
+    projects.filter((p) => p.folderId === f.id).forEach((p) =>
+      onSetFolder(p.id, f.parentId ?? null)
+    );
     deleteFolder(f.id);
     reloadFolders();
+    setCwd(f.parentId ?? null);
     setConfirmDeleteFolder(null);
-    if (openFolder === f.id) setOpenFolder(null);
   };
 
   const projectChip = (p: ProjectMeta) => {
@@ -315,15 +355,15 @@ export function ProjectsHome({
   };
 
   const folderTile = (f: Folder) => {
-    const count = projects.filter((p) => p.folderId === f.id).length;
+    const count =
+      projects.filter((p) => p.folderId === f.id).length +
+      folders.filter((x) => x.parentId === f.id).length;
     return (
       <div
         key={f.id}
         className={
           "folder-tile" +
-          (dropHi === "folder:" + f.id ? " folder-tile-drop" : "") +
-          (dropHi === "freorder:" + f.id ? " folder-tile-reorder" : "") +
-          (openFolder === f.id ? " folder-tile-open" : "")
+          (dropHi === "folder:" + f.id ? " folder-tile-drop" : "")
         }
         draggable
         onDragStart={(e) => {
@@ -334,37 +374,33 @@ export function ProjectsHome({
         }}
         onDragEnd={clearDrag}
         onDragOver={(e) => {
-          if (dragKind.current === "project") {
+          const k = dragKind.current;
+          if (k === "project" || (k === "folder" && dragId.current && !isAncestor(dragId.current, f.id))) {
             e.preventDefault();
+            e.stopPropagation();
             setDropHi("folder:" + f.id);
-          } else if (dragKind.current === "folder" && dragId.current !== f.id) {
-            e.preventDefault();
-            setDropHi("freorder:" + f.id);
           }
         }}
         onDrop={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           if (dragKind.current === "project" && dragId.current) {
             fileInto(dragId.current, f.id);
-          } else if (dragKind.current === "folder" && dragId.current && dragId.current !== f.id) {
-            const ids = folders.map((x) => x.id).filter((x) => x !== dragId.current);
-            const at = ids.indexOf(f.id);
-            ids.splice(at < 0 ? ids.length : at, 0, dragId.current);
-            reorderFolders(ids);
-            reloadFolders();
+          } else if (dragKind.current === "folder" && dragId.current) {
+            nestFolder(dragId.current, f.id);
           }
           clearDrag();
         }}
-        onClick={() => setOpenFolder(openFolder === f.id ? null : f.id)}
+        onClick={() => setCwd(f.id)}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setOpenFolder(openFolder === f.id ? null : f.id);
+            setCwd(f.id);
           }
         }}
-        title={count === 1 ? "1 project" : `${count} projects`}
+        title={count === 1 ? "1 item" : `${count} items`}
       >
         <div className="folder-tile-top">
           <FolderGlyph color={f.color} />
@@ -376,9 +412,46 @@ export function ProjectsHome({
     );
   };
 
-  const loose = chipsIn(null);
-  const open = folders.find((f) => f.id === openFolder) ?? null;
-  const openChips = open ? chipsIn(open.id) : [];
+  // A breadcrumb crumb that is also a drop target for moving items up a level.
+  const crumb = (id: string | null, label: string, isLast: boolean) => (
+    <span
+      key={id ?? "root"}
+      className={"crumb" + (isLast ? " crumb-cur" : "") + (dropHi === "crumb:" + (id ?? "root") ? " crumb-drop" : "")}
+      onClick={() => !isLast && setCwd(id)}
+      role={isLast ? undefined : "button"}
+      tabIndex={isLast ? undefined : 0}
+      onKeyDown={(e) => {
+        if (!isLast && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          setCwd(id);
+        }
+      }}
+      onDragOver={(e) => {
+        const k = dragKind.current;
+        if (k === "project" || (k === "folder" && dragId.current && !isAncestor(dragId.current, id ?? "") && dragId.current !== id)) {
+          e.preventDefault();
+          setDropHi("crumb:" + (id ?? "root"));
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        if (dragKind.current === "project" && dragId.current) fileInto(dragId.current, id);
+        else if (dragKind.current === "folder" && dragId.current) nestFolder(dragId.current, id);
+        clearDrag();
+      }}
+    >
+      {label}
+    </span>
+  );
+
+  const continueProject =
+    cwd === null && lastOpenedId != null
+      ? projects.find((p) => p.id === lastOpenedId) ?? null
+      : null;
+
+  const levelFolders = subfolders(cwd);
+  const levelChips = chipsIn(cwd);
+  const empty = levelFolders.length === 0 && levelChips.length === 0;
 
   return (
     <div className="home">
@@ -426,7 +499,7 @@ export function ProjectsHome({
             {prefs.theme === "system" ? "System" : prefs.theme === "dark" ? "Dark" : "Light"}
           </button>
         </div>
-        <button type="button" className="tb-btn" onClick={addFolder} title="Create a folder">
+        <button type="button" className="tb-btn" onClick={addFolder} title="Create a folder here">
           New folder
         </button>
         <button type="button" className="tb-btn tb-btn-active home-new" onClick={() => setShowNew(true)}>
@@ -448,6 +521,68 @@ export function ProjectsHome({
           </div>
         ) : (
           <>
+            <div className="crumbs">
+              {crumb(null, "Projects", path.length === 0)}
+              {path.map((f, i) => (
+                <span key={f.id} className="crumb-wrap">
+                  <span className="crumb-sep" aria-hidden="true">›</span>
+                  {crumb(f.id, f.name, i === path.length - 1)}
+                </span>
+              ))}
+            </div>
+
+            {currentFolder && (
+              <div className="cur-folder">
+                <span className="folder-dot" style={{ background: currentFolder.color }} aria-hidden="true" />
+                <input
+                  className="folder-name-input"
+                  value={currentFolder.name}
+                  onChange={(e) => {
+                    updateFolder(currentFolder.id, { name: e.target.value });
+                    reloadFolders();
+                  }}
+                  aria-label="Folder name"
+                />
+                <div className="folder-swatches" role="group" aria-label="Folder color">
+                  {FOLDER_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={"swatch" + (currentFolder.color === c ? " swatch-on" : "")}
+                      style={{ background: c }}
+                      onClick={() => {
+                        updateFolder(currentFolder.id, { color: c });
+                        reloadFolders();
+                      }}
+                      aria-label={"Color " + c}
+                    />
+                  ))}
+                </div>
+                <select
+                  className="folder-stage-select"
+                  value={currentFolder.stage}
+                  onChange={(e) => {
+                    updateFolder(currentFolder.id, { stage: e.target.value as Stage });
+                    reloadFolders();
+                  }}
+                  aria-label="Folder stage"
+                >
+                  {STAGE_ORDER.map((s) => (
+                    <option key={s} value={s}>
+                      {STAGE_LABEL[s]}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="tb-btn tb-btn-danger"
+                  onClick={() => setConfirmDeleteFolder(currentFolder)}
+                >
+                  Delete folder
+                </button>
+              </div>
+            )}
+
             {continueProject && (
               <div className="home-continue">
                 <div className="home-continue-label">Continue</div>
@@ -463,117 +598,35 @@ export function ProjectsHome({
               </div>
             )}
 
-            <div className="home-sec-label">Projects</div>
             <div
-              className={"chip-grid" + (dropHi === "loose" ? " grid-drop" : "")}
+              className={"chip-grid" + (dropHi === "level" ? " grid-drop" : "")}
               onDragOver={(e) => {
                 if (dragKind.current === "project") {
                   e.preventDefault();
-                  setDropHi("loose");
+                  setDropHi("level");
                 }
               }}
               onDrop={(e) => {
                 if (dragKind.current === "project" && dragId.current) {
                   e.preventDefault();
-                  fileInto(dragId.current, null);
+                  fileInto(dragId.current, cwd);
                 }
                 clearDrag();
               }}
             >
-              {loose.length === 0 ? (
-                <div className="chip-grid-empty">Every project is filed into a folder.</div>
+              {empty ? (
+                <div className="chip-grid-empty">
+                  {currentFolder
+                    ? "This folder is empty. Drag projects or folders onto its name in the trail above to move them out, or create new ones here."
+                    : "Nothing here yet."}
+                </div>
               ) : (
-                loose.map(projectChip)
+                <>
+                  {levelFolders.map(folderTile)}
+                  {levelChips.map(projectChip)}
+                </>
               )}
             </div>
-
-            {folders.length > 0 && (
-              <>
-                <div className="home-sec-label">Folders</div>
-                <div className="folder-grid">{folders.map(folderTile)}</div>
-              </>
-            )}
-
-            {open && (
-              <div className="open-folder">
-                <div className="open-folder-head">
-                  <span className="folder-dot" style={{ background: open.color }} aria-hidden="true" />
-                  <input
-                    className="folder-name-input"
-                    value={open.name}
-                    onChange={(e) => {
-                      updateFolder(open.id, { name: e.target.value });
-                      reloadFolders();
-                    }}
-                    aria-label="Folder name"
-                  />
-                  <div className="folder-swatches" role="group" aria-label="Folder color">
-                    {FOLDER_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        className={"swatch" + (open.color === c ? " swatch-on" : "")}
-                        style={{ background: c }}
-                        onClick={() => {
-                          updateFolder(open.id, { color: c });
-                          reloadFolders();
-                        }}
-                        aria-label={"Color " + c}
-                      />
-                    ))}
-                  </div>
-                  <select
-                    className="folder-stage-select"
-                    value={open.stage}
-                    onChange={(e) => {
-                      updateFolder(open.id, { stage: e.target.value as Stage });
-                      reloadFolders();
-                    }}
-                    aria-label="Folder stage"
-                  >
-                    {STAGE_ORDER.map((s) => (
-                      <option key={s} value={s}>
-                        {STAGE_LABEL[s]}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="tb-btn tb-btn-danger"
-                    onClick={() => setConfirmDeleteFolder(open)}
-                  >
-                    Delete
-                  </button>
-                  <button type="button" className="tb-btn" onClick={() => setOpenFolder(null)}>
-                    Close
-                  </button>
-                </div>
-                <div
-                  className={"chip-grid open-folder-grid" + (dropHi === "open" ? " grid-drop" : "")}
-                  onDragOver={(e) => {
-                    if (dragKind.current === "project") {
-                      e.preventDefault();
-                      setDropHi("open");
-                    }
-                  }}
-                  onDrop={(e) => {
-                    if (dragKind.current === "project" && dragId.current) {
-                      e.preventDefault();
-                      fileInto(dragId.current, open.id);
-                    }
-                    clearDrag();
-                  }}
-                >
-                  {openChips.length === 0 ? (
-                    <div className="chip-grid-empty">
-                      Drag projects from above onto this folder to add them here.
-                    </div>
-                  ) : (
-                    openChips.map(projectChip)
-                  )}
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>
@@ -690,8 +743,8 @@ export function ProjectsHome({
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2 className="modal-title">Delete folder</h2>
             <p className="modal-text">
-              Delete the folder &quot;{confirmDeleteFolder.name}&quot;? The projects inside move
-              back out to your loose projects. Nothing is deleted.
+              Delete the folder &quot;{confirmDeleteFolder.name}&quot;? Its projects and any
+              sub-folders move up one level. Nothing is deleted.
             </p>
             <div className="modal-actions">
               <button type="button" className="tb-btn" onClick={() => setConfirmDeleteFolder(null)}>

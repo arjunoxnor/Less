@@ -121,12 +121,14 @@ export function AppShell() {
         content?: import("@tiptap/core").JSONContent;
         titlePage?: import("@/lib/export/titlePage").TitlePage | null;
         pageTarget?: number;
+        folderId?: string | null;
       }
     ) => {
       const meta = create(type, title || undefined, opts);
+      if (opts?.folderId) setFolder(meta.id, opts.folderId);
       openProject(meta.id);
     },
-    [create, openProject]
+    [create, setFolder, openProject]
   );
 
   const current =
