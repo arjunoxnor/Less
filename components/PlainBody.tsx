@@ -189,9 +189,14 @@ export function PlainBody({
         onPrefsChange={onPrefsChange}
         fontValue={prefs.docFont}
         fontOptions={[
-          { value: "sans", label: "Sans-serif" },
-          { value: "serif", label: "Serif" },
-          { value: "mono", label: "Monospace" },
+          { value: "calibri", label: "Calibri" },
+          { value: "arial", label: "Arial" },
+          { value: "times", label: "Times New Roman" },
+          { value: "georgia", label: "Georgia" },
+          { value: "verdana", label: "Verdana" },
+          { value: "proxima", label: "Proxima Nova" },
+          { value: "futura", label: "Futura" },
+          { value: "courier-prime", label: "Courier Prime" },
         ]}
         onFontChange={(v) => onPrefsChange({ docFont: v as Prefs["docFont"] })}
         cloudConfigured={isCloudConfigured}

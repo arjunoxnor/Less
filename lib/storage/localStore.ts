@@ -19,7 +19,15 @@ const DIRTY_KEY = "less:dirty";
 
 export type FontChoice = "courier" | "courier-prime";
 /** Plain-document fonts (prose), separate from the Courier-only screenplay font. */
-export type DocFontChoice = "sans" | "serif" | "mono";
+export type DocFontChoice =
+  | "calibri"
+  | "arial"
+  | "times"
+  | "georgia"
+  | "verdana"
+  | "proxima"
+  | "futura"
+  | "courier-prime";
 export type ThemeChoice = "light" | "dark" | "system";
 
 export interface Prefs {
@@ -36,7 +44,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   font: "courier-prime",
-  docFont: "sans",
+  docFont: "calibri",
   theme: "light",
   focusMode: false,
   spellCheck: true,

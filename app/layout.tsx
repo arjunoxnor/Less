@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Courier_Prime, Lora } from "next/font/google";
+import { Courier_Prime, Montserrat, Jost } from "next/font/google";
 import "./globals.css";
 
 // Courier Prime — a free, screen-friendly Courier (the spec's preferred font).
@@ -12,12 +12,17 @@ const courierPrime = Courier_Prime({
   display: "swap",
 });
 
-// Lora — a refined serif, offered for plain documents only (never screenplays).
-const lora = Lora({
+// Free, self-hosted stand-ins for two licensed fonts, used only as the fallback
+// when the real font is not installed locally: Montserrat ~ Proxima Nova,
+// Jost ~ Futura. Plain documents only, never screenplays.
+const montserrat = Montserrat({
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  style: ["normal", "italic"],
-  variable: "--font-lora",
+  variable: "--font-montserrat",
+  display: "swap",
+});
+const jost = Jost({
+  subsets: ["latin"],
+  variable: "--font-jost",
   display: "swap",
 });
 
@@ -42,7 +47,9 @@ export default function RootLayout({
   // differs between the server render and the first client render.
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${courierPrime.variable} ${lora.variable}`}>{children}</body>
+      <body className={`${courierPrime.variable} ${montserrat.variable} ${jost.variable}`}>
+        {children}
+      </body>
     </html>
   );
 }

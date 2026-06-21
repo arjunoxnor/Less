@@ -128,15 +128,27 @@ export function ProjectsHome({
   const [renameDraft, setRenameDraft] = useState("");
   const renameRef = useRef<HTMLInputElement>(null);
 
-  const [tools, setTools] = useState<Set<string>>(new Set());
-  const toggleTools = (id: string) =>
-    setTools((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  // Editing a folder (name/color/stage) is off by default and opened only from
+  // the ⋯ menu's Edit, then closed with Done. `menu` is which folder's ⋯ is open.
+  const [editing, setEditing] = useState<Set<string>>(new Set());
+  const openEdit = (id: string) => setEditing((p) => new Set(p).add(id));
+  const closeEdit = (id: string) =>
+    setEditing((p) => {
+      const n = new Set(p);
+      n.delete(id);
+      return n;
     });
+  const [menu, setMenu] = useState<string | null>(null);
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<Folder | null>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest(".fnode-menu-wrap")) setMenu(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menu]);
 
   const dragKind = useRef<null | "project" | "folder">(null);
   const dragId = useRef<string | null>(null);
@@ -245,7 +257,8 @@ export function ProjectsHome({
   const addFolder = (parentId?: string) => {
     const f = onCreateFolder(parentId);
     if (parentId && folders.find((x) => x.id === parentId)?.collapsed) onToggleFolder(parentId);
-    setTools((prev) => new Set(prev).add(f.id)); // open its tools to name it
+    openEdit(f.id); // open edit once so it can be named, with a Done to close
+    setMenu(null);
   };
 
   const removeFolder = (f: Folder) => {
@@ -358,17 +371,20 @@ export function ProjectsHome({
     );
   };
 
-  const folderNode = (f: Folder, depth: number) => {
+  const folderNode = (f: Folder) => {
     const expanded = !f.collapsed;
     const subs = subfolders(f.id);
     const chips = chipsIn(f.id);
     const count = subs.length + chips.length;
-    const toolsOpen = tools.has(f.id);
+    const isEditing = editing.has(f.id);
     return (
-      <div key={f.id} className="fnode">
+      <div
+        key={f.id}
+        className={"fcard" + (dropHi === "folder:" + f.id ? " fcard-drop" : "")}
+        style={{ borderLeftColor: f.color }}
+      >
         <div
-          className={"fnode-head" + (dropHi === "folder:" + f.id ? " fnode-drop" : "")}
-          style={{ paddingLeft: 12 + depth * 18 }}
+          className="fcard-head"
           draggable
           onDragStart={(e) => {
             dragKind.current = "folder";
@@ -402,33 +418,50 @@ export function ProjectsHome({
           >
             <Chevron open={expanded} />
           </button>
-          <span className="folder-dot" style={{ background: f.color }} aria-hidden="true" />
-          <span className="fnode-name" onClick={() => onToggleFolder(f.id)}>
+          <svg className="fcard-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill={f.color} d="M3 6a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+          <button type="button" className="fcard-name" onClick={() => onToggleFolder(f.id)}>
             {f.name}
-          </span>
+          </button>
           <span className={"stage-chip stage-" + f.stage}>{STAGE_LABEL[f.stage]}</span>
           <span className="folder-count">{count}</span>
-          <button
-            type="button"
-            className={"folder-tools-btn" + (toolsOpen ? " tb-btn-active" : "")}
-            onClick={() => toggleTools(f.id)}
-            aria-label="Folder options"
-            title="Folder options"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <circle cx="5" cy="12" r="1.6" />
-              <circle cx="12" cy="12" r="1.6" />
-              <circle cx="19" cy="12" r="1.6" />
-            </svg>
-          </button>
+          <div className="fnode-menu-wrap">
+            <button
+              type="button"
+              className={"folder-tools-btn" + (menu === f.id ? " tb-btn-active" : "")}
+              onClick={() => setMenu(menu === f.id ? null : f.id)}
+              aria-label="Folder options"
+              title="Folder options"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="12" r="1.6" />
+                <circle cx="12" cy="12" r="1.6" />
+                <circle cx="19" cy="12" r="1.6" />
+              </svg>
+            </button>
+            {menu === f.id && (
+              <div className="fnode-menu">
+                <button type="button" onClick={() => { openEdit(f.id); setMenu(null); }}>Edit</button>
+                <button type="button" onClick={() => addFolder(f.id)}>Add sub-folder</button>
+                <button type="button" className="fnode-menu-danger" onClick={() => { setConfirmDeleteFolder(f); setMenu(null); }}>
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        {toolsOpen && (
-          <div className="fnode-tools" style={{ paddingLeft: 12 + depth * 18 }}>
+        {isEditing && (
+          <div className="fcard-edit">
             <input
               className="folder-name-input"
               value={f.name}
+              autoFocus
               onChange={(e) => onUpdateFolder(f.id, { name: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") closeEdit(f.id);
+              }}
               aria-label="Folder name"
             />
             <div className="folder-swatches" role="group" aria-label="Folder color">
@@ -455,27 +488,18 @@ export function ProjectsHome({
                 </option>
               ))}
             </select>
-            <button type="button" className="tb-btn" onClick={() => addFolder(f.id)}>
-              Add sub-folder
-            </button>
-            <button type="button" className="tb-btn tb-btn-danger" onClick={() => setConfirmDeleteFolder(f)}>
-              Delete
+            <button type="button" className="tb-btn tb-btn-active" onClick={() => closeEdit(f.id)}>
+              Done
             </button>
           </div>
         )}
 
         {expanded && (
-          <div className="fnode-body">
-            {subs.map((s) => folderNode(s, depth + 1))}
-            {chips.length > 0 && (
-              <div className="chip-grid" style={{ paddingLeft: 12 + (depth + 1) * 18 }}>
-                {chips.map(projectChip)}
-              </div>
-            )}
+          <div className="fcard-body">
+            {subs.map((s) => folderNode(s))}
+            {chips.length > 0 && <div className="chip-grid">{chips.map(projectChip)}</div>}
             {count === 0 && (
-              <div className="fnode-empty" style={{ paddingLeft: 12 + (depth + 1) * 18 }}>
-                Empty. Drag a project or folder onto this folder to add it.
-              </div>
+              <div className="fnode-empty">Empty. Drag a project or folder here to add it.</div>
             )}
           </div>
         )}
@@ -573,7 +597,7 @@ export function ProjectsHome({
             {topFolders.length > 0 && (
               <>
                 <div className="home-sec-label">Folders</div>
-                <div className="fnode-list">{topFolders.map((f) => folderNode(f, 0))}</div>
+                <div className="fnode-list">{topFolders.map((f) => folderNode(f))}</div>
               </>
             )}
           </>

@@ -70,15 +70,42 @@ body {
   --sp-font: "Courier New", Courier, monospace;
 }
 
-/* Plain-document fonts (set on .app in the plain editor only; never screenplays). */
+/* Plain-document fonts (set on .app in the plain editor only; never screenplays).
+   System families render the real font where installed; the two licensed fonts
+   fall back to a self-hosted look-alike (Montserrat ~ Proxima, Jost ~ Futura). */
+.docfont-calibri {
+  --doc-font: Calibri, "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+.docfont-arial {
+  --doc-font: Arial, "Helvetica Neue", Helvetica, sans-serif;
+}
+.docfont-times {
+  --doc-font: "Times New Roman", Times, serif;
+}
+.docfont-georgia {
+  --doc-font: Georgia, "Times New Roman", serif;
+}
+.docfont-verdana {
+  --doc-font: Verdana, Geneva, Tahoma, sans-serif;
+}
+.docfont-proxima {
+  --doc-font: "Proxima Nova", "proxima-nova", var(--font-montserrat), "Segoe UI", sans-serif;
+}
+.docfont-futura {
+  --doc-font: Futura, "Futura PT", var(--font-jost), "Century Gothic", sans-serif;
+}
+.docfont-courier-prime {
+  --doc-font: var(--font-courier-prime), "Courier Prime", "Courier New", monospace;
+}
+/* Back-compat for any previously-saved value. */
 .docfont-sans {
-  --doc-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --doc-font: Calibri, "Segoe UI", system-ui, sans-serif;
 }
 .docfont-serif {
-  --doc-font: var(--font-lora), Georgia, "Times New Roman", serif;
+  --doc-font: Georgia, "Times New Roman", serif;
 }
 .docfont-mono {
-  --doc-font: var(--font-courier-prime), "Courier Prime", "Courier New", monospace;
+  --doc-font: var(--font-courier-prime), "Courier Prime", monospace;
 }
 
 /* ---- App layout: toolbar / scrollable page / status bar ---------------- */
@@ -1604,7 +1631,7 @@ body {
   background: var(--toolbar-bg);
 }
 
-/* ---- Inline folder tree (expand in place, many open at once) ----------- */
+/* ---- Blocky folder cards (expand in place, many open at once) ---------- */
 .home-body.root-drop {
   outline: 2px dashed var(--accent);
   outline-offset: -8px;
@@ -1613,60 +1640,107 @@ body {
 .fnode-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 10px;
 }
-.fnode-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: grab;
+.fcard {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border); /* color comes from inline style */
+  border-radius: 10px;
+  background: var(--toolbar-bg);
+  overflow: hidden;
 }
-.fnode-head:hover {
-  background: var(--btn-bg);
-}
-.fnode-head:active {
-  cursor: grabbing;
-}
-.fnode-head.fnode-drop {
+.fcard.fcard-drop {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
-  background: var(--btn-active-bg);
 }
-.fnode-name {
+.fcard-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  cursor: grab;
+}
+.fcard-head:active {
+  cursor: grabbing;
+}
+.fcard-icon {
+  flex: 0 0 auto;
+}
+.fcard-name {
   flex: 1 1 auto;
+  border: none;
+  background: none;
+  font: inherit;
   font-weight: 600;
+  font-size: 15px;
   color: var(--toolbar-fg);
+  text-align: left;
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.fnode-head .folder-count {
+.fcard-head .folder-count {
   margin-left: 2px;
 }
-.fnode-head .folder-tools-btn {
+.fnode-menu-wrap {
+  position: relative;
   flex: 0 0 auto;
 }
-.fnode-tools {
+.fnode-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 150px;
+  background: var(--toolbar-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.fnode-menu button {
+  border: none;
+  background: none;
+  color: var(--toolbar-fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.fnode-menu button:hover {
+  background: var(--btn-bg);
+}
+.fnode-menu .fnode-menu-danger {
+  color: #e0533b;
+}
+.fcard-edit {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px 12px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
-.fnode-body {
-  padding-top: 2px;
-}
-.fnode-body .chip-grid {
-  padding-top: 6px;
-  padding-bottom: 6px;
+/* The body is recessed and holds nested folder cards (which keep the lighter
+   card background), so folders-inside-folders read clearly. */
+.fcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 .fnode-empty {
   font-size: 13px;
   color: var(--muted);
-  padding: 6px 12px 10px;
+  padding: 4px 4px 6px;
 }
 
 /* ---- Editor chrome (project bar above the type toolbar) ----------------- */
