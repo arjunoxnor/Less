@@ -986,6 +986,26 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* It is a button now (folds the section), but should read as a heading. */
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.home-section-title:hover {
+  color: var(--toolbar-fg);
+}
+.home-chevron {
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+.home-chevron-collapsed {
+  transform: rotate(-90deg);
 }
 .home-count {
   font-size: 11px;

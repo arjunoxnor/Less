@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { JSONContent } from "@tiptap/core";
 import type { Prefs } from "@/lib/storage/localStore";
+import {
+  DEFAULT_HOME_VIEW,
+  loadHomeView,
+  saveHomeView,
+  type HomeSort,
+} from "@/lib/storage/localStore";
 import type {
   ProjectMeta,
   ProjectStatus,
@@ -25,6 +31,13 @@ const SECTION_EMPTY: Record<ProjectStatus, string> = {
   done: "Nothing finished yet.",
 };
 const STATUS_SEG: ProjectStatus[] = ["not_started", "writing", "done"];
+
+const SORT_LABEL: Record<HomeSort, string> = {
+  updated: "Recently updated",
+  title: "Title (A to Z)",
+  created: "Date created",
+};
+const SORT_OPTIONS: HomeSort[] = ["updated", "title", "created"];
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -87,6 +100,36 @@ export function ProjectsHome({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameRef = useRef<HTMLInputElement>(null);
+
+  // Device-local view state (sort + which sections are folded). Loaded after
+  // mount to avoid a hydration mismatch with the static-exported HTML.
+  const [homeView, setHomeView] = useState(DEFAULT_HOME_VIEW);
+  useEffect(() => setHomeView(loadHomeView()), []);
+
+  const setSort = (sort: HomeSort) =>
+    setHomeView((v) => {
+      const next = { ...v, sort };
+      saveHomeView(next);
+      return next;
+    });
+  const toggleSection = (s: ProjectStatus) =>
+    setHomeView((v) => {
+      const next = { ...v, collapsed: { ...v.collapsed, [s]: !v.collapsed[s] } };
+      saveHomeView(next);
+      return next;
+    });
+
+  const sortItems = (list: ProjectMeta[]): ProjectMeta[] => {
+    const arr = [...list];
+    if (homeView.sort === "title") {
+      arr.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (homeView.sort === "created") {
+      arr.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+    } else {
+      arr.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+    }
+    return arr;
+  };
 
   useEffect(() => {
     if (renaming) renameRef.current?.focus();
@@ -236,6 +279,21 @@ export function ProjectsHome({
             </button>
           ))}
         <div className="toolbar-group">
+          {projects.length > 0 && (
+            <select
+              className="tb-select"
+              value={homeView.sort}
+              onChange={(e) => setSort(e.target.value as HomeSort)}
+              title="Sort projects"
+              aria-label="Sort projects"
+            >
+              {SORT_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {SORT_LABEL[s]}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             className="tb-select"
             value={prefs.font}
@@ -296,17 +354,39 @@ export function ProjectsHome({
             )}
 
             {SECTION_ORDER.map((s) => {
-              const items = byStatus(s);
+              const items = sortItems(byStatus(s));
+              const collapsed = Boolean(homeView.collapsed[s]);
               return (
                 <section key={s} className="home-section">
-                  <h2 className="home-section-title">
+                  <button
+                    type="button"
+                    className="home-section-title"
+                    aria-expanded={!collapsed}
+                    onClick={() => toggleSection(s)}
+                    title={collapsed ? "Expand" : "Collapse"}
+                  >
+                    <svg
+                      className={"home-chevron" + (collapsed ? " home-chevron-collapsed" : "")}
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
                     {STATUS_LABEL[s]} <span className="home-count">{items.length}</span>
-                  </h2>
-                  {items.length === 0 ? (
-                    <p className="home-section-empty">{SECTION_EMPTY[s]}</p>
-                  ) : (
-                    <div className="home-grid">{items.map(card)}</div>
-                  )}
+                  </button>
+                  {!collapsed &&
+                    (items.length === 0 ? (
+                      <p className="home-section-empty">{SECTION_EMPTY[s]}</p>
+                    ) : (
+                      <div className="home-grid">{items.map(card)}</div>
+                    ))}
                 </section>
               );
             })}
