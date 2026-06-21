@@ -21,6 +21,7 @@ import {
   migrateLegacyDoc,
   renameProject as localRename,
   setStatus as localSetStatus,
+  setProjectFolder as localSetFolder,
   upsertCloudMeta,
   type ProjectMeta,
   type ProjectStatus,
@@ -139,6 +140,16 @@ export function useProjects(user: User | null) {
     [user, refresh]
   );
 
+  // Filing a project into a folder is purely local organization (folders do not
+  // sync yet), so this never touches the cloud.
+  const setFolder = useCallback(
+    (id: string, folderId: string | null) => {
+      localSetFolder(id, folderId);
+      refresh();
+    },
+    [refresh]
+  );
+
   // One pass that pushes anonymous meaningful local projects to the cloud, pulls
   // cloud-only projects into the local index, and flushes delete tombstones.
   const reconcile = useCallback(
@@ -216,5 +227,5 @@ export function useProjects(user: User | null) {
     return () => window.removeEventListener("online", onOnline);
   }, [user, reconcile]);
 
-  return { projects, refresh, create, remove, rename, setStatus };
+  return { projects, refresh, create, remove, rename, setStatus, setFolder };
 }

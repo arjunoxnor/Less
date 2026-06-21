@@ -32,6 +32,8 @@ export interface ProjectMeta {
   titleManual?: boolean;
   /** Optional goal page count, shown in the status bar (local-only). */
   pageTarget?: number;
+  /** Which folder this project is filed under (local-only); undefined = Unfiled. */
+  folderId?: string;
 }
 
 /** A full project: metadata plus its body. */
@@ -239,6 +241,24 @@ export function renameProject(id: string, title: string): void {
 
 export function setStatus(id: string, status: ProjectStatus): void {
   patchMeta(id, { status });
+}
+
+/** File a project into a folder (local-only), or null to move it to Unfiled. */
+export function setProjectFolder(id: string, folderId: string | null): void {
+  patchMeta(id, { folderId: folderId ?? undefined });
+}
+
+/** Move every project out of a folder (used when a folder is deleted). */
+export function unfileFolder(folderId: string): void {
+  const list = readIndex();
+  let changed = false;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].folderId === folderId) {
+      list[i] = { ...list[i], folderId: undefined };
+      changed = true;
+    }
+  }
+  if (changed) writeIndex(list);
 }
 
 export function markCloudCreated(id: string, value = true): void {

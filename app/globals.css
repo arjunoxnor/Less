@@ -1132,6 +1132,226 @@ body {
   gap: 6px;
 }
 
+/* ---- Folders (the organizing layer over projects) ---------------------- */
+.folder-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 12px;
+  background: var(--toolbar-bg);
+  overflow: hidden;
+}
+.folder-card.folder-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+.folder-card.folder-reorder {
+  border-color: var(--accent);
+}
+.folder-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  cursor: grab;
+}
+.folder-head:active {
+  cursor: grabbing;
+}
+.folder-toggle {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  padding: 2px;
+}
+.folder-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+.folder-name {
+  font-weight: 600;
+  color: var(--toolbar-fg);
+}
+.folder-count {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 7px;
+  line-height: 16px;
+}
+.folder-head .folder-count {
+  margin-left: 6px;
+}
+.folder-tools-btn {
+  margin-left: auto;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 3px 5px;
+  display: flex;
+}
+.folder-tools-btn:hover {
+  background: var(--btn-bg);
+}
+.stage-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 9px;
+  border-radius: 10px;
+}
+.stage-idea {
+  background: rgba(186, 117, 23, 0.16);
+  color: #bd7d1e;
+}
+.stage-in_progress {
+  background: rgba(47, 109, 246, 0.16);
+  color: #3f7bf0;
+}
+.stage-completed {
+  background: rgba(31, 143, 78, 0.16);
+  color: #2f9e57;
+}
+.folder-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.folder-name-input {
+  flex: 1 1 160px;
+  min-width: 140px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+}
+.folder-swatches {
+  display: flex;
+  gap: 5px;
+}
+.swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.swatch-on {
+  border-color: var(--toolbar-fg);
+}
+.folder-stage-select,
+.doc-stage {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+  cursor: pointer;
+}
+.folder-body {
+  border-top: 1px solid var(--border);
+}
+.folder-empty {
+  padding: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.folder-body .doc-row:first-child {
+  border-top: none;
+}
+.doc-row:hover {
+  background: var(--btn-bg);
+}
+.doc-grip {
+  color: var(--muted);
+  cursor: grab;
+  font-size: 14px;
+  letter-spacing: -2px;
+}
+.doc-title {
+  font-weight: 500;
+  color: var(--toolbar-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-rename {
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+.doc-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.doc-actions {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  flex: 0 0 auto;
+}
+.doc-row:hover .doc-actions,
+.doc-row:focus-within .doc-actions {
+  opacity: 1;
+}
+.unfiled-section {
+  margin-top: 18px;
+  border-radius: 12px;
+}
+.unfiled-section.folder-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+.unfiled-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.unfiled-section .folder-body {
+  border-top: none;
+}
+.unfiled-section .doc-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: var(--toolbar-bg);
+}
+
 /* ---- Editor chrome (project bar above the type toolbar) ----------------- */
 
 .chrome-bar {

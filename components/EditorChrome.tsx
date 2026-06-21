@@ -15,9 +15,9 @@ const SYNC_LABEL: Record<SyncStatus, string> = {
 };
 
 const STATUS_SEG: { value: ProjectStatus; label: string }[] = [
-  { value: "not_started", label: "Not started" },
-  { value: "writing", label: "Writing" },
-  { value: "done", label: "Done" },
+  { value: "not_started", label: "Idea" },
+  { value: "writing", label: "In progress" },
+  { value: "done", label: "Completed" },
 ];
 
 /**
