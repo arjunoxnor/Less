@@ -69,7 +69,6 @@ export function ProjectsHome({
   cloudConfigured,
   prefs,
   onPrefsChange,
-  lastOpenedId,
   onOpen,
   onCreate,
   onDelete,
@@ -486,8 +485,6 @@ export function ProjectsHome({
 
   const topFolders = subfolders(null);
   const loose = chipsIn(null);
-  const continueProject =
-    lastOpenedId != null ? projects.find((p) => p.id === lastOpenedId) ?? null : null;
 
   return (
     <div className="home">
@@ -575,21 +572,6 @@ export function ProjectsHome({
           </div>
         ) : (
           <>
-            {continueProject && (
-              <div className="home-continue">
-                <div className="home-continue-label">Continue</div>
-                <div className="project-card" onClick={() => onOpen(continueProject.id)} role="button" tabIndex={0}>
-                  <div className="project-card-head">
-                    <span className="project-card-title">{continueProject.title}</span>
-                    <span className={"badge badge-" + continueProject.type}>
-                      {typeLabel(continueProject.type)}
-                    </span>
-                  </div>
-                  <div className="project-meta">Opened {relativeTime(continueProject.updatedAt)}</div>
-                </div>
-              </div>
-            )}
-
             {loose.length > 0 && (
               <>
                 <div className="home-sec-label">Loose projects</div>
