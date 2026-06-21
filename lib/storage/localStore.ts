@@ -18,10 +18,13 @@ const LAST_SAVED_KEY = "less:lastSavedAt";
 const DIRTY_KEY = "less:dirty";
 
 export type FontChoice = "courier" | "courier-prime";
+/** Plain-document fonts (prose), separate from the Courier-only screenplay font. */
+export type DocFontChoice = "sans" | "serif" | "mono";
 export type ThemeChoice = "light" | "dark" | "system";
 
 export interface Prefs {
   font: FontChoice;
+  docFont: DocFontChoice;
   theme: ThemeChoice;
   focusMode: boolean;
   spellCheck: boolean;
@@ -33,6 +36,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   font: "courier-prime",
+  docFont: "sans",
   theme: "light",
   focusMode: false,
   spellCheck: true,

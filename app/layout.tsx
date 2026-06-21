@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Courier_Prime } from "next/font/google";
+import { Courier_Prime, Lora } from "next/font/google";
 import "./globals.css";
 
 // Courier Prime — a free, screen-friendly Courier (the spec's preferred font).
@@ -9,6 +9,15 @@ const courierPrime = Courier_Prime({
   weight: ["400", "700"],
   style: ["normal", "italic"],
   variable: "--font-courier-prime",
+  display: "swap",
+});
+
+// Lora — a refined serif, offered for plain documents only (never screenplays).
+const lora = Lora({
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-lora",
   display: "swap",
 });
 
@@ -33,7 +42,7 @@ export default function RootLayout({
   // differs between the server render and the first client render.
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={courierPrime.variable}>{children}</body>
+      <body className={`${courierPrime.variable} ${lora.variable}`}>{children}</body>
     </html>
   );
 }

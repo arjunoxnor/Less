@@ -33,6 +33,9 @@ export function EditorChrome({
   onStatusChange,
   prefs,
   onPrefsChange,
+  fontValue,
+  fontOptions,
+  onFontChange,
   cloudConfigured,
   user,
   syncStatus,
@@ -48,6 +51,9 @@ export function EditorChrome({
   onStatusChange: (status: ProjectStatus) => void;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
+  fontValue: string;
+  fontOptions: { value: string; label: string }[];
+  onFontChange: (value: string) => void;
   cloudConfigured: boolean;
   user: User | null;
   syncStatus: SyncStatus;
@@ -133,12 +139,15 @@ export function EditorChrome({
         <div className="toolbar-group">
           <select
             className="tb-select"
-            value={prefs.font}
-            onChange={(e) => onPrefsChange({ font: e.target.value as Prefs["font"] })}
+            value={fontValue}
+            onChange={(e) => onFontChange(e.target.value)}
             title="Font"
           >
-            <option value="courier-prime">Courier Prime</option>
-            <option value="courier">Courier</option>
+            {fontOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
           </select>
           <button
             type="button"

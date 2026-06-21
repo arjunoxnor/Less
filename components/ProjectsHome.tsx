@@ -509,15 +509,6 @@ export function ProjectsHome({
             </button>
           ))}
         <div className="toolbar-group">
-          <select
-            className="tb-select"
-            value={prefs.font}
-            onChange={(e) => onPrefsChange({ font: e.target.value as Prefs["font"] })}
-            title="Font"
-          >
-            <option value="courier-prime">Courier Prime</option>
-            <option value="courier">Courier</option>
-          </select>
           <button
             type="button"
             className="tb-btn"

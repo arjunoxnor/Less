@@ -701,6 +701,12 @@ export function ScreenplayBody({
         onStatusChange={onStatusChange}
         prefs={prefs}
         onPrefsChange={onPrefsChange}
+        fontValue={prefs.font}
+        fontOptions={[
+          { value: "courier-prime", label: "Courier Prime" },
+          { value: "courier", label: "Courier" },
+        ]}
+        onFontChange={(v) => onPrefsChange({ font: v as Prefs["font"] })}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}

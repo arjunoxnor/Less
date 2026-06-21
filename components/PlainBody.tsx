@@ -175,7 +175,7 @@ export function PlainBody({
   );
 
   return (
-    <div className={"app" + ` font-${prefs.font}` + (prefs.focusMode ? " focus-mode" : "")}>
+    <div className={"app" + ` docfont-${prefs.docFont}` + (prefs.focusMode ? " focus-mode" : "")}>
       <EditorChrome
         onBack={onBack}
         title={title}
@@ -184,6 +184,13 @@ export function PlainBody({
         onStatusChange={onStatusChange}
         prefs={prefs}
         onPrefsChange={onPrefsChange}
+        fontValue={prefs.docFont}
+        fontOptions={[
+          { value: "sans", label: "Sans-serif" },
+          { value: "serif", label: "Serif" },
+          { value: "mono", label: "Monospace" },
+        ]}
+        onFontChange={(v) => onPrefsChange({ docFont: v as Prefs["docFont"] })}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}
