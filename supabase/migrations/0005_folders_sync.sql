@@ -15,7 +15,13 @@ create table if not exists public.folders (
   updated_at timestamptz not null default now()
 );
 
+-- Nesting: a folder may live inside another folder (null = top level). On a
+-- parent delete, children fall back to the top level rather than being removed.
+alter table public.folders
+  add column if not exists parent_id uuid references public.folders(id) on delete set null;
+
 create index if not exists folders_user_idx on public.folders(user_id, position);
+create index if not exists folders_parent_idx on public.folders(parent_id);
 
 -- Reuse the updated_at trigger function created in 0001_init.sql.
 drop trigger if exists folders_set_updated_at on public.folders;
