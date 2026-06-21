@@ -1767,7 +1767,98 @@ body {
 }
 .pl-prose a {
   color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
 }
+.pl-prose mark {
+  border-radius: 2px;
+  padding: 0 1px;
+  /* The highlight extension forces color:inherit inline; override it so text on
+     the light highlight wash stays readable in dark mode too. */
+  color: #1a1a1a !important;
+}
+.pl-prose code {
+  font-family: var(--font-courier-prime), "Courier New", monospace;
+  font-size: 0.9em;
+  background: var(--btn-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.pl-prose pre {
+  background: var(--btn-bg);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0 0 0.8em;
+}
+.pl-prose pre code {
+  background: none;
+  padding: 0;
+}
+.pl-prose ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.pl-prose ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.pl-prose ul[data-type="taskList"] li > label {
+  margin-top: 0.3em;
+  flex: 0 0 auto;
+  user-select: none;
+}
+.pl-prose ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+}
+.pl-prose ul[data-type="taskList"] input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Toolbar glyphs for the text-color and highlight menus. */
+.pt-aglyph {
+  border-bottom: 3px solid currentColor;
+  line-height: 1;
+  padding-bottom: 1px;
+  font-weight: 700;
+}
+.pt-hl {
+  background: #fff1a8;
+  color: #1a1a1a;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-weight: 700;
+}
+.pt-swatches {
+  min-width: 132px;
+}
+.pt-swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  color: var(--toolbar-fg);
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.pt-swatch:hover {
+  background: var(--btn-bg);
+}
+.pt-swatch-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
 /* Placeholder scoped to the plain schema so it never bleeds into .sp-prose. */
 .pl-prose p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

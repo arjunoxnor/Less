@@ -93,6 +93,9 @@ export function PlainBody({
     onCreate: ({ editor }) => {
       editorRef.current = editor;
       measure(editor);
+      if (process.env.NODE_ENV !== "production") {
+        (window as unknown as { __lessPlainEditor?: Editor }).__lessPlainEditor = editor;
+      }
     },
     onUpdate: ({ editor }) => {
       setSaved(false);
