@@ -147,7 +147,10 @@ export function toggleFolderCollapsed(id: string): void {
   const list = readAll();
   const i = list.findIndex((f) => f.id === id);
   if (i < 0) return;
-  list[i] = { ...list[i], collapsed: !list[i].collapsed };
+  // Folders are collapsed by default (undefined or true); expanded is exactly
+  // collapsed === false. Toggle between those two so a fresh folder opens.
+  const expanded = list[i].collapsed === false;
+  list[i] = { ...list[i], collapsed: expanded };
   writeAll(list);
 }
 

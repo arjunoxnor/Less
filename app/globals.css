@@ -1637,17 +1637,24 @@ body {
   outline-offset: -8px;
   border-radius: 12px;
 }
+/* A grid of folder boxes; an opened folder spans the full row to show its
+   contents, so it reads as boxes rather than a flat list. */
 .fnode-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 10px;
+  align-items: start;
 }
 .fcard {
+  min-width: 0;
   border: 1px solid var(--border);
   border-left: 4px solid var(--border); /* color comes from inline style */
   border-radius: 10px;
   background: var(--toolbar-bg);
   overflow: hidden;
+}
+.fcard.fcard-open {
+  grid-column: 1 / -1;
 }
 .fcard.fcard-drop {
   outline: 2px dashed var(--accent);
@@ -1668,6 +1675,7 @@ body {
 }
 .fcard-name {
   flex: 1 1 auto;
+  min-width: 0;
   border: none;
   background: none;
   font: inherit;

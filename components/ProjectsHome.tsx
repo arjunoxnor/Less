@@ -372,7 +372,7 @@ export function ProjectsHome({
   };
 
   const folderNode = (f: Folder) => {
-    const expanded = !f.collapsed;
+    const expanded = f.collapsed === false; // collapsed by default, so the home is a grid of boxes
     const subs = subfolders(f.id);
     const chips = chipsIn(f.id);
     const count = subs.length + chips.length;
@@ -380,8 +380,29 @@ export function ProjectsHome({
     return (
       <div
         key={f.id}
-        className={"fcard" + (dropHi === "folder:" + f.id ? " fcard-drop" : "")}
+        className={
+          "fcard" +
+          (expanded || isEditing ? " fcard-open" : "") +
+          (dropHi === "folder:" + f.id ? " fcard-drop" : "")
+        }
         style={{ borderLeftColor: f.color }}
+        onDragOver={(e) => {
+          // The WHOLE card is a drop target (not just the header). Nested cards
+          // and chips stopPropagation, so they still capture their own drops.
+          const k = dragKind.current;
+          if (k === "project" || (k === "folder" && dragId.current && dragId.current !== f.id && !isAncestor(dragId.current, f.id))) {
+            e.preventDefault();
+            e.stopPropagation();
+            setDropHi("folder:" + f.id);
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (dragKind.current === "project" && dragId.current) fileInto(dragId.current, f.id);
+          else if (dragKind.current === "folder" && dragId.current) nestFolder(dragId.current, f.id);
+          clearDrag();
+        }}
       >
         <div
           className="fcard-head"
@@ -393,21 +414,6 @@ export function ProjectsHome({
             e.dataTransfer.setData("text/plain", f.id);
           }}
           onDragEnd={clearDrag}
-          onDragOver={(e) => {
-            const k = dragKind.current;
-            if (k === "project" || (k === "folder" && dragId.current && dragId.current !== f.id && !isAncestor(dragId.current, f.id))) {
-              e.preventDefault();
-              e.stopPropagation();
-              setDropHi("folder:" + f.id);
-            }
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (dragKind.current === "project" && dragId.current) fileInto(dragId.current, f.id);
-            else if (dragKind.current === "folder" && dragId.current) nestFolder(dragId.current, f.id);
-            clearDrag();
-          }}
         >
           <button
             type="button"
@@ -496,7 +502,7 @@ export function ProjectsHome({
 
         {expanded && (
           <div className="fcard-body">
-            {subs.map((s) => folderNode(s))}
+            {subs.length > 0 && <div className="fnode-list">{subs.map((s) => folderNode(s))}</div>}
             {chips.length > 0 && <div className="chip-grid">{chips.map(projectChip)}</div>}
             {count === 0 && (
               <div className="fnode-empty">Empty. Drag a project or folder here to add it.</div>
