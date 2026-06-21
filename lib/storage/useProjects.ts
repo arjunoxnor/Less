@@ -37,6 +37,7 @@ import {
   getFolder,
   upsertLocalFolder,
   removeLocalFolder,
+  toggleFolderCollapsed,
   markFolderTombstone,
   listFolderTombstones,
   clearFolderTombstone,
@@ -227,6 +228,15 @@ export function useProjects(user: User | null) {
     [user, refreshFolders]
   );
 
+  // Expand/collapse is device-local view state; never synced.
+  const toggleFolder = useCallback(
+    (id: string) => {
+      toggleFolderCollapsed(id);
+      refreshFolders();
+    },
+    [refreshFolders]
+  );
+
   const deleteFolder = useCallback(
     (id: string) => {
       // Tombstone first so the delete converges even if the cloud call fails or
@@ -411,5 +421,6 @@ export function useProjects(user: User | null) {
     createFolder,
     updateFolder,
     deleteFolder,
+    toggleFolder,
   };
 }

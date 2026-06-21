@@ -44,13 +44,21 @@ function typeLabel(type: ProjectType): string {
   return type === "plain" ? "Document" : "Screenplay";
 }
 
-function FolderGlyph({ color }: { color: string }) {
+function Chevron({ open }: { open: boolean }) {
   return (
-    <svg className="folder-glyph" width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill={color}
-        d="M3 6a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
-      />
+    <svg
+      className={"home-chevron" + (open ? "" : " home-chevron-collapsed")}
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 9l6 6 6-6" />
     </svg>
   );
 }
@@ -73,6 +81,7 @@ export function ProjectsHome({
   onCreateFolder,
   onUpdateFolder,
   onDeleteFolder,
+  onToggleFolder,
   onSignIn,
   onSignOut,
 }: {
@@ -105,6 +114,7 @@ export function ProjectsHome({
     patch: { name?: string; color?: string; stage?: Stage; collapsed?: boolean; parentId?: string | null }
   ) => void;
   onDeleteFolder: (id: string) => void;
+  onToggleFolder: (id: string) => void;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -119,8 +129,14 @@ export function ProjectsHome({
   const [renameDraft, setRenameDraft] = useState("");
   const renameRef = useRef<HTMLInputElement>(null);
 
-  // null = top level ("Projects"). The folder we are currently inside.
-  const [cwd, setCwd] = useState<string | null>(null);
+  const [tools, setTools] = useState<Set<string>>(new Set());
+  const toggleTools = (id: string) =>
+    setTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<Folder | null>(null);
 
   const dragKind = useRef<null | "project" | "folder">(null);
@@ -136,18 +152,12 @@ export function ProjectsHome({
     if (renaming) renameRef.current?.focus();
   }, [renaming]);
 
-  // If the folder we are inside disappears (deleted elsewhere), fall back to root.
-  useEffect(() => {
-    if (cwd && !folders.some((f) => f.id === cwd)) setCwd(null);
-  }, [folders, cwd]);
-
   const byOrder = (a: ProjectMeta, b: ProjectMeta) =>
     (a.order ?? Infinity) - (b.order ?? Infinity) ||
     (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0);
 
-  // Orphan-safe: a folderId/parentId that points at a folder we do not have
-  // (e.g. mid-sync from another device) is treated as the top level, so nothing
-  // ever vanishes from view.
+  // Orphan-safe: a folderId/parentId pointing at a folder we do not have is
+  // treated as top level, so nothing vanishes.
   const folderExists = (id?: string) => !!id && folders.some((f) => f.id === id);
   const effFolderId = (p: ProjectMeta) => (folderExists(p.folderId) ? p.folderId! : null);
   const effParentId = (f: Folder) => (folderExists(f.parentId) ? f.parentId! : null);
@@ -157,24 +167,6 @@ export function ProjectsHome({
   const subfolders = (parentId: string | null) =>
     folders.filter((f) => effParentId(f) === parentId).sort((a, b) => a.order - b.order);
 
-  // The breadcrumb path from root down to the current folder.
-  // The visited set bounds the walk so a cyclic parentId (possible only if two
-  // devices nest folders into each other while offline) terminates instead of
-  // hanging the render.
-  const path: Folder[] = [];
-  {
-    const seen = new Set<string>();
-    let c = folders.find((f) => f.id === cwd) ?? null;
-    while (c && !seen.has(c.id)) {
-      seen.add(c.id);
-      path.unshift(c);
-      const pid = c.parentId;
-      c = pid ? folders.find((f) => f.id === pid) ?? null : null;
-    }
-  }
-  const currentFolder = folders.find((f) => f.id === cwd) ?? null;
-
-  // True if `ancestorId` is `nodeId` or an ancestor of it (cycle guard for nesting).
   const isAncestor = (ancestorId: string, nodeId: string): boolean => {
     const seen = new Set<string>();
     let c: Folder | undefined = folders.find((f) => f.id === nodeId);
@@ -212,7 +204,7 @@ export function ProjectsHome({
 
   const nestFolder = (id: string, parentId: string | null) => {
     if (id === parentId) return;
-    if (parentId && isAncestor(id, parentId)) return; // no folder inside itself
+    if (parentId && isAncestor(id, parentId)) return;
     onUpdateFolder(id, { parentId });
   };
 
@@ -235,7 +227,7 @@ export function ProjectsHome({
       const pt = parseInt(newPageTarget, 10);
       if (!Number.isNaN(pt) && pt > 0) pageTarget = pt;
     }
-    onCreate(newType, newName.trim(), { content, titlePage, pageTarget, folderId: cwd });
+    onCreate(newType, newName.trim(), { content, titlePage, pageTarget });
     setShowNew(false);
     setNewName("");
     setNewType("screenplay");
@@ -251,13 +243,13 @@ export function ProjectsHome({
     setRenaming(null);
   };
 
-  const addFolder = () => {
-    const f = onCreateFolder(cwd ?? undefined);
-    setCwd(f.id); // go inside it so it can be named
+  const addFolder = (parentId?: string) => {
+    const f = onCreateFolder(parentId);
+    if (parentId && folders.find((x) => x.id === parentId)?.collapsed) onToggleFolder(parentId);
+    setTools((prev) => new Set(prev).add(f.id)); // open its tools to name it
   };
 
   const removeFolder = (f: Folder) => {
-    // Lift its sub-folders and projects up to its parent; never delete content.
     folders.filter((sf) => sf.parentId === f.id).forEach((sf) =>
       onUpdateFolder(sf.id, { parentId: f.parentId ?? null })
     );
@@ -265,7 +257,6 @@ export function ProjectsHome({
       onSetFolder(p.id, f.parentId ?? null)
     );
     onDeleteFolder(f.id);
-    setCwd(f.parentId ?? null);
     setConfirmDeleteFolder(null);
   };
 
@@ -368,104 +359,135 @@ export function ProjectsHome({
     );
   };
 
-  const folderTile = (f: Folder) => {
-    const count =
-      projects.filter((p) => p.folderId === f.id).length +
-      folders.filter((x) => x.parentId === f.id).length;
+  const folderNode = (f: Folder, depth: number) => {
+    const expanded = !f.collapsed;
+    const subs = subfolders(f.id);
+    const chips = chipsIn(f.id);
+    const count = subs.length + chips.length;
+    const toolsOpen = tools.has(f.id);
     return (
-      <div
-        key={f.id}
-        className={
-          "folder-tile" +
-          (dropHi === "folder:" + f.id ? " folder-tile-drop" : "")
-        }
-        draggable
-        onDragStart={(e) => {
-          dragKind.current = "folder";
-          dragId.current = f.id;
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", f.id);
-        }}
-        onDragEnd={clearDrag}
-        onDragOver={(e) => {
-          const k = dragKind.current;
-          if (k === "project" || (k === "folder" && dragId.current && !isAncestor(dragId.current, f.id))) {
+      <div key={f.id} className="fnode">
+        <div
+          className={"fnode-head" + (dropHi === "folder:" + f.id ? " fnode-drop" : "")}
+          style={{ paddingLeft: 12 + depth * 18 }}
+          draggable
+          onDragStart={(e) => {
+            dragKind.current = "folder";
+            dragId.current = f.id;
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", f.id);
+          }}
+          onDragEnd={clearDrag}
+          onDragOver={(e) => {
+            const k = dragKind.current;
+            if (k === "project" || (k === "folder" && dragId.current && dragId.current !== f.id && !isAncestor(dragId.current, f.id))) {
+              e.preventDefault();
+              e.stopPropagation();
+              setDropHi("folder:" + f.id);
+            }
+          }}
+          onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            setDropHi("folder:" + f.id);
-          }
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (dragKind.current === "project" && dragId.current) {
-            fileInto(dragId.current, f.id);
-          } else if (dragKind.current === "folder" && dragId.current) {
-            nestFolder(dragId.current, f.id);
-          }
-          clearDrag();
-        }}
-        onClick={() => setCwd(f.id)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setCwd(f.id);
-          }
-        }}
-        title={count === 1 ? "1 item" : `${count} items`}
-      >
-        <div className="folder-tile-top">
-          <FolderGlyph color={f.color} />
-          <span className="folder-tile-count">{count}</span>
+            if (dragKind.current === "project" && dragId.current) fileInto(dragId.current, f.id);
+            else if (dragKind.current === "folder" && dragId.current) nestFolder(dragId.current, f.id);
+            clearDrag();
+          }}
+        >
+          <button
+            type="button"
+            className="folder-toggle"
+            aria-expanded={expanded}
+            onClick={() => onToggleFolder(f.id)}
+            title={expanded ? "Collapse" : "Expand"}
+          >
+            <Chevron open={expanded} />
+          </button>
+          <span className="folder-dot" style={{ background: f.color }} aria-hidden="true" />
+          <span className="fnode-name" onClick={() => onToggleFolder(f.id)}>
+            {f.name}
+          </span>
+          <span className={"stage-chip stage-" + f.stage}>{STAGE_LABEL[f.stage]}</span>
+          <span className="folder-count">{count}</span>
+          <button
+            type="button"
+            className={"folder-tools-btn" + (toolsOpen ? " tb-btn-active" : "")}
+            onClick={() => toggleTools(f.id)}
+            aria-label="Folder options"
+            title="Folder options"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.6" />
+              <circle cx="12" cy="12" r="1.6" />
+              <circle cx="19" cy="12" r="1.6" />
+            </svg>
+          </button>
         </div>
-        <div className="folder-tile-name">{f.name}</div>
-        <span className={"stage-chip stage-" + f.stage}>{STAGE_LABEL[f.stage]}</span>
+
+        {toolsOpen && (
+          <div className="fnode-tools" style={{ paddingLeft: 12 + depth * 18 }}>
+            <input
+              className="folder-name-input"
+              value={f.name}
+              onChange={(e) => onUpdateFolder(f.id, { name: e.target.value })}
+              aria-label="Folder name"
+            />
+            <div className="folder-swatches" role="group" aria-label="Folder color">
+              {FOLDER_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={"swatch" + (f.color === c ? " swatch-on" : "")}
+                  style={{ background: c }}
+                  onClick={() => onUpdateFolder(f.id, { color: c })}
+                  aria-label={"Color " + c}
+                />
+              ))}
+            </div>
+            <select
+              className="folder-stage-select"
+              value={f.stage}
+              onChange={(e) => onUpdateFolder(f.id, { stage: e.target.value as Stage })}
+              aria-label="Folder stage"
+            >
+              {STAGE_ORDER.map((s) => (
+                <option key={s} value={s}>
+                  {STAGE_LABEL[s]}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="tb-btn" onClick={() => addFolder(f.id)}>
+              Add sub-folder
+            </button>
+            <button type="button" className="tb-btn tb-btn-danger" onClick={() => setConfirmDeleteFolder(f)}>
+              Delete
+            </button>
+          </div>
+        )}
+
+        {expanded && (
+          <div className="fnode-body">
+            {subs.map((s) => folderNode(s, depth + 1))}
+            {chips.length > 0 && (
+              <div className="chip-grid" style={{ paddingLeft: 12 + (depth + 1) * 18 }}>
+                {chips.map(projectChip)}
+              </div>
+            )}
+            {count === 0 && (
+              <div className="fnode-empty" style={{ paddingLeft: 12 + (depth + 1) * 18 }}>
+                Empty. Drag a project or folder onto this folder to add it.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
 
-  // A breadcrumb crumb that is also a drop target for moving items up a level.
-  const crumb = (id: string | null, label: string, isLast: boolean) => (
-    <span
-      key={id ?? "root"}
-      className={"crumb" + (isLast ? " crumb-cur" : "") + (dropHi === "crumb:" + (id ?? "root") ? " crumb-drop" : "")}
-      onClick={() => !isLast && setCwd(id)}
-      role={isLast ? undefined : "button"}
-      tabIndex={isLast ? undefined : 0}
-      onKeyDown={(e) => {
-        if (!isLast && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          setCwd(id);
-        }
-      }}
-      onDragOver={(e) => {
-        const k = dragKind.current;
-        if (k === "project" || (k === "folder" && dragId.current && !isAncestor(dragId.current, id ?? "") && dragId.current !== id)) {
-          e.preventDefault();
-          setDropHi("crumb:" + (id ?? "root"));
-        }
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        if (dragKind.current === "project" && dragId.current) fileInto(dragId.current, id);
-        else if (dragKind.current === "folder" && dragId.current) nestFolder(dragId.current, id);
-        clearDrag();
-      }}
-    >
-      {label}
-    </span>
-  );
-
+  const topFolders = subfolders(null);
+  const loose = chipsIn(null);
   const continueProject =
-    cwd === null && lastOpenedId != null
-      ? projects.find((p) => p.id === lastOpenedId) ?? null
-      : null;
-
-  const levelFolders = subfolders(cwd);
-  const levelChips = chipsIn(cwd);
-  const empty = levelFolders.length === 0 && levelChips.length === 0;
+    lastOpenedId != null ? projects.find((p) => p.id === lastOpenedId) ?? null : null;
 
   return (
     <div className="home">
@@ -513,7 +535,7 @@ export function ProjectsHome({
             {prefs.theme === "system" ? "System" : prefs.theme === "dark" ? "Dark" : "Light"}
           </button>
         </div>
-        <button type="button" className="tb-btn" onClick={addFolder} title="Create a folder here">
+        <button type="button" className="tb-btn" onClick={() => addFolder()} title="Create a folder">
           New folder
         </button>
         <button type="button" className="tb-btn tb-btn-active home-new" onClick={() => setShowNew(true)}>
@@ -521,7 +543,25 @@ export function ProjectsHome({
         </button>
       </div>
 
-      <div className="home-body">
+      <div
+        className={"home-body" + (dropHi === "root" ? " root-drop" : "")}
+        onDragOver={(e) => {
+          if (dragKind.current === "project" || dragKind.current === "folder") {
+            e.preventDefault();
+            setDropHi("root");
+          }
+        }}
+        onDrop={(e) => {
+          if (dragKind.current === "project" && dragId.current) {
+            e.preventDefault();
+            fileInto(dragId.current, null);
+          } else if (dragKind.current === "folder" && dragId.current) {
+            e.preventDefault();
+            nestFolder(dragId.current, null);
+          }
+          clearDrag();
+        }}
+      >
         {projects.length === 0 && folders.length === 0 ? (
           <div className="home-empty">
             <h2>No projects yet</h2>
@@ -535,59 +575,6 @@ export function ProjectsHome({
           </div>
         ) : (
           <>
-            <div className="crumbs">
-              {crumb(null, "Projects", path.length === 0)}
-              {path.map((f, i) => (
-                <span key={f.id} className="crumb-wrap">
-                  <span className="crumb-sep" aria-hidden="true">›</span>
-                  {crumb(f.id, f.name, i === path.length - 1)}
-                </span>
-              ))}
-            </div>
-
-            {currentFolder && (
-              <div className="cur-folder">
-                <span className="folder-dot" style={{ background: currentFolder.color }} aria-hidden="true" />
-                <input
-                  className="folder-name-input"
-                  value={currentFolder.name}
-                  onChange={(e) => onUpdateFolder(currentFolder.id, { name: e.target.value })}
-                  aria-label="Folder name"
-                />
-                <div className="folder-swatches" role="group" aria-label="Folder color">
-                  {FOLDER_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      className={"swatch" + (currentFolder.color === c ? " swatch-on" : "")}
-                      style={{ background: c }}
-                      onClick={() => onUpdateFolder(currentFolder.id, { color: c })}
-                      aria-label={"Color " + c}
-                    />
-                  ))}
-                </div>
-                <select
-                  className="folder-stage-select"
-                  value={currentFolder.stage}
-                  onChange={(e) => onUpdateFolder(currentFolder.id, { stage: e.target.value as Stage })}
-                  aria-label="Folder stage"
-                >
-                  {STAGE_ORDER.map((s) => (
-                    <option key={s} value={s}>
-                      {STAGE_LABEL[s]}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="tb-btn tb-btn-danger"
-                  onClick={() => setConfirmDeleteFolder(currentFolder)}
-                >
-                  Delete folder
-                </button>
-              </div>
-            )}
-
             {continueProject && (
               <div className="home-continue">
                 <div className="home-continue-label">Continue</div>
@@ -603,35 +590,19 @@ export function ProjectsHome({
               </div>
             )}
 
-            <div
-              className={"chip-grid" + (dropHi === "level" ? " grid-drop" : "")}
-              onDragOver={(e) => {
-                if (dragKind.current === "project") {
-                  e.preventDefault();
-                  setDropHi("level");
-                }
-              }}
-              onDrop={(e) => {
-                if (dragKind.current === "project" && dragId.current) {
-                  e.preventDefault();
-                  fileInto(dragId.current, cwd);
-                }
-                clearDrag();
-              }}
-            >
-              {empty ? (
-                <div className="chip-grid-empty">
-                  {currentFolder
-                    ? "This folder is empty. Drag projects or folders onto its name in the trail above to move them out, or create new ones here."
-                    : "Nothing here yet."}
-                </div>
-              ) : (
-                <>
-                  {levelFolders.map(folderTile)}
-                  {levelChips.map(projectChip)}
-                </>
-              )}
-            </div>
+            {loose.length > 0 && (
+              <>
+                <div className="home-sec-label">Loose projects</div>
+                <div className="chip-grid">{loose.map(projectChip)}</div>
+              </>
+            )}
+
+            {topFolders.length > 0 && (
+              <>
+                <div className="home-sec-label">Folders</div>
+                <div className="fnode-list">{topFolders.map((f) => folderNode(f, 0))}</div>
+              </>
+            )}
           </>
         )}
       </div>

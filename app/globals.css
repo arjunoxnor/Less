@@ -1593,6 +1593,71 @@ body {
   background: var(--toolbar-bg);
 }
 
+/* ---- Inline folder tree (expand in place, many open at once) ----------- */
+.home-body.root-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+  border-radius: 12px;
+}
+.fnode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fnode-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: grab;
+}
+.fnode-head:hover {
+  background: var(--btn-bg);
+}
+.fnode-head:active {
+  cursor: grabbing;
+}
+.fnode-head.fnode-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--btn-active-bg);
+}
+.fnode-name {
+  flex: 1 1 auto;
+  font-weight: 600;
+  color: var(--toolbar-fg);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fnode-head .folder-count {
+  margin-left: 2px;
+}
+.fnode-head .folder-tools-btn {
+  flex: 0 0 auto;
+}
+.fnode-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 12px;
+}
+.fnode-body {
+  padding-top: 2px;
+}
+.fnode-body .chip-grid {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.fnode-empty {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 6px 12px 10px;
+}
+
 /* ---- Editor chrome (project bar above the type toolbar) ----------------- */
 
 .chrome-bar {
