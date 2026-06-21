@@ -150,3 +150,78 @@ export function toggleFolderCollapsed(id: string): void {
   list[i] = { ...list[i], collapsed: !list[i].collapsed };
   writeAll(list);
 }
+
+export function getFolder(id: string): Folder | null {
+  return readAll().find((f) => f.id === id) ?? null;
+}
+
+/** A folder row coming from the cloud, ready to merge into local storage. */
+export interface CloudFolderShape {
+  id: string;
+  name: string;
+  color: string;
+  stage: Stage;
+  parent_id: string | null;
+  position: number;
+  updated_at: string;
+}
+
+/**
+ * Merge a folder from the cloud into local storage (used on sign-in pull). The
+ * device-local `collapsed` state and a sensible createdAt are preserved.
+ */
+export function upsertLocalFolder(cf: CloudFolderShape): void {
+  const list = readAll();
+  const i = list.findIndex((f) => f.id === cf.id);
+  const next: Folder = {
+    id: cf.id,
+    name: cf.name,
+    color: cf.color,
+    stage: cf.stage,
+    // Never let a folder be its own parent (defensive against a corrupt row).
+    parentId: cf.parent_id && cf.parent_id !== cf.id ? cf.parent_id : undefined,
+    order: cf.position,
+    collapsed: i >= 0 ? list[i].collapsed : undefined,
+    createdAt: i >= 0 ? list[i].createdAt : cf.updated_at,
+    updatedAt: cf.updated_at,
+  };
+  if (i >= 0) list[i] = next;
+  else list.push(next);
+  writeAll(list);
+}
+
+/** Remove a folder locally without any of the reparenting the UI does. */
+export function removeLocalFolder(id: string): void {
+  writeAll(readAll().filter((f) => f.id !== id));
+}
+
+/* --- Delete tombstones (so a delete converges across devices) ------------- */
+
+export interface FolderTombstone {
+  id: string;
+  at: string;
+}
+
+const FOLDER_TOMB_KEY = "less:folders:tombstones";
+
+export function listFolderTombstones(): FolderTombstone[] {
+  const raw = lsGet(FOLDER_TOMB_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as FolderTombstone[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markFolderTombstone(id: string, at: string): void {
+  const list = listFolderTombstones().filter((t) => t.id !== id);
+  list.push({ id, at });
+  lsSet(FOLDER_TOMB_KEY, JSON.stringify(list));
+}
+
+export function clearFolderTombstone(id: string): void {
+  const next = listFolderTombstones().filter((t) => t.id !== id);
+  lsSet(FOLDER_TOMB_KEY, next.length ? JSON.stringify(next) : null);
+}

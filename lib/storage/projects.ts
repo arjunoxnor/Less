@@ -245,20 +245,42 @@ export function setStatus(id: string, status: ProjectStatus): void {
   patchMeta(id, { status });
 }
 
-/** File a project into a folder (local-only), or null to move it to Unfiled. */
+/**
+ * File a project into a folder, or null to move it to the loose top level.
+ * Bumps updatedAt so placement changes participate in last-write-wins sync.
+ */
 export function setProjectFolder(id: string, folderId: string | null): void {
-  patchMeta(id, { folderId: folderId ?? undefined });
+  patchMeta(id, { folderId: folderId ?? undefined, updatedAt: nowIso() });
+}
+
+/**
+ * Apply a folder placement pulled from the cloud (folder + manual position).
+ * Pass the cloud row's updatedAt so the local timestamp aligns and the value
+ * does not immediately bounce back on the next reconcile.
+ */
+export function setProjectPlacement(
+  id: string,
+  folderId: string | null,
+  position: number | null,
+  updatedAt?: string
+): void {
+  patchMeta(id, {
+    folderId: folderId ?? undefined,
+    order: position ?? undefined,
+    ...(updatedAt ? { updatedAt } : {}),
+  });
 }
 
 /** Persist a manual order (local-only) for a set of project ids in a container. */
 export function reorderProjects(orderedIds: string[]): void {
   const list = readIndex();
   const pos = new Map(orderedIds.map((id, i) => [id, i]));
+  const ts = nowIso();
   let changed = false;
   for (let i = 0; i < list.length; i++) {
     const o = pos.get(list[i].id);
     if (o !== undefined && list[i].order !== o) {
-      list[i] = { ...list[i], order: o };
+      list[i] = { ...list[i], order: o, updatedAt: ts };
       changed = true;
     }
   }

@@ -35,8 +35,20 @@ function parseHash(): string | null {
  */
 export function AppShell() {
   const { user } = useAuth();
-  const { projects, refresh, create, remove, rename, setStatus, setFolder, reorder } =
-    useProjects(user);
+  const {
+    projects,
+    folders,
+    refresh,
+    create,
+    remove,
+    rename,
+    setStatus,
+    setFolder,
+    reorder,
+    createFolder,
+    updateFolder,
+    deleteFolder,
+  } = useProjects(user);
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [view, setView] = useState<View>({ kind: "home" });
   const [showAuth, setShowAuth] = useState(false);
@@ -175,6 +187,10 @@ export function AppShell() {
         onStatusChange={setStatus}
         onSetFolder={setFolder}
         onReorder={reorder}
+        folders={folders}
+        onCreateFolder={createFolder}
+        onUpdateFolder={updateFolder}
+        onDeleteFolder={deleteFolder}
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOut()}
       />

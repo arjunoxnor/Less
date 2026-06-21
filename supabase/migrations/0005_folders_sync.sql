@@ -54,3 +54,47 @@ alter table public.scripts
 
 alter table public.scripts
   add column if not exists position integer;
+
+-- Optional hardening (low severity, defense-in-depth). RLS already restricts
+-- every row to its owner; these add-ons also forbid pointing a script or folder
+-- at a *folder* you do not own. A cross-table check cannot be a column CHECK, so
+-- it lives in the RLS WITH CHECK clause. Safe to run; re-runnable.
+drop policy if exists "scripts_insert_own" on public.scripts;
+create policy "scripts_insert_own" on public.scripts
+  for insert with check (
+    auth.uid() = user_id
+    and (
+      folder_id is null
+      or exists (select 1 from public.folders f where f.id = folder_id and f.user_id = auth.uid())
+    )
+  );
+
+drop policy if exists "scripts_update_own" on public.scripts;
+create policy "scripts_update_own" on public.scripts
+  for update using (auth.uid() = user_id) with check (
+    auth.uid() = user_id
+    and (
+      folder_id is null
+      or exists (select 1 from public.folders f where f.id = folder_id and f.user_id = auth.uid())
+    )
+  );
+
+drop policy if exists "folders_insert_own" on public.folders;
+create policy "folders_insert_own" on public.folders
+  for insert with check (
+    auth.uid() = user_id
+    and (
+      parent_id is null
+      or exists (select 1 from public.folders f where f.id = parent_id and f.user_id = auth.uid())
+    )
+  );
+
+drop policy if exists "folders_update_own" on public.folders;
+create policy "folders_update_own" on public.folders
+  for update using (auth.uid() = user_id) with check (
+    auth.uid() = user_id
+    and (
+      parent_id is null
+      or exists (select 1 from public.folders f where f.id = parent_id and f.user_id = auth.uid())
+    )
+  );

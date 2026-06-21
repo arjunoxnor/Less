@@ -28,6 +28,9 @@ export interface ScriptSummary {
   type: ProjectType;
   status: ProjectStatus;
   updated_at: string;
+  /** Folder placement (migration 0005); null when the project is loose. */
+  folder_id: string | null;
+  position: number | null;
 }
 
 export interface VersionRow {
@@ -92,7 +95,7 @@ export async function listScripts(): Promise<ScriptSummary[]> {
   if (!sb) return [];
   const { data, error } = await sb
     .from("scripts")
-    .select("id, title, type, status, updated_at")
+    .select("id, title, type, status, updated_at, folder_id, position")
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data as ScriptSummary[]) ?? [];
@@ -113,6 +116,24 @@ export async function setScriptStatus(
     .single();
   if (error) throw error;
   return (data as { updated_at: string }).updated_at;
+}
+
+/**
+ * Update only a script's folder placement (folder + manual position). Touches
+ * no content, so it can never affect the writing itself.
+ */
+export async function setScriptFolder(
+  id: string,
+  folderId: string | null,
+  position: number | null
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb
+    .from("scripts")
+    .update({ folder_id: folderId, position })
+    .eq("id", id);
+  if (error) throw error;
 }
 
 /** Delete a script (RLS-scoped; cascades its versions). */

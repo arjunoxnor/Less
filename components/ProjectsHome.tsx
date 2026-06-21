@@ -10,10 +10,6 @@ import type {
   ProjectType,
 } from "@/lib/storage/projects";
 import {
-  listFolders,
-  createFolder,
-  updateFolder,
-  deleteFolder,
   stageOfStatus,
   FOLDER_COLORS,
   STAGE_LABEL,
@@ -73,6 +69,10 @@ export function ProjectsHome({
   onStatusChange,
   onSetFolder,
   onReorder,
+  folders,
+  onCreateFolder,
+  onUpdateFolder,
+  onDeleteFolder,
   onSignIn,
   onSignOut,
 }: {
@@ -98,6 +98,13 @@ export function ProjectsHome({
   onStatusChange: (id: string, status: ProjectStatus) => void;
   onSetFolder: (id: string, folderId: string | null) => void;
   onReorder: (orderedIds: string[]) => void;
+  folders: Folder[];
+  onCreateFolder: (parentId?: string) => Folder;
+  onUpdateFolder: (
+    id: string,
+    patch: { name?: string; color?: string; stage?: Stage; collapsed?: boolean; parentId?: string | null }
+  ) => void;
+  onDeleteFolder: (id: string) => void;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -111,10 +118,6 @@ export function ProjectsHome({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameRef = useRef<HTMLInputElement>(null);
-
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const reloadFolders = () => setFolders(listFolders());
-  useEffect(reloadFolders, []);
 
   // null = top level ("Projects"). The folder we are currently inside.
   const [cwd, setCwd] = useState<string | null>(null);
@@ -142,16 +145,28 @@ export function ProjectsHome({
     (a.order ?? Infinity) - (b.order ?? Infinity) ||
     (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0);
 
+  // Orphan-safe: a folderId/parentId that points at a folder we do not have
+  // (e.g. mid-sync from another device) is treated as the top level, so nothing
+  // ever vanishes from view.
+  const folderExists = (id?: string) => !!id && folders.some((f) => f.id === id);
+  const effFolderId = (p: ProjectMeta) => (folderExists(p.folderId) ? p.folderId! : null);
+  const effParentId = (f: Folder) => (folderExists(f.parentId) ? f.parentId! : null);
+
   const chipsIn = (folderId: string | null) =>
-    projects.filter((p) => (p.folderId ?? null) === folderId).sort(byOrder);
+    projects.filter((p) => effFolderId(p) === folderId).sort(byOrder);
   const subfolders = (parentId: string | null) =>
-    folders.filter((f) => (f.parentId ?? null) === parentId).sort((a, b) => a.order - b.order);
+    folders.filter((f) => effParentId(f) === parentId).sort((a, b) => a.order - b.order);
 
   // The breadcrumb path from root down to the current folder.
+  // The visited set bounds the walk so a cyclic parentId (possible only if two
+  // devices nest folders into each other while offline) terminates instead of
+  // hanging the render.
   const path: Folder[] = [];
   {
+    const seen = new Set<string>();
     let c = folders.find((f) => f.id === cwd) ?? null;
-    while (c) {
+    while (c && !seen.has(c.id)) {
+      seen.add(c.id);
       path.unshift(c);
       const pid = c.parentId;
       c = pid ? folders.find((f) => f.id === pid) ?? null : null;
@@ -161,9 +176,11 @@ export function ProjectsHome({
 
   // True if `ancestorId` is `nodeId` or an ancestor of it (cycle guard for nesting).
   const isAncestor = (ancestorId: string, nodeId: string): boolean => {
+    const seen = new Set<string>();
     let c: Folder | undefined = folders.find((f) => f.id === nodeId);
-    while (c) {
+    while (c && !seen.has(c.id)) {
       if (c.id === ancestorId) return true;
+      seen.add(c.id);
       c = c.parentId ? folders.find((f) => f.id === c!.parentId) : undefined;
     }
     return false;
@@ -196,8 +213,7 @@ export function ProjectsHome({
   const nestFolder = (id: string, parentId: string | null) => {
     if (id === parentId) return;
     if (parentId && isAncestor(id, parentId)) return; // no folder inside itself
-    updateFolder(id, { parentId });
-    reloadFolders();
+    onUpdateFolder(id, { parentId });
   };
 
   const create = () => {
@@ -236,21 +252,19 @@ export function ProjectsHome({
   };
 
   const addFolder = () => {
-    const f = createFolder(undefined, cwd ?? undefined);
-    reloadFolders();
+    const f = onCreateFolder(cwd ?? undefined);
     setCwd(f.id); // go inside it so it can be named
   };
 
   const removeFolder = (f: Folder) => {
     // Lift its sub-folders and projects up to its parent; never delete content.
     folders.filter((sf) => sf.parentId === f.id).forEach((sf) =>
-      updateFolder(sf.id, { parentId: f.parentId ?? null })
+      onUpdateFolder(sf.id, { parentId: f.parentId ?? null })
     );
     projects.filter((p) => p.folderId === f.id).forEach((p) =>
       onSetFolder(p.id, f.parentId ?? null)
     );
-    deleteFolder(f.id);
-    reloadFolders();
+    onDeleteFolder(f.id);
     setCwd(f.parentId ?? null);
     setConfirmDeleteFolder(null);
   };
@@ -537,10 +551,7 @@ export function ProjectsHome({
                 <input
                   className="folder-name-input"
                   value={currentFolder.name}
-                  onChange={(e) => {
-                    updateFolder(currentFolder.id, { name: e.target.value });
-                    reloadFolders();
-                  }}
+                  onChange={(e) => onUpdateFolder(currentFolder.id, { name: e.target.value })}
                   aria-label="Folder name"
                 />
                 <div className="folder-swatches" role="group" aria-label="Folder color">
@@ -550,10 +561,7 @@ export function ProjectsHome({
                       type="button"
                       className={"swatch" + (currentFolder.color === c ? " swatch-on" : "")}
                       style={{ background: c }}
-                      onClick={() => {
-                        updateFolder(currentFolder.id, { color: c });
-                        reloadFolders();
-                      }}
+                      onClick={() => onUpdateFolder(currentFolder.id, { color: c })}
                       aria-label={"Color " + c}
                     />
                   ))}
@@ -561,10 +569,7 @@ export function ProjectsHome({
                 <select
                   className="folder-stage-select"
                   value={currentFolder.stage}
-                  onChange={(e) => {
-                    updateFolder(currentFolder.id, { stage: e.target.value as Stage });
-                    reloadFolders();
-                  }}
+                  onChange={(e) => onUpdateFolder(currentFolder.id, { stage: e.target.value as Stage })}
                   aria-label="Folder stage"
                 >
                   {STAGE_ORDER.map((s) => (
