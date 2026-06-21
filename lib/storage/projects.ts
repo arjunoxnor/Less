@@ -32,8 +32,10 @@ export interface ProjectMeta {
   titleManual?: boolean;
   /** Optional goal page count, shown in the status bar (local-only). */
   pageTarget?: number;
-  /** Which folder this project is filed under (local-only); undefined = Unfiled. */
+  /** Which folder this project is filed under (local-only); undefined = loose. */
   folderId?: string;
+  /** Manual position within its container (local-only); unset sorts by recency. */
+  order?: number;
 }
 
 /** A full project: metadata plus its body. */
@@ -246,6 +248,21 @@ export function setStatus(id: string, status: ProjectStatus): void {
 /** File a project into a folder (local-only), or null to move it to Unfiled. */
 export function setProjectFolder(id: string, folderId: string | null): void {
   patchMeta(id, { folderId: folderId ?? undefined });
+}
+
+/** Persist a manual order (local-only) for a set of project ids in a container. */
+export function reorderProjects(orderedIds: string[]): void {
+  const list = readIndex();
+  const pos = new Map(orderedIds.map((id, i) => [id, i]));
+  let changed = false;
+  for (let i = 0; i < list.length; i++) {
+    const o = pos.get(list[i].id);
+    if (o !== undefined && list[i].order !== o) {
+      list[i] = { ...list[i], order: o };
+      changed = true;
+    }
+  }
+  if (changed) writeIndex(list);
 }
 
 /** Move every project out of a folder (used when a folder is deleted). */

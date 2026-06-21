@@ -22,6 +22,7 @@ import {
   renameProject as localRename,
   setStatus as localSetStatus,
   setProjectFolder as localSetFolder,
+  reorderProjects as localReorder,
   upsertCloudMeta,
   type ProjectMeta,
   type ProjectStatus,
@@ -150,6 +151,14 @@ export function useProjects(user: User | null) {
     [refresh]
   );
 
+  const reorder = useCallback(
+    (orderedIds: string[]) => {
+      localReorder(orderedIds);
+      refresh();
+    },
+    [refresh]
+  );
+
   // One pass that pushes anonymous meaningful local projects to the cloud, pulls
   // cloud-only projects into the local index, and flushes delete tombstones.
   const reconcile = useCallback(
@@ -227,5 +236,5 @@ export function useProjects(user: User | null) {
     return () => window.removeEventListener("online", onOnline);
   }, [user, reconcile]);
 
-  return { projects, refresh, create, remove, rename, setStatus, setFolder };
+  return { projects, refresh, create, remove, rename, setStatus, setFolder, reorder };
 }

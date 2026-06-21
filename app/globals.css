@@ -1352,6 +1352,193 @@ body {
   background: var(--toolbar-bg);
 }
 
+/* ---- Chip-grid home (draggable project chips + folder tiles) ----------- */
+.home-sec-label {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-weight: 700;
+  margin: 22px 0 10px;
+}
+.chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  border-radius: 12px;
+  min-height: 64px;
+}
+.chip-grid.grid-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 6px;
+}
+.chip-grid-empty {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 14px 2px;
+}
+.chip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 104px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--toolbar-bg);
+  cursor: grab;
+  transition: border-color 0.12s ease, transform 0.06s ease;
+}
+.chip:hover {
+  border-color: var(--accent);
+}
+.chip:active {
+  cursor: grabbing;
+}
+.chip.chip-drop {
+  border-left: 3px solid var(--accent);
+}
+.chip-title {
+  font-weight: 600;
+  color: var(--toolbar-fg);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.chip-rename {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+.chip-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chip-stage {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+  cursor: pointer;
+}
+.chip-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.chip-time {
+  font-size: 11px;
+  color: var(--muted);
+}
+.chip-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+}
+.chip:hover .chip-actions,
+.chip:focus-within .chip-actions {
+  opacity: 1;
+}
+.chip-act {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.chip-act-danger:hover {
+  color: #e0533b;
+  border-color: #e0533b;
+}
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.folder-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 110px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--toolbar-bg);
+  cursor: pointer;
+}
+.folder-tile:hover {
+  border-color: var(--accent);
+}
+.folder-tile.folder-tile-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--btn-active-bg);
+}
+.folder-tile.folder-tile-reorder {
+  border-color: var(--accent);
+}
+.folder-tile.folder-tile-open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.folder-tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.folder-tile-count {
+  font-size: 12px;
+  color: var(--muted);
+}
+.folder-tile-name {
+  font-weight: 600;
+  color: var(--toolbar-fg);
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.folder-tile .stage-chip {
+  align-self: flex-start;
+  margin-top: auto;
+}
+.open-folder {
+  margin-top: 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--bg);
+}
+.open-folder-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.open-folder-grid {
+  min-height: 48px;
+}
+
 /* ---- Editor chrome (project bar above the type toolbar) ----------------- */
 
 .chrome-bar {
