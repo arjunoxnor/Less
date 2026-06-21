@@ -109,7 +109,9 @@ export function updateFolder(
   const i = list.findIndex((f) => f.id === id);
   if (i < 0) return;
   const next: Folder = { ...list[i] };
-  if (patch.name !== undefined) next.name = patch.name.trim() || "Untitled folder";
+  // Store the name as typed so spaces (including a just-typed trailing space)
+  // survive; the UI normalizes/trims when editing finishes.
+  if (patch.name !== undefined) next.name = patch.name;
   if (patch.color !== undefined) next.color = patch.color;
   if (patch.stage !== undefined) next.stage = patch.stage;
   if (patch.collapsed !== undefined) next.collapsed = patch.collapsed;
@@ -126,21 +128,24 @@ export function deleteFolder(id: string): void {
   writeAll(readAll().filter((f) => f.id !== id));
 }
 
-/** Persist a new folder order from a list of ids (drag-to-reorder result). */
+/**
+ * Set the order of just the named folders (one container's siblings) from a
+ * drag-to-reorder result, bumping updatedAt so the change wins on sync. Folders
+ * not named here (other containers) are left untouched.
+ */
 export function reorderFolders(orderedIds: string[]): void {
-  const byId = new Map(readAll().map((f) => [f.id, f]));
-  const next: Folder[] = [];
-  orderedIds.forEach((id, idx) => {
-    const f = byId.get(id);
-    if (f) {
-      next.push({ ...f, order: idx });
-      byId.delete(id);
+  const list = readAll();
+  const pos = new Map(orderedIds.map((id, i) => [id, i]));
+  const ts = nowIso();
+  let changed = false;
+  for (let i = 0; i < list.length; i++) {
+    const o = pos.get(list[i].id);
+    if (o !== undefined && list[i].order !== o) {
+      list[i] = { ...list[i], order: o, updatedAt: ts };
+      changed = true;
     }
-  });
-  // Any folder not named in the order keeps following, after the ordered ones.
-  let tail = orderedIds.length;
-  for (const f of byId.values()) next.push({ ...f, order: tail++ });
-  writeAll(next);
+  }
+  if (changed) writeAll(list);
 }
 
 export function toggleFolderCollapsed(id: string): void {

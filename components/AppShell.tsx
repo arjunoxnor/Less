@@ -48,6 +48,7 @@ export function AppShell() {
     createFolder,
     updateFolder,
     deleteFolder,
+    reorderFolders,
     toggleFolder,
   } = useProjects(user);
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
@@ -192,6 +193,7 @@ export function AppShell() {
         onCreateFolder={createFolder}
         onUpdateFolder={updateFolder}
         onDeleteFolder={deleteFolder}
+        onReorderFolders={reorderFolders}
         onToggleFolder={toggleFolder}
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOut()}

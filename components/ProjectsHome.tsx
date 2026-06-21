@@ -80,6 +80,7 @@ export function ProjectsHome({
   onCreateFolder,
   onUpdateFolder,
   onDeleteFolder,
+  onReorderFolders,
   onToggleFolder,
   onSignIn,
   onSignOut,
@@ -113,6 +114,7 @@ export function ProjectsHome({
     patch: { name?: string; color?: string; stage?: Stage; collapsed?: boolean; parentId?: string | null }
   ) => void;
   onDeleteFolder: (id: string) => void;
+  onReorderFolders: (orderedIds: string[]) => void;
   onToggleFolder: (id: string) => void;
   onSignIn: () => void;
   onSignOut: () => void;
@@ -217,6 +219,21 @@ export function ProjectsHome({
     if (id === parentId) return;
     if (parentId && isAncestor(id, parentId)) return;
     onUpdateFolder(id, { parentId });
+  };
+
+  // Drop folder `id` just before `target`, as a sibling (re-parenting if needed).
+  const moveFolderBefore = (id: string, target: Folder) => {
+    if (id === target.id) return;
+    const parent = effParentId(target);
+    if (parent && isAncestor(id, parent)) return; // would nest a folder under itself
+    const dragged = folders.find((f) => f.id === id);
+    if ((dragged?.parentId ?? null) !== parent) onUpdateFolder(id, { parentId: parent });
+    const ids = subfolders(parent)
+      .map((f) => f.id)
+      .filter((x) => x !== id);
+    const at = ids.indexOf(target.id);
+    ids.splice(at < 0 ? ids.length : at, 0, id);
+    onReorderFolders(ids);
   };
 
   const create = () => {
@@ -383,24 +400,36 @@ export function ProjectsHome({
         className={
           "fcard" +
           (expanded || isEditing ? " fcard-open" : "") +
-          (dropHi === "folder:" + f.id ? " fcard-drop" : "")
+          (dropHi === "folder:" + f.id || dropHi === "into:" + f.id ? " fcard-drop" : "") +
+          (dropHi === "before:" + f.id ? " fcard-before" : "")
         }
         style={{ borderLeftColor: f.color }}
         onDragOver={(e) => {
-          // The WHOLE card is a drop target (not just the header). Nested cards
-          // and chips stopPropagation, so they still capture their own drops.
+          // The whole card is a drop target. A dragged PROJECT files into it. A
+          // dragged FOLDER reorders (when over the box) or nests (when dropped
+          // inside the open body). Nested cards/chips stopPropagation.
           const k = dragKind.current;
-          if (k === "project" || (k === "folder" && dragId.current && dragId.current !== f.id && !isAncestor(dragId.current, f.id))) {
+          if (k === "project") {
             e.preventDefault();
             e.stopPropagation();
             setDropHi("folder:" + f.id);
+          } else if (k === "folder" && dragId.current && dragId.current !== f.id && !isAncestor(dragId.current, f.id)) {
+            e.preventDefault();
+            e.stopPropagation();
+            const inBody = !!(e.target as HTMLElement).closest(".fcard-body");
+            setDropHi((inBody ? "into:" : "before:") + f.id);
           }
         }}
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          if (dragKind.current === "project" && dragId.current) fileInto(dragId.current, f.id);
-          else if (dragKind.current === "folder" && dragId.current) nestFolder(dragId.current, f.id);
+          if (dragKind.current === "project" && dragId.current) {
+            fileInto(dragId.current, f.id);
+          } else if (dragKind.current === "folder" && dragId.current && dragId.current !== f.id) {
+            const inBody = !!(e.target as HTMLElement).closest(".fcard-body");
+            if (inBody) nestFolder(dragId.current, f.id);
+            else moveFolderBefore(dragId.current, f);
+          }
           clearDrag();
         }}
       >
@@ -415,46 +444,50 @@ export function ProjectsHome({
           }}
           onDragEnd={clearDrag}
         >
-          <button
-            type="button"
-            className="folder-toggle"
-            aria-expanded={expanded}
-            onClick={() => onToggleFolder(f.id)}
-            title={expanded ? "Collapse" : "Expand"}
-          >
-            <Chevron open={expanded} />
-          </button>
-          <svg className="fcard-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill={f.color} d="M3 6a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-          </svg>
-          <button type="button" className="fcard-name" onClick={() => onToggleFolder(f.id)}>
-            {f.name}
-          </button>
-          <span className={"stage-chip stage-" + f.stage}>{STAGE_LABEL[f.stage]}</span>
-          <span className="folder-count">{count}</span>
-          <div className="fnode-menu-wrap">
+          <div className="fcard-top">
+            <svg className="fcard-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill={f.color} d="M3 6a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            </svg>
             <button
               type="button"
-              className={"folder-tools-btn" + (menu === f.id ? " tb-btn-active" : "")}
-              onClick={() => setMenu(menu === f.id ? null : f.id)}
-              aria-label="Folder options"
-              title="Folder options"
+              className="folder-toggle"
+              aria-expanded={expanded}
+              onClick={() => onToggleFolder(f.id)}
+              title={expanded ? "Collapse" : "Expand"}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <circle cx="5" cy="12" r="1.6" />
-                <circle cx="12" cy="12" r="1.6" />
-                <circle cx="19" cy="12" r="1.6" />
-              </svg>
+              <Chevron open={expanded} />
             </button>
-            {menu === f.id && (
-              <div className="fnode-menu">
-                <button type="button" onClick={() => { openEdit(f.id); setMenu(null); }}>Edit</button>
-                <button type="button" onClick={() => addFolder(f.id)}>Add sub-folder</button>
-                <button type="button" className="fnode-menu-danger" onClick={() => { setConfirmDeleteFolder(f); setMenu(null); }}>
-                  Delete
-                </button>
-              </div>
-            )}
+            <div className="fnode-menu-wrap">
+              <button
+                type="button"
+                className={"folder-tools-btn" + (menu === f.id ? " tb-btn-active" : "")}
+                onClick={() => setMenu(menu === f.id ? null : f.id)}
+                aria-label="Folder options"
+                title="Folder options"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <circle cx="5" cy="12" r="1.6" />
+                  <circle cx="12" cy="12" r="1.6" />
+                  <circle cx="19" cy="12" r="1.6" />
+                </svg>
+              </button>
+              {menu === f.id && (
+                <div className="fnode-menu">
+                  <button type="button" onClick={() => { openEdit(f.id); setMenu(null); }}>Edit</button>
+                  <button type="button" onClick={() => addFolder(f.id)}>Add sub-folder</button>
+                  <button type="button" className="fnode-menu-danger" onClick={() => { setConfirmDeleteFolder(f); setMenu(null); }}>
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          <button type="button" className="fcard-name" onClick={() => onToggleFolder(f.id)}>
+            {f.name || "Untitled folder"}
+          </button>
+          <div className="fcard-meta">
+            <span className={"stage-chip stage-" + f.stage}>{STAGE_LABEL[f.stage]}</span>
+            <span className="folder-count">{count}</span>
           </div>
         </div>
 
@@ -466,7 +499,10 @@ export function ProjectsHome({
               autoFocus
               onChange={(e) => onUpdateFolder(f.id, { name: e.target.value })}
               onKeyDown={(e) => {
-                if (e.key === "Enter") closeEdit(f.id);
+                if (e.key === "Enter") {
+                  onUpdateFolder(f.id, { name: f.name.trim() || "Untitled folder" });
+                  closeEdit(f.id);
+                }
               }}
               aria-label="Folder name"
             />
@@ -494,7 +530,14 @@ export function ProjectsHome({
                 </option>
               ))}
             </select>
-            <button type="button" className="tb-btn tb-btn-active" onClick={() => closeEdit(f.id)}>
+            <button
+              type="button"
+              className="tb-btn tb-btn-active"
+              onClick={() => {
+                onUpdateFolder(f.id, { name: f.name.trim() || "Untitled folder" });
+                closeEdit(f.id);
+              }}
+            >
               Done
             </button>
           </div>

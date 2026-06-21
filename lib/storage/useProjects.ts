@@ -34,6 +34,7 @@ import {
   createFolder as localCreateFolder,
   updateFolder as localUpdateFolder,
   deleteFolder as localDeleteFolder,
+  reorderFolders as localReorderFolders,
   getFolder,
   upsertLocalFolder,
   removeLocalFolder,
@@ -237,6 +238,24 @@ export function useProjects(user: User | null) {
     [refreshFolders]
   );
 
+  const reorderFolders = useCallback(
+    (orderedIds: string[]) => {
+      localReorderFolders(orderedIds);
+      refreshFolders();
+      if (user && online()) {
+        orderedIds.forEach((id) => {
+          const f = getFolder(id);
+          if (f) {
+            upsertCloudFolder(user.id, f).catch((e) =>
+              console.error("cloud folder reorder failed", e)
+            );
+          }
+        });
+      }
+    },
+    [user, refreshFolders]
+  );
+
   const deleteFolder = useCallback(
     (id: string) => {
       // Tombstone first so the delete converges even if the cloud call fails or
@@ -421,6 +440,7 @@ export function useProjects(user: User | null) {
     createFolder,
     updateFolder,
     deleteFolder,
+    reorderFolders,
     toggleFolder,
   };
 }

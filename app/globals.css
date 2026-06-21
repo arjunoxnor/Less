@@ -1660,22 +1660,31 @@ body {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
+.fcard.fcard-before {
+  box-shadow: -4px 0 0 0 var(--accent);
+}
 .fcard-head {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 12px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
   cursor: grab;
 }
 .fcard-head:active {
   cursor: grabbing;
 }
+.fcard-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .fcard-icon {
   flex: 0 0 auto;
 }
+.fcard-top .folder-toggle {
+  margin-left: auto;
+}
 .fcard-name {
-  flex: 1 1 auto;
-  min-width: 0;
   border: none;
   background: none;
   font: inherit;
@@ -1684,12 +1693,15 @@ body {
   color: var(--toolbar-fg);
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  /* Name gets its own full-width line and wraps; it is never truncated. */
+  word-break: break-word;
 }
-.fcard-head .folder-count {
-  margin-left: 2px;
+.fcard-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .fnode-menu-wrap {
   position: relative;
