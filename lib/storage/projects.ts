@@ -141,9 +141,14 @@ export function loadProject(id: string): Project | null {
 
 /* --- Writes -------------------------------------------------------------- */
 
-/** Save a project's document, refreshing its index updatedAt and derived title. */
-export function saveProjectDoc(id: string, content: JSONContent): void {
-  lsSet(docKey(id), JSON.stringify(content));
+/**
+ * Save a project's document, refreshing its index updatedAt and derived title.
+ * Returns true only if the document write actually persisted; false means local
+ * storage is full or disabled, so the caller can warn the user rather than show
+ * a false "Saved".
+ */
+export function saveProjectDoc(id: string, content: JSONContent): boolean {
+  const ok = lsSet(docKey(id), JSON.stringify(content));
   const meta = getProjectMeta(id);
   if (meta) {
     const patch: Partial<ProjectMeta> = { updatedAt: nowIso() };
@@ -151,6 +156,7 @@ export function saveProjectDoc(id: string, content: JSONContent): void {
     if (!meta.titleManual) patch.title = deriveTitleFor(meta.type, content);
     patchMeta(id, patch);
   }
+  return ok;
 }
 
 export function saveProjectTitlePage(id: string, tp: TitlePage | null): void {

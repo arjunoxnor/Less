@@ -147,13 +147,17 @@ function get(key: string): string | null {
     return null;
   }
 }
-function set(key: string, value: string | null): void {
-  if (typeof window === "undefined") return;
+function set(key: string, value: string | null): boolean {
+  if (typeof window === "undefined") return false;
   try {
     if (value === null) window.localStorage.removeItem(key);
     else window.localStorage.setItem(key, value);
+    return true;
   } catch {
-    /* ignore */
+    // Storage full or disabled. Return false so the callers that persist real
+    // work (the document autosave) can surface a visible "not saved" warning
+    // instead of silently dropping the write and showing a false "Saved".
+    return false;
   }
 }
 
@@ -180,16 +184,33 @@ export type Debounced<A extends unknown[]> = ((...args: A) => void) & {
 
 export function debounce<A extends unknown[]>(
   fn: (...args: A) => void,
-  ms: number
+  ms: number,
+  maxWait?: number
 ): Debounced<A> {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let firstPendingAt = 0;
+  const fire = (args: A) => {
+    timer = null;
+    firstPendingAt = 0;
+    fn(...args);
+  };
   const debounced = (...args: A) => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
+    const now = Date.now();
+    if (!firstPendingAt) firstPendingAt = now;
+    // With maxWait set, never wait longer than maxWait from the first pending
+    // call, so a long uninterrupted typing burst still flushes periodically
+    // instead of being held entirely in memory until the typist pauses.
+    const wait =
+      maxWait != null
+        ? Math.max(0, Math.min(ms, maxWait - (now - firstPendingAt)))
+        : ms;
+    timer = setTimeout(() => fire(args), wait);
   };
   debounced.cancel = () => {
     if (timer) clearTimeout(timer);
     timer = null;
+    firstPendingAt = 0;
   };
   return debounced;
 }

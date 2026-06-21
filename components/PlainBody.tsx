@@ -57,16 +57,22 @@ export function PlainBody({
   const [words, setWords] = useState(0);
   const [chars, setChars] = useState(0);
   const [saved, setSaved] = useState(true);
+  const [saveError, setSaveError] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const editorRef = useRef<Editor | null>(null);
 
   const debouncedSave = useMemo(
     () =>
-      debounce((doc: JSONContent) => {
-        saveProjectDoc(projectId, doc);
-        setSaved(true);
-      }, 600),
+      debounce(
+        (doc: JSONContent) => {
+          const ok = saveProjectDoc(projectId, doc);
+          setSaveError(!ok);
+          if (ok) setSaved(true);
+        },
+        600,
+        2500
+      ),
     [projectId]
   );
 
@@ -127,6 +133,32 @@ export function PlainBody({
     };
   }, [projectId, debouncedSave]);
 
+  // Tab close / refresh / backgrounding does not run the unmount cleanup, so
+  // force the pending edit to localStorage on hide/close and best-effort push
+  // to the cloud while the page is still alive.
+  useEffect(() => {
+    const flushLocal = () => {
+      const ed = editorRef.current;
+      if (!ed) return;
+      debouncedSave.cancel();
+      const ok = saveProjectDoc(projectId, ed.getJSON());
+      setSaveError(!ok);
+    };
+    const onPageHide = () => flushLocal();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        flushLocal();
+        flushRef.current();
+      }
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [projectId, debouncedSave]);
+
   useEffect(() => {
     if (editor && pulledTick > 0) {
       debouncedSave.cancel();
@@ -172,7 +204,16 @@ export function PlainBody({
         <span className="status-spacer" />
         <span className="status-item">{words.toLocaleString()} words</span>
         <span className="status-item">{chars.toLocaleString()} characters</span>
-        <span className="status-item status-saved">{saved ? "Saved" : "Saving…"}</span>
+        <span
+          className={"status-item status-saved" + (saveError ? " status-save-error" : "")}
+          title={
+            saveError
+              ? "This device's storage is full, so the latest changes could not be saved locally. Sign in to save to the cloud, or free up space."
+              : undefined
+          }
+        >
+          {saveError ? "Not saved (storage full)" : saved ? "Saved" : "Saving…"}
+        </span>
       </div>
 
       {prefs.focusMode && (

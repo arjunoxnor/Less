@@ -232,6 +232,13 @@ body {
   min-width: 56px;
   text-align: right;
 }
+.status-save-error {
+  color: #fff;
+  background: #e0533b;
+  font-weight: 700;
+  padding: 0 8px;
+  border-radius: 4px;
+}
 .status-locked {
   color: var(--accent);
   border: 1px solid var(--accent);

@@ -115,6 +115,7 @@ export function ScreenplayBody({
   const [pageCount, setPageCount] = useState(1);
   const [wordCount, setWordCount] = useState(0);
   const [saved, setSaved] = useState(true);
+  const [saveError, setSaveError] = useState(false);
   const [mod, setMod] = useState("Ctrl");
   const [showAuth, setShowAuth] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -154,10 +155,17 @@ export function ScreenplayBody({
 
   const debouncedSave = useMemo(
     () =>
-      debounce((doc: JSONContent) => {
-        saveProjectDoc(projectId, doc);
-        setSaved(true);
-      }, 600),
+      debounce(
+        (doc: JSONContent) => {
+          const ok = saveProjectDoc(projectId, doc);
+          setSaveError(!ok);
+          if (ok) setSaved(true);
+        },
+        600,
+        // Flush at least every 2.5s during continuous typing, so a crash mid-burst
+        // can never lose more than a couple of seconds of work.
+        2500
+      ),
     [projectId]
   );
 
@@ -274,6 +282,33 @@ export function ScreenplayBody({
       const ed = editorRef.current;
       if (ed) saveProjectDoc(projectId, ed.getJSON());
       flushRef.current();
+    };
+  }, [projectId, debouncedSave]);
+
+  // The unmount cleanup above does NOT run when the tab is closed, refreshed, or
+  // backgrounded. These handlers force the pending edit to localStorage (a
+  // synchronous, reliable write) on hide/close so the last few keystrokes are
+  // never lost, and best-effort push to the cloud while the page is still alive.
+  useEffect(() => {
+    const flushLocal = () => {
+      const ed = editorRef.current;
+      if (!ed) return;
+      debouncedSave.cancel();
+      const ok = saveProjectDoc(projectId, ed.getJSON());
+      setSaveError(!ok);
+    };
+    const onPageHide = () => flushLocal();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        flushLocal();
+        flushRef.current();
+      }
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [projectId, debouncedSave]);
 
@@ -718,6 +753,7 @@ export function ScreenplayBody({
         wordCount={wordCount}
         currentElement={currentElement}
         saved={saved}
+        saveError={saveError}
         locked={pageLock != null}
         lockRevision={pageLock?.revision}
       />

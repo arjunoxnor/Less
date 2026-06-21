@@ -12,6 +12,7 @@ export function StatusBar({
   wordCount,
   currentElement,
   saved,
+  saveError,
   locked,
   lockRevision,
 }: {
@@ -20,6 +21,7 @@ export function StatusBar({
   wordCount: number;
   currentElement: ElementType;
   saved: boolean;
+  saveError?: boolean;
   locked?: boolean;
   lockRevision?: string;
 }) {
@@ -47,8 +49,15 @@ export function StatusBar({
           </>
         )}
       </span>
-      <span className="status-item status-saved">
-        {saved ? "Saved" : "Saving…"}
+      <span
+        className={"status-item status-saved" + (saveError ? " status-save-error" : "")}
+        title={
+          saveError
+            ? "This device's storage is full, so the latest changes could not be saved locally. Sign in to save to the cloud, or free up space."
+            : undefined
+        }
+      >
+        {saveError ? "Not saved (storage full)" : saved ? "Saved" : "Saving…"}
       </span>
     </div>
   );
