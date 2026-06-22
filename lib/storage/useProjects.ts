@@ -175,7 +175,9 @@ export function useProjects(user: User | null) {
         // could push a stale local body over newer cloud content.
         setScriptTitle(id, title.trim() || "Untitled")
           .then((ts) => {
-            if (ts) {
+            // Only finalize if this is still the latest local title; a stale
+            // in-flight callback must not clear a dirty flag a newer rename set.
+            if (ts && getProjectMeta(id)?.title === (title.trim() || "Untitled")) {
               patchProjectMeta(id, { titleAt: ts }); // align local clock to cloud
               setTitleDirty(id, false); // landed; no reconcile push needed
             }
@@ -195,7 +197,9 @@ export function useProjects(user: User | null) {
       if (meta?.cloudCreated && user && online()) {
         setScriptStatus(id, status)
           .then((ts) => {
-            if (ts) {
+            // Only finalize if this is still the latest local value; a stale
+            // in-flight callback must not clear a dirty flag a newer edit set.
+            if (ts && getProjectMeta(id)?.status === status) {
               patchProjectMeta(id, { statusAt: ts }); // align local clock to cloud
               setStatusDirty(id, false); // landed; no reconcile push needed
             }

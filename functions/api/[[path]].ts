@@ -397,15 +397,19 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               sets.push("placed_at=?");
               vals.push(now);
             }
-            // Title and status each have their own clock too, so a change to one
-            // field never makes a stale value of another field look "newer".
+            // Title and status each have their own clock. Advance it only when
+            // the VALUE actually changes (CASE compares the pre-update value), so
+            // a body autosave that always re-sends the unchanged title cannot bump
+            // title_at and out-rank a real rename on another device. SQLite
+            // evaluates SET expressions against the original row, so `title` /
+            // `status` here are the stored values.
             if ("title" in b) {
-              sets.push("title_at=?");
-              vals.push(now);
+              sets.push("title_at = CASE WHEN title IS ? THEN title_at ELSE ? END");
+              vals.push(b.title, now);
             }
             if ("status" in b) {
-              sets.push("status_at=?");
-              vals.push(now);
+              sets.push("status_at = CASE WHEN status IS ? THEN status_at ELSE ? END");
+              vals.push(b.status, now);
             }
             vals.push(uid, id);
             await db.prepare(`UPDATE scripts SET ${sets.join(",")} WHERE user_id=? AND id=?`).bind(...vals).run();
