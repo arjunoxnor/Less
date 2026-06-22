@@ -27,6 +27,7 @@ export interface ScriptSummary {
   type: ProjectType;
   status: ProjectStatus;
   updated_at: string;
+  placed_at: string | null;
   folder_id: string | null;
   position: number | null;
 }

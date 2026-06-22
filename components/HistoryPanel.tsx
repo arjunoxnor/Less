@@ -16,7 +16,7 @@ export function HistoryPanel({
   onClose,
 }: {
   getVersions: () => Promise<VersionRow[]>;
-  onRestore: (content: JSONContent, titlePage: TitlePage | null) => void;
+  onRestore: (content: JSONContent, titlePage?: TitlePage | null) => void;
   onClose: () => void;
 }) {
   const [versions, setVersions] = useState<VersionRow[] | null>(null);
@@ -66,7 +66,7 @@ export function HistoryPanel({
               <button
                 type="button"
                 className="history-restore"
-                onClick={() => onRestore(v.content, v.title_page ?? null)}
+                onClick={() => onRestore(v.content, v.title_page ?? undefined)}
               >
                 Restore
               </button>

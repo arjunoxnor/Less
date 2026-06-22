@@ -12,6 +12,7 @@ import {
   deleteProject as localDelete,
   dropCloudProjects,
   getProjectMeta,
+  patchProjectMeta,
   listProjects,
   listTombstones,
   loadProjectDoc,
@@ -38,6 +39,7 @@ import {
   getFolder,
   upsertLocalFolder,
   removeLocalFolder,
+  clearLocalFolders,
   toggleFolderCollapsed,
   markFolderTombstone,
   listFolderTombstones,
@@ -108,7 +110,11 @@ export function useProjects(user: User | null) {
             folderId: meta.folderId ?? null,
             position: meta.order ?? null,
           })
-            .then(() => markCloudCreated(meta.id))
+            // Only mark created when a real row comes back; a 401/expired session
+            // resolves to null, and marking it created would strand it local-only.
+            .then((row) => {
+              if (row) markCloudCreated(meta.id);
+            })
             .catch((e) => console.error("cloud create failed", e));
         }
       }
@@ -284,7 +290,7 @@ export function useProjects(user: User | null) {
             const doc = loadProjectDoc(m.id);
             if (doc && isMeaningfulFor(m.type, doc)) {
               try {
-                await createScript(u.id, m.title, doc, {
+                const row = await createScript(u.id, m.title, doc, {
                   id: m.id,
                   type: m.type,
                   status: m.status,
@@ -292,7 +298,7 @@ export function useProjects(user: User | null) {
                   folderId: m.folderId ?? null,
                   position: m.order ?? null,
                 });
-                markCloudCreated(m.id);
+                if (row) markCloudCreated(m.id);
               } catch (e) {
                 console.error("push anonymous project failed", e);
               }
@@ -357,6 +363,10 @@ export function useProjects(user: User | null) {
         const localIds = new Set(listProjects().map((m) => m.id));
         for (const c of cloud) {
           if (!localIds.has(c.id)) {
+            // Seed the pulled project WITH its cloud placement, so a fresh device
+            // does not start loose and then push a blank placement back up (which
+            // would erase the folder for everyone). titleManual keeps the local
+            // auto-namer from re-deriving the cloud title from the first line.
             upsertCloudMeta({
               id: c.id,
               title: c.title,
@@ -365,13 +375,34 @@ export function useProjects(user: User | null) {
               createdAt: c.updated_at,
               updatedAt: c.updated_at,
               cloudCreated: true,
+              folderId: c.folder_id ?? undefined,
+              order: c.position ?? undefined,
+              placedAt: c.placed_at ?? c.updated_at,
             });
           }
         }
 
-        // Placements (which folder + position each project is in): last-write-
-        // wins by updated_at, so a cleared placement (un-filing) and a fresh
-        // local placement both converge. Never touches content.
+        // Title + status converge by last-write-wins on updated_at for projects
+        // that exist on both sides, so a rename or status change on one device
+        // reaches the others (previously these were push-only and never synced).
+        for (const c of cloud) {
+          const lm = getProjectMeta(c.id);
+          if (!lm) continue;
+          if (new Date(c.updated_at).getTime() > new Date(lm.updatedAt).getTime()) {
+            const patch: Partial<ProjectMeta> = {};
+            if (c.title && c.title !== lm.title) patch.title = c.title;
+            if (c.status && c.status !== lm.status) patch.status = c.status;
+            if (Object.keys(patch).length) {
+              patch.titleManual = true; // a cloud title is explicit
+              patch.updatedAt = c.updated_at; // align so it does not bounce back
+              patchProjectMeta(c.id, patch);
+            }
+          }
+        }
+
+        // Placement (folder + position): last-write-wins on the dedicated
+        // placed_at clock, so a content save can never out-rank a real move, and
+        // a genuine un-file beats a stale filed copy. Never touches content.
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;
@@ -379,21 +410,10 @@ export function useProjects(user: User | null) {
             (lm.folderId ?? null) === (c.folder_id ?? null) &&
             (lm.order ?? null) === (c.position ?? null);
           if (samePlacement) continue;
-          const cloudLoose = (c.folder_id ?? null) === null;
-          const localFiled = (lm.folderId ?? null) !== null;
-          const cloudNewer =
-            new Date(c.updated_at).getTime() > new Date(lm.updatedAt).getTime();
-          // Heal: a script we filed locally whose folder never reached the cloud
-          // (the placement-on-create bug). A loose cloud row must not erase a
-          // real local folder, so push ours rather than adopt the empty one.
-          if (cloudLoose && localFiled) {
-            try {
-              await setScriptFolder(c.id, lm.folderId ?? null, lm.order ?? null);
-            } catch (e) {
-              console.error("placement heal failed", e);
-            }
-          } else if (cloudNewer) {
-            setProjectPlacement(c.id, c.folder_id ?? null, c.position ?? null, c.updated_at);
+          const cloudPlaced = c.placed_at ?? c.updated_at;
+          const localPlaced = lm.placedAt ?? lm.updatedAt;
+          if (new Date(cloudPlaced).getTime() > new Date(localPlaced).getTime()) {
+            setProjectPlacement(c.id, c.folder_id ?? null, c.position ?? null, cloudPlaced);
           } else {
             try {
               await setScriptFolder(c.id, lm.folderId ?? null, lm.order ?? null);
@@ -429,10 +449,12 @@ export function useProjects(user: User | null) {
       void reconcile(user!);
     } else if (!now && had) {
       dropCloudProjects();
+      clearLocalFolders();
       clearAllBookkeeping();
       refresh();
+      refreshFolders();
     }
-  }, [user, reconcile, refresh]);
+  }, [user, reconcile, refresh, refreshFolders]);
 
   // Flush the same reconcile when the connection returns.
   useEffect(() => {

@@ -469,12 +469,25 @@ export function ScreenplayBody({
     async (_format: ImportFormat, file: File) => {
       try {
         const { doc, titlePage: importedTp } = await importFile(file);
-        importContent(doc, importedTp);
+        // Importing replaces the open screenplay. Confirm first if there is
+        // anything to lose; otherwise a misclick wipes the current script.
+        const hasContent = (editor?.getText({ blockSeparator: "\n" }).trim().length ?? 0) > 0;
+        if (
+          hasContent &&
+          !window.confirm(
+            "Import will replace everything in this screenplay with the file's contents. Continue?"
+          )
+        ) {
+          return;
+        }
+        // Pass undefined (not null) when the file has no title block, so an
+        // import never wipes an existing title page.
+        importContent(doc, importedTp ?? undefined);
       } catch (e) {
         window.alert(e instanceof Error ? e.message : "Could not import that file.");
       }
     },
-    [importContent]
+    [editor, importContent]
   );
 
   const jumpToScene = useCallback(

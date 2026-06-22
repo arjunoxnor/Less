@@ -246,3 +246,12 @@ export function clearFolderTombstone(id: string): void {
   const next = listFolderTombstones().filter((t) => t.id !== id);
   lsSet(FOLDER_TOMB_KEY, next.length ? JSON.stringify(next) : null);
 }
+
+/**
+ * Wipe all local folders + tombstones. Used on sign-out so the next account on a
+ * shared browser does not inherit (and re-upload) the previous user's folders.
+ */
+export function clearLocalFolders(): void {
+  lsSet(FOLDERS_KEY, null);
+  lsSet(FOLDER_TOMB_KEY, null);
+}

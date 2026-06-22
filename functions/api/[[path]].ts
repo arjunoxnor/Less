@@ -251,7 +251,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         if (method === "GET") {
           const r = await db
             .prepare(
-              "SELECT id,title,type,status,updated_at,folder_id,position FROM scripts WHERE user_id=? ORDER BY updated_at DESC"
+              "SELECT id,title,type,status,updated_at,placed_at,folder_id,position FROM scripts WHERE user_id=? ORDER BY updated_at DESC"
             )
             .bind(uid)
             .all();
@@ -263,8 +263,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
           const now = new Date().toISOString();
           await db
             .prepare(
-              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)
+              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(user_id,id) DO UPDATE SET
                  type=excluded.type, title=excluded.title, status=excluded.status,
                  content=excluded.content, title_page=excluded.title_page, updated_at=excluded.updated_at`
@@ -280,7 +280,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               b.folder_id ?? null,
               b.position ?? null,
               now,
-              now
+              now,
+              b.placed_at ?? now
             )
             .run();
           return json({
@@ -360,7 +361,14 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               (sets.push("title_page=?"), vals.push(b.title_page != null ? JSON.stringify(b.title_page) : null));
             const now = new Date().toISOString();
             sets.push("updated_at=?");
-            vals.push(now, uid, id);
+            vals.push(now);
+            // A placement change (folder/position) bumps the dedicated placement
+            // clock so a content save can never out-rank a real move on sync.
+            if ("folder_id" in b || "position" in b) {
+              sets.push("placed_at=?");
+              vals.push(now);
+            }
+            vals.push(uid, id);
             await db.prepare(`UPDATE scripts SET ${sets.join(",")} WHERE user_id=? AND id=?`).bind(...vals).run();
             return json({ updated_at: now });
           }

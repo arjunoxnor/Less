@@ -121,7 +121,15 @@ export function useCloudSync(
       const snapshotJson = JSON.stringify(doc);
       const tpSnapshot = JSON.stringify(tp);
       const ts = await saveScript(o.projectId, doc, (o.getTitle?.() || "").trim() || o.deriveTitle(doc), tp);
-      if (ts) o.setLastSavedAt(ts);
+      // A null result means the save never reached the cloud (e.g. the session
+      // expired -> 401). Keep it dirty and show an error so it retries; never
+      // report "synced" or clear the dirty flag, which would risk a later pull
+      // overwriting work that was never actually saved.
+      if (!ts) {
+        setStatus("error");
+        return;
+      }
+      o.setLastSavedAt(ts);
       // Only mark clean if neither doc nor title page changed during the round trip.
       if (
         JSON.stringify(ed.getJSON()) === snapshotJson &&
@@ -180,8 +188,14 @@ export function useCloudSync(
               (o.getTitle?.() || "").trim() || o.deriveTitle(live),
               titlePageRef.current
             );
-            if (ts) o.setLastSavedAt(ts);
-            o.setDirty(false);
+            // Keep dirty if the save did not actually land (null = 401/offline),
+            // so it retries instead of being lost.
+            if (ts) {
+              o.setLastSavedAt(ts);
+              o.setDirty(false);
+            } else {
+              setStatus("error");
+            }
           } else if (cloudNewer) {
             pullInto(cloud.content, cloud.title_page ?? null);
             o.setLastSavedAt(cloud.updated_at);
@@ -199,8 +213,10 @@ export function useCloudSync(
           if (row) {
             o.setLastSavedAt(row.updated_at);
             o.onCloudCreated?.(projectId);
+            o.setDirty(false);
+          } else {
+            setStatus("error");
           }
-          o.setDirty(false);
         }
         setStatus(
           typeof navigator !== "undefined" && !navigator.onLine

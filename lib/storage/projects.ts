@@ -36,6 +36,9 @@ export interface ProjectMeta {
   folderId?: string;
   /** Manual position within its container (local-only); unset sorts by recency. */
   order?: number;
+  /** When the placement (folder/position) last changed. Synced separately from
+   *  updatedAt so a content save can never out-rank a real folder move. */
+  placedAt?: string;
 }
 
 /** A full project: metadata plus its body. */
@@ -99,6 +102,11 @@ function patchMeta(id: string, patch: Partial<ProjectMeta>): void {
   if (i < 0) return;
   list[i] = { ...list[i], ...patch };
   writeIndex(list);
+}
+
+/** Public metadata patch (used by reconcile to adopt a newer cloud title/status). */
+export function patchProjectMeta(id: string, patch: Partial<ProjectMeta>): void {
+  patchMeta(id, patch);
 }
 
 /* --- Reads --------------------------------------------------------------- */
@@ -254,7 +262,8 @@ export function setStatus(id: string, status: ProjectStatus): void {
  * Bumps updatedAt so placement changes participate in last-write-wins sync.
  */
 export function setProjectFolder(id: string, folderId: string | null): void {
-  patchMeta(id, { folderId: folderId ?? undefined, updatedAt: nowIso() });
+  const ts = nowIso();
+  patchMeta(id, { folderId: folderId ?? undefined, updatedAt: ts, placedAt: ts });
 }
 
 /**
@@ -266,12 +275,12 @@ export function setProjectPlacement(
   id: string,
   folderId: string | null,
   position: number | null,
-  updatedAt?: string
+  placedAt?: string
 ): void {
   patchMeta(id, {
     folderId: folderId ?? undefined,
     order: position ?? undefined,
-    ...(updatedAt ? { updatedAt } : {}),
+    ...(placedAt ? { placedAt } : {}),
   });
 }
 
@@ -284,7 +293,7 @@ export function reorderProjects(orderedIds: string[]): void {
   for (let i = 0; i < list.length; i++) {
     const o = pos.get(list[i].id);
     if (o !== undefined && list[i].order !== o) {
-      list[i] = { ...list[i], order: o, updatedAt: ts };
+      list[i] = { ...list[i], order: o, updatedAt: ts, placedAt: ts };
       changed = true;
     }
   }
