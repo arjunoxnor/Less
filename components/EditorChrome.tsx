@@ -36,6 +36,9 @@ export function EditorChrome({
   fontValue,
   fontOptions,
   onFontChange,
+  fontSizeValue,
+  fontSizeOptions,
+  onFontSizeChange,
   cloudConfigured,
   user,
   syncStatus,
@@ -54,6 +57,10 @@ export function EditorChrome({
   fontValue: string;
   fontOptions: { value: string; label: string }[];
   onFontChange: (value: string) => void;
+  /** Optional font-size control (plain docs only; screenplays are fixed). */
+  fontSizeValue?: number;
+  fontSizeOptions?: number[];
+  onFontSizeChange?: (value: number) => void;
   cloudConfigured: boolean;
   user: User | null;
   syncStatus: SyncStatus;
@@ -149,6 +156,20 @@ export function EditorChrome({
               </option>
             ))}
           </select>
+          {fontSizeOptions && onFontSizeChange && (
+            <select
+              className="tb-select tb-select-size"
+              value={fontSizeValue}
+              onChange={(e) => onFontSizeChange(Number(e.target.value))}
+              title="Font size"
+            >
+              {fontSizeOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             className="tb-btn"

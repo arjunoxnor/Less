@@ -243,6 +243,45 @@ body {
   justify-content: center;
 }
 
+/* ---- Page-break markers drawn over the editor page ---------------------- */
+
+/* Relative host so the break overlay can be positioned against the page. The
+   screenplay host is sized to its 8.5in content (centered by page-wrap); the
+   plain host is full width and centers the page itself. */
+.page-host {
+  position: relative;
+}
+.page-host-pl {
+  width: 100%;
+}
+.page-breaks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.page-break {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8.5in;
+  max-width: 100%;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.page-break-label {
+  position: absolute;
+  right: 8px;
+  top: -10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
 /* ---- Status bar -------------------------------------------------------- */
 
 .status-bar {
@@ -2011,16 +2050,17 @@ body {
   justify-content: center;
 }
 .pl-prose {
-  width: 100%;
-  max-width: 46rem;
-  min-height: 60vh;
+  /* A real US-Letter page (8.5x11in) with 1in margins, like a document editor. */
+  width: 8.5in;
+  max-width: 100%;
+  min-height: 11in;
   background: var(--page-bg);
   color: var(--page-fg);
   box-shadow: 0 0 100px -30px var(--accent-glow), var(--shadow);
-  border-radius: 4px;
-  padding: 56px 64px;
+  border-radius: 2px;
+  padding: 1in;
   font-family: var(--doc-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
-  font-size: 16px;
+  font-size: var(--doc-font-size, 16px);
   line-height: 1.7;
   outline: none;
 }
@@ -2028,17 +2068,17 @@ body {
   outline: none;
 }
 .pl-prose h1 {
-  font-size: 28px;
+  font-size: 1.75em;
   line-height: 1.25;
   margin: 0.6em 0 0.3em;
 }
 .pl-prose h2 {
-  font-size: 22px;
+  font-size: 1.4em;
   line-height: 1.3;
   margin: 0.6em 0 0.3em;
 }
 .pl-prose h3 {
-  font-size: 18px;
+  font-size: 1.15em;
   margin: 0.6em 0 0.3em;
 }
 .pl-prose p {

@@ -187,12 +187,6 @@ export function PlainToolbar({
       </div>
 
       <div className="toolbar-group">
-        {Btn("H1", editor.isActive("heading", { level: 1 }), () => chain().toggleHeading({ level: 1 }).run(), "Heading 1")}
-        {Btn("H2", editor.isActive("heading", { level: 2 }), () => chain().toggleHeading({ level: 2 }).run(), "Heading 2")}
-        {Btn("H3", editor.isActive("heading", { level: 3 }), () => chain().toggleHeading({ level: 3 }).run(), "Heading 3")}
-      </div>
-
-      <div className="toolbar-group">
         {Btn("• List", editor.isActive("bulletList"), () => chain().toggleBulletList().run(), "Bullet list")}
         {Btn("1. List", editor.isActive("orderedList"), () => chain().toggleOrderedList().run(), "Numbered list")}
         {Btn("Checklist", editor.isActive("taskList"), () => chain().toggleTaskList().run(), "Checklist")}

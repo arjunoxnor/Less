@@ -27,6 +27,7 @@ import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { EditorChrome } from "./EditorChrome";
 import { PlainToolbar } from "./PlainToolbar";
+import { PageBreaks } from "./PageBreaks";
 import { AuthModal } from "./AuthModal";
 import { HistoryPanel } from "./HistoryPanel";
 
@@ -193,7 +194,10 @@ export function PlainBody({
   );
 
   return (
-    <div className={"app" + ` docfont-${prefs.docFont}` + (prefs.focusMode ? " focus-mode" : "")}>
+    <div
+      className={"app" + ` docfont-${prefs.docFont}` + (prefs.focusMode ? " focus-mode" : "")}
+      style={{ ["--doc-font-size" as string]: `${prefs.docFontSize ?? 16}px` }}
+    >
       <EditorChrome
         onBack={onBack}
         title={title}
@@ -214,6 +218,9 @@ export function PlainBody({
           { value: "courier-prime", label: "Courier Prime" },
         ]}
         onFontChange={(v) => onPrefsChange({ docFont: v as Prefs["docFont"] })}
+        fontSizeValue={prefs.docFontSize ?? 16}
+        fontSizeOptions={[11, 12, 13, 14, 16, 18, 20, 24, 28, 32]}
+        onFontSizeChange={(v) => onPrefsChange({ docFontSize: v })}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}
@@ -226,7 +233,10 @@ export function PlainBody({
 
       <div className="page-scroll">
         <div className="page-wrap">
-          <EditorContent editor={editor} className="pl-doc" />
+          <div className="page-host page-host-pl">
+            <EditorContent editor={editor} className="pl-doc" />
+            <PageBreaks editor={editor} topOffset={96} pageHeight={864} />
+          </div>
         </div>
       </div>
 

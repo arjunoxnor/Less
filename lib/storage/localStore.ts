@@ -33,6 +33,8 @@ export type ThemeChoice = "light" | "dark" | "system";
 export interface Prefs {
   font: FontChoice;
   docFont: DocFontChoice;
+  /** Base font size (px) for plain documents. Screenplays are fixed at 12pt. */
+  docFontSize: number;
   theme: ThemeChoice;
   focusMode: boolean;
   spellCheck: boolean;
@@ -45,6 +47,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   font: "courier-prime",
   docFont: "calibri",
+  docFontSize: 16,
   theme: "light",
   focusMode: false,
   spellCheck: true,

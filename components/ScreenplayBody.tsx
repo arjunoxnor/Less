@@ -71,6 +71,7 @@ import {
   type ImportFormat,
 } from "@/lib/export";
 import { EditorChrome } from "./EditorChrome";
+import { PageBreaks } from "./PageBreaks";
 import { ScreenplayToolbar } from "./ScreenplayToolbar";
 import { StatusBar } from "./StatusBar";
 import { AuthModal } from "./AuthModal";
@@ -784,7 +785,10 @@ export function ScreenplayBody({
 
       <div className="page-scroll">
         <div className="page-wrap">
-          <EditorContent editor={editor} className="sp-editor" />
+          <div className="page-host page-host-sp">
+            <EditorContent editor={editor} className="sp-editor" />
+            <PageBreaks editor={editor} topOffset={96} pageHeight={864} />
+          </div>
         </div>
       </div>
 
