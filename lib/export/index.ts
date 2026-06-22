@@ -85,13 +85,38 @@ export async function exportDoc(
  * title page it carried. Routes by file extension. Throws a plain-English Error
  * the UI can surface directly.
  */
-export async function importFile(
-  file: File
-): Promise<{ doc: JSONContent; titlePage: TitlePage | null }> {
+/** Build a plain-document doc (paragraphs) from imported lines, for prose files
+ *  that are not screenplays. The text is preserved; screenplay element types are
+ *  dropped. */
+function linesToPlainDoc(lines: ScriptLine[]): JSONContent {
+  const paras = lines
+    .map((l) => l.text)
+    .filter((t) => t.trim().length > 0)
+    .map((text) => ({ type: "paragraph", content: [{ type: "text", text }] }));
+  return { type: "doc", content: paras.length ? paras : [{ type: "paragraph" }] };
+}
+
+export type ImportKind = "screenplay" | "plain";
+
+export async function importFile(file: File): Promise<{
+  doc: JSONContent;
+  titlePage: TitlePage | null;
+  /** Detected document kind. Prose files (no scene headings) import as plain. */
+  kind: ImportKind;
+  /** A plain-document version of the content, present when kind === "plain". */
+  plainDoc?: JSONContent;
+}> {
   const name = file.name.toLowerCase();
 
   let lines: ScriptLine[];
   let titlePage: TitlePage | null = null;
+
+  // Formats that are inherently screenplays, so content detection is skipped.
+  const forceScreenplay =
+    name.endsWith(".fdx") ||
+    name.endsWith(".xml") ||
+    name.endsWith(".fountain") ||
+    name.endsWith(".spmd");
 
   if (name.endsWith(".fdx") || name.endsWith(".xml")) {
     const r = parseFdx(await file.text());
@@ -144,8 +169,18 @@ export async function importFile(
     throw new Error("That file did not contain any text we could import.");
   }
 
+  // A scene heading (INT./EXT. or a Scene Heading style) is the reliable marker
+  // that the file is a screenplay. Without one, treat it as a prose document so a
+  // Google-Docs-style one-pager imports as a plain document, not a screenplay.
+  const kind: ImportKind =
+    forceScreenplay || lines.some((l) => l.element === "scene_heading")
+      ? "screenplay"
+      : "plain";
+
   return {
     doc: linesToDoc(normalizeDual(lines)),
     titlePage,
+    kind,
+    plainDoc: kind === "plain" ? linesToPlainDoc(lines) : undefined,
   };
 }

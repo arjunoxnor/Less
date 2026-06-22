@@ -200,18 +200,20 @@ export function AppShell() {
       let imported = 0;
       for (const file of scriptFiles) {
         try {
-          const { doc, titlePage } = await importFile(file);
+          const { doc, titlePage, kind, plainDoc } = await importFile(file);
           const info = placement[file.name] ?? {};
           const fallback = file.name.replace(
             /\.(fdx|fountain|txt|text|md|markdown|spmd|xml|docx|odt|rtf)$/i,
             ""
           );
           const folderId = info.folderKey ? folderIdByKey[info.folderKey] : undefined;
+          // Import prose (no scene headings) as a plain document, not a screenplay.
+          const isPlain = kind === "plain";
           // Create already filed and with its status, so the first cloud insert
           // is correct rather than loose-then-patched over two round-trips.
-          create("screenplay", info.title || titlePage?.title || fallback, {
-            content: doc,
-            titlePage,
+          create(isPlain ? "plain" : "screenplay", info.title || (isPlain ? "" : titlePage?.title) || fallback, {
+            content: isPlain ? plainDoc : doc,
+            titlePage: isPlain ? undefined : titlePage,
             folderId: folderId ?? undefined,
             status: info.status,
           });
