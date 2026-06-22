@@ -1653,8 +1653,11 @@ body {
   background: var(--toolbar-bg);
   overflow: hidden;
 }
+/* Open folders grow in place (taller) instead of jumping to full width, so
+   opening or closing one barely disturbs the rest of the grid. A soft lift
+   marks the open state. */
 .fcard.fcard-open {
-  grid-column: 1 / -1;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 .fcard.fcard-drop {
   outline: 2px dashed var(--accent);
@@ -1668,7 +1671,7 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  cursor: grab;
+  cursor: pointer; /* click anywhere to open/close; still draggable to move */
 }
 .fcard-head:active {
   cursor: grabbing;
@@ -1681,18 +1684,42 @@ body {
 .fcard-icon {
   flex: 0 0 auto;
 }
-.fcard-top .folder-toggle {
+.fcard-acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
 }
-.fcard-name {
+.fcard-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
+  border-radius: 6px;
   background: none;
-  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.fcard-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.fcard-btn:hover {
+  background: var(--btn-bg);
+  color: var(--toolbar-fg);
+}
+.fcard-btn-danger:hover {
+  background: rgba(224, 83, 59, 0.12);
+  color: #e0533b;
+}
+.fcard-name {
+  display: block;
   font-weight: 600;
   font-size: 15px;
   color: var(--toolbar-fg);
-  text-align: left;
-  cursor: pointer;
   line-height: 1.3;
   /* Name gets its own full-width line and wraps; it is never truncated. */
   word-break: break-word;
@@ -1702,6 +1729,56 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+/* Press-and-hold to confirm a delete: the bar fills over ~2s. */
+.hold-del {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.hold-btn {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e0533b;
+  border-radius: 6px;
+  background: none;
+  color: #e0533b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: none;
+  user-select: none;
+}
+.hold-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: rgba(224, 83, 59, 0.35);
+  pointer-events: none;
+}
+.hold-btn.holding .hold-fill {
+  width: 100%;
+  transition: width 2s linear;
+}
+.hold-label {
+  position: relative;
+}
+.hold-cancel {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.hold-cancel:hover {
+  color: var(--toolbar-fg);
 }
 .fnode-menu-wrap {
   position: relative;

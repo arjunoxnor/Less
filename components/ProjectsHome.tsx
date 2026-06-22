@@ -44,22 +44,47 @@ function typeLabel(type: ProjectType): string {
   return type === "plain" ? "Document" : "Screenplay";
 }
 
-function Chevron({ open }: { open: boolean }) {
+/**
+ * Press-and-hold to confirm a destructive action. The bar fills over ~2s; let
+ * go early and nothing happens. Deliberately harder than a single click so a
+ * folder is never deleted by accident.
+ */
+function HoldDelete({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  const [holding, setHolding] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setHolding(false);
+  };
+  const start = () => {
+    setHolding(true);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      setHolding(false);
+      onConfirm();
+    }, 2000);
+  };
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
   return (
-    <svg
-      className={"home-chevron" + (open ? "" : " home-chevron-collapsed")}
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
+    <span className="hold-del">
+      <button
+        type="button"
+        className={"hold-btn" + (holding ? " holding" : "")}
+        onPointerDown={start}
+        onPointerUp={cancel}
+        onPointerLeave={cancel}
+        onPointerCancel={cancel}
+      >
+        <span className="hold-fill" />
+        <span className="hold-label">{holding ? "Keep holding" : "Hold to delete"}</span>
+      </button>
+      <button type="button" className="hold-cancel" title="Cancel" onClick={onCancel}>
+        ×
+      </button>
+    </span>
   );
 }
 
@@ -131,7 +156,8 @@ export function ProjectsHome({
   const renameRef = useRef<HTMLInputElement>(null);
 
   // Editing a folder (name/color/stage) is off by default and opened only from
-  // the ⋯ menu's Edit, then closed with Done. `menu` is which folder's ⋯ is open.
+  // the pencil button, then closed with Done. `deleting` is the folder whose
+  // hold-to-confirm delete is currently armed.
   const [editing, setEditing] = useState<Set<string>>(new Set());
   const openEdit = (id: string) => setEditing((p) => new Set(p).add(id));
   const closeEdit = (id: string) =>
@@ -140,17 +166,7 @@ export function ProjectsHome({
       n.delete(id);
       return n;
     });
-  const [menu, setMenu] = useState<string | null>(null);
-  const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<Folder | null>(null);
-
-  useEffect(() => {
-    if (!menu) return;
-    const onDown = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement)?.closest(".fnode-menu-wrap")) setMenu(null);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [menu]);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const dragKind = useRef<null | "project" | "folder">(null);
   const dragId = useRef<string | null>(null);
@@ -273,9 +289,11 @@ export function ProjectsHome({
 
   const addFolder = (parentId?: string) => {
     const f = onCreateFolder(parentId);
-    if (parentId && folders.find((x) => x.id === parentId)?.collapsed) onToggleFolder(parentId);
+    // Make sure the parent is open so the new sub-folder is visible.
+    if (parentId && folders.find((x) => x.id === parentId)?.collapsed !== false) {
+      onToggleFolder(parentId);
+    }
     openEdit(f.id); // open edit once so it can be named, with a Done to close
-    setMenu(null);
   };
 
   const removeFolder = (f: Folder) => {
@@ -286,7 +304,7 @@ export function ProjectsHome({
       onSetFolder(p.id, f.parentId ?? null)
     );
     onDeleteFolder(f.id);
-    setConfirmDeleteFolder(null);
+    setDeleting(null);
   };
 
   const projectChip = (p: ProjectMeta) => {
@@ -436,6 +454,8 @@ export function ProjectsHome({
         <div
           className="fcard-head"
           draggable
+          title="Click to open or close. Drag to move."
+          onClick={() => onToggleFolder(f.id)}
           onDragStart={(e) => {
             dragKind.current = "folder";
             dragId.current = f.id;
@@ -448,46 +468,42 @@ export function ProjectsHome({
             <svg className="fcard-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
               <path fill={f.color} d="M3 6a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
             </svg>
-            <button
-              type="button"
-              className="folder-toggle"
-              aria-expanded={expanded}
-              onClick={() => onToggleFolder(f.id)}
-              title={expanded ? "Collapse" : "Expand"}
-            >
-              <Chevron open={expanded} />
-            </button>
-            <div className="fnode-menu-wrap">
-              <button
-                type="button"
-                className={"folder-tools-btn" + (menu === f.id ? " tb-btn-active" : "")}
-                onClick={() => setMenu(menu === f.id ? null : f.id)}
-                aria-label="Folder options"
-                title="Folder options"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <circle cx="5" cy="12" r="1.6" />
-                  <circle cx="12" cy="12" r="1.6" />
-                  <circle cx="19" cy="12" r="1.6" />
-                </svg>
-              </button>
-              {menu === f.id && (
-                <div className="fnode-menu">
-                  <button type="button" onClick={() => { openEdit(f.id); setMenu(null); }}>Edit</button>
-                  <button type="button" onClick={() => addFolder(f.id)}>Add sub-folder</button>
-                  <button type="button" className="fnode-menu-danger" onClick={() => { setConfirmDeleteFolder(f); setMenu(null); }}>
-                    Delete
+            <div className="fcard-acts" onClick={(e) => e.stopPropagation()}>
+              {deleting === f.id ? (
+                <HoldDelete onConfirm={() => removeFolder(f)} onCancel={() => setDeleting(null)} />
+              ) : (
+                <>
+                  <button type="button" className="fcard-btn" title="Rename / recolor" onClick={() => openEdit(f.id)}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                    </svg>
                   </button>
-                </div>
+                  <button type="button" className="fcard-btn" title="Add sub-folder" onClick={() => addFolder(f.id)}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      <line x1="12" y1="11" x2="12" y2="17" />
+                      <line x1="9" y1="14" x2="15" y2="14" />
+                    </svg>
+                  </button>
+                  <button type="button" className="fcard-btn fcard-btn-danger" title="Delete folder" onClick={() => setDeleting(f.id)}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                    </svg>
+                  </button>
+                </>
               )}
             </div>
           </div>
-          <button type="button" className="fcard-name" onClick={() => onToggleFolder(f.id)}>
-            {f.name || "Untitled folder"}
-          </button>
+          <span className="fcard-name">{f.name || "Untitled folder"}</span>
           <div className="fcard-meta">
             <span className={"stage-chip stage-" + f.stage}>{STAGE_LABEL[f.stage]}</span>
-            <span className="folder-count">{count}</span>
+            <span className="folder-count">
+              {count} {count === 1 ? "item" : "items"}
+            </span>
           </div>
         </div>
 
@@ -754,30 +770,6 @@ export function ProjectsHome({
                 }}
               >
                 Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {confirmDeleteFolder && (
-        <div className="modal-backdrop" onClick={() => setConfirmDeleteFolder(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">Delete folder</h2>
-            <p className="modal-text">
-              Delete the folder &quot;{confirmDeleteFolder.name}&quot;? Its projects and any
-              sub-folders move up one level. Nothing is deleted.
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="tb-btn" onClick={() => setConfirmDeleteFolder(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="tb-btn tb-btn-danger"
-                onClick={() => removeFolder(confirmDeleteFolder)}
-              >
-                Delete folder
               </button>
             </div>
           </div>
