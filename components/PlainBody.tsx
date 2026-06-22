@@ -104,12 +104,18 @@ export function PlainBody({
     },
   });
 
+  // Live title via a ref so an explicit document title is never overwritten by
+  // its first line on save.
+  const titleRef = useRef(title);
+  titleRef.current = title;
+
   const syncOpts = useMemo(
     () => ({
       projectId,
       type: "plain" as const,
       status,
       deriveTitle: derivePlainTitle,
+      getTitle: () => titleRef.current,
       saveLocalDoc: (d: JSONContent) => saveProjectDoc(projectId, d),
       loadLocalTitlePage: () => null,
       saveLocalTitlePage: () => {},
