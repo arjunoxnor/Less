@@ -24,6 +24,8 @@ import {
   setStatus as localSetStatus,
   isStatusDirty,
   setStatusDirty,
+  isTitleDirty,
+  setTitleDirty,
   setProjectFolder as localSetFolder,
   reorderProjects as localReorder,
   setProjectPlacement,
@@ -171,9 +173,11 @@ export function useProjects(user: User | null) {
       if (meta?.cloudCreated && user && online()) {
         // Title-only PATCH: a rename must never re-upload the document, which
         // could push a stale local body over newer cloud content.
-        setScriptTitle(id, title.trim() || "Untitled").catch((e) =>
-          console.error("cloud rename failed", e)
-        );
+        setScriptTitle(id, title.trim() || "Untitled")
+          .then((ts) => {
+            if (ts) setTitleDirty(id, false); // landed; no reconcile push needed
+          })
+          .catch((e) => console.error("cloud rename failed", e));
       }
       refresh();
     },
@@ -451,9 +455,24 @@ export function useProjects(user: User | null) {
           const cloudNewer =
             new Date(c.updated_at).getTime() > new Date(lm.updatedAt).getTime();
           const statusDirty = isStatusDirty(c.id);
+          const titleDirty = isTitleDirty(c.id);
 
-          // Pull a newer cloud title (it was explicitly set on another device).
-          if (cloudNewer && c.title && c.title !== lm.title) {
+          // Title: a locally-renamed (title-dirty) project pushes its title up
+          // (the self-heal for a dashboard rename made offline/signed out, which
+          // has no open editor to carry it); otherwise adopt a newer cloud title.
+          if (titleDirty) {
+            if (lm.title && lm.title !== c.title) {
+              try {
+                if ((await setScriptTitle(c.id, lm.title)) === null) failures++;
+                else setTitleDirty(c.id, false);
+              } catch (e) {
+                console.error("title push failed", e);
+                failures++;
+              }
+            } else {
+              setTitleDirty(c.id, false); // already matches the cloud
+            }
+          } else if (cloudNewer && c.title && c.title !== lm.title) {
             patchProjectMeta(c.id, {
               title: c.title,
               titleManual: true,

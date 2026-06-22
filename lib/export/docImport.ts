@@ -22,7 +22,7 @@ const isAllCaps = (t: string): boolean => /[A-Za-z]/.test(t) && t === t.toUpperC
 // recognizes them instead of demoting them to action. Mirrors the editor's
 // SmartType transition catalog.
 const TERMINAL_TRANSITION =
-  /^(FADE (IN|OUT)|FADE TO (BLACK|WHITE)|SMASH CUT|MATCH CUT|JUMP CUT|TIME CUT|DISSOLVE|CUT TO BLACK|END(\s+OF\s+.+)?|THE END)\s*\.?:?\s*$/;
+  /^(FADE (IN|OUT)|FADE TO (BLACK|WHITE)|SMASH CUT|MATCH CUT|JUMP CUT|TIME CUT|DISSOLVE|CUT TO BLACK|END(\s+OF\s+(ACT|SCENE|EPISODE|PART|CHAPTER|SEQUENCE|TEASER|SHOW|PILOT|SEASON)(\s+\S+){0,3})?|THE END)\s*\.?:?\s*$/;
 
 interface Para {
   text: string;
@@ -144,8 +144,12 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
     const core = t.replace(/\s*\([^)]*\)\s*$/, "");
     const looksCharacter =
       isAllCaps(core) && core.length > 0 && t.length <= 38 && !/[.!?]$/.test(core);
-    const nextCore = nextNonEmpty(i).replace(/\s*\([^)]*\)\s*$/, "");
-    const dialogueFollows = nextCore.length > 0 && !isAllCaps(nextCore);
+    const nextRaw = nextNonEmpty(i);
+    const nextCore = nextRaw.replace(/\s*\([^)]*\)\s*$/, "");
+    // A cue is "followed by dialogue" when the next line is non-caps prose OR a
+    // parenthetical-only line (a wryly/extension like "(V.O.)" on its own line),
+    // which strips to empty -> isAllCaps("") is false -> still counts.
+    const dialogueFollows = nextRaw.length > 0 && !isAllCaps(nextCore);
     if (looksCharacter && (align === "center" || dialogueFollows)) {
       pushLine(out, "character", t);
       inDialogue = true;

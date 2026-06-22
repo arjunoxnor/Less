@@ -266,6 +266,7 @@ export function createProject(
 
 export function renameProject(id: string, title: string): void {
   patchMeta(id, { title: title.trim() || "Untitled", titleManual: true, updatedAt: nowIso() });
+  setTitleDirty(id, true);
 }
 
 export function setStatus(id: string, status: ProjectStatus): void {
@@ -337,6 +338,7 @@ export function deleteProject(id: string): void {
   lsSet(dirtyKey(id), null);
   lsSet(tpDirtyKey(id), null);
   lsSet(statusDirtyKey(id), null);
+  lsSet(titleDirtyKey(id), null);
   lsSet(lastSavedKey(id), null);
   if (getLastOpenedId() === id) setLastOpenedId(null);
 }
@@ -387,6 +389,15 @@ export const isStatusDirty = (id: string) => lsGet(statusDirtyKey(id)) === "1";
 export const setStatusDirty = (id: string, dirty: boolean) =>
   lsSet(statusDirtyKey(id), dirty ? "1" : null);
 
+// Title-specific dirty flag (persisted), set on a local rename so reconcile can
+// push the new title up even from a dashboard rename made offline/signed out
+// (which has no open editor and so no body-sync push), without using the shared
+// updatedAt clock (which would let a stale title clobber a newer cloud one).
+const titleDirtyKey = (id: string) => `less:project:${id}:titleDirty`;
+export const isTitleDirty = (id: string) => lsGet(titleDirtyKey(id)) === "1";
+export const setTitleDirty = (id: string, dirty: boolean) =>
+  lsSet(titleDirtyKey(id), dirty ? "1" : null);
+
 /* --- Tombstones (offline cloud deletes, flushed on reconnect) ------------ */
 
 function readTombstones(): string[] {
@@ -418,6 +429,7 @@ export function clearAllBookkeeping(): void {
     lsSet(dirtyKey(m.id), null);
     lsSet(tpDirtyKey(m.id), null);
     lsSet(statusDirtyKey(m.id), null);
+    lsSet(titleDirtyKey(m.id), null);
     lsSet(lastSavedKey(m.id), null);
   }
   setLastOpenedId(null);
@@ -438,6 +450,7 @@ export function dropCloudProjects(): void {
       lsSet(dirtyKey(m.id), null);
       lsSet(tpDirtyKey(m.id), null);
       lsSet(statusDirtyKey(m.id), null);
+      lsSet(titleDirtyKey(m.id), null);
       lsSet(lastSavedKey(m.id), null);
     } else {
       keep.push(m);
