@@ -402,7 +402,14 @@ export function ProjectsHome({
       const pt = parseInt(newPageTarget, 10);
       if (!Number.isNaN(pt) && pt > 0) pageTarget = pt;
     }
-    onCreate(newType, newName.trim(), { content, titlePage, pageTarget });
+    try {
+      onCreate(newType, newName.trim(), { content, titlePage, pageTarget });
+    } catch (e) {
+      // A template's body can fail to persist when storage is full; surface it
+      // instead of leaving the dialog stuck with no feedback.
+      window.alert(e instanceof Error ? e.message : "Could not create the project.");
+      return;
+    }
     setShowNew(false);
     setNewName("");
     setNewType("screenplay");

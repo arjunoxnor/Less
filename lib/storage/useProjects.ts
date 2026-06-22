@@ -22,6 +22,8 @@ import {
   migrateLegacyDoc,
   renameProject as localRename,
   setStatus as localSetStatus,
+  isStatusDirty,
+  setStatusDirty,
   setProjectFolder as localSetFolder,
   reorderProjects as localReorder,
   setProjectPlacement,
@@ -180,12 +182,15 @@ export function useProjects(user: User | null) {
 
   const setStatus = useCallback(
     (id: string, status: ProjectStatus) => {
+      // localSetStatus marks the project status-dirty so reconcile can push it.
       localSetStatus(id, status);
       const meta = getProjectMeta(id);
       if (meta?.cloudCreated && user && online()) {
-        setScriptStatus(id, status).catch((e) =>
-          console.error("cloud status update failed", e)
-        );
+        setScriptStatus(id, status)
+          .then((ts) => {
+            if (ts) setStatusDirty(id, false); // landed; no reconcile push needed
+          })
+          .catch((e) => console.error("cloud status update failed", e));
       }
       refresh();
     },
@@ -352,12 +357,20 @@ export function useProjects(user: User | null) {
               clearFolderTombstone(t.id);
             } else {
               try {
-                await deleteCloudFolder(t.id);
-                removeLocalFolder(t.id);
-                cloudFolderById.delete(t.id);
-                clearFolderTombstone(t.id);
+                // Only finalize the delete when the server confirms it. A 401
+                // returns false (not a throw), so keep the tombstone and retry
+                // next pass rather than dropping the queued folder delete.
+                if (await deleteCloudFolder(t.id)) {
+                  removeLocalFolder(t.id);
+                  cloudFolderById.delete(t.id);
+                  clearFolderTombstone(t.id);
+                } else {
+                  failures++;
+                  cloudFolderById.delete(t.id); // do not resurrect locally this pass
+                }
               } catch (e) {
                 console.error("folder tombstone flush failed", e);
+                failures++;
                 cloudFolderById.delete(t.id); // do not resurrect locally this pass
               }
             }
@@ -383,7 +396,7 @@ export function useProjects(user: User | null) {
             const cf = cloudFolderById.get(lf.id);
             if (!cf || new Date(lf.updatedAt).getTime() > new Date(cf.updated_at).getTime()) {
               try {
-                await upsertCloudFolder(u.id, lf);
+                if (!(await upsertCloudFolder(u.id, lf))) failures++;
               } catch (e) {
                 console.error("folder push failed", e);
                 failures++;
@@ -427,49 +440,43 @@ export function useProjects(user: User | null) {
           }
         }
 
-        // Title + status converge by last-write-wins on updated_at for projects
-        // that exist on both sides, so a rename or status change on one device
-        // reaches the others (previously these were push-only and never synced).
+        // Title + status converge across devices. Title is last-write-wins on
+        // the shared updated_at clock (a rename bumps it, and the body sync also
+        // carries the title up). Status uses a dedicated status-dirty flag rather
+        // than the shared clock, so a status change can never out-rank/clobber a
+        // title or placement, and an offline status change still self-heals.
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;
-          const cloudT = new Date(c.updated_at).getTime();
-          const localT = new Date(lm.updatedAt).getTime();
-          if (cloudT > localT) {
-            // Cloud is newer: adopt its title/status (pull).
-            const patch: Partial<ProjectMeta> = {};
-            if (c.title && c.title !== lm.title) {
-              patch.title = c.title;
-              // Only an actual title adoption is "explicit"; marking titleManual
-              // on a status-only change would permanently disable plain-doc
-              // auto-naming for that document.
-              patch.titleManual = true;
-            }
-            if (c.status && c.status !== lm.status) patch.status = c.status;
-            if (Object.keys(patch).length) {
-              patch.updatedAt = c.updated_at; // align so it does not bounce back
-              patchProjectMeta(c.id, patch);
-            }
-          } else if (localT > cloudT) {
-            // Local is newer: push status (and an explicit title) up. This is the
-            // self-heal for a status change made offline or while signed out,
-            // which otherwise has no push path (#5/#19).
-            if (c.status && lm.status && lm.status !== c.status) {
+          const cloudNewer =
+            new Date(c.updated_at).getTime() > new Date(lm.updatedAt).getTime();
+          const statusDirty = isStatusDirty(c.id);
+
+          // Pull a newer cloud title (it was explicitly set on another device).
+          if (cloudNewer && c.title && c.title !== lm.title) {
+            patchProjectMeta(c.id, {
+              title: c.title,
+              titleManual: true,
+              updatedAt: c.updated_at,
+            });
+          }
+
+          // Status: a locally-dirty status is the user's pending intent and is
+          // pushed (below); otherwise adopt the cloud status when it differs.
+          if (statusDirty) {
+            if (lm.status && lm.status !== c.status) {
               try {
                 if ((await setScriptStatus(c.id, lm.status)) === null) failures++;
+                else setStatusDirty(c.id, false);
               } catch (e) {
                 console.error("status push failed", e);
                 failures++;
               }
+            } else {
+              setStatusDirty(c.id, false); // already matches the cloud
             }
-            if (lm.titleManual && lm.title && lm.title !== c.title) {
-              try {
-                if ((await setScriptTitle(c.id, lm.title)) === null) failures++;
-              } catch (e) {
-                console.error("title push failed", e);
-                failures++;
-              }
-            }
+          } else if (c.status && c.status !== lm.status) {
+            patchProjectMeta(c.id, { status: c.status });
           }
         }
 
@@ -484,7 +491,11 @@ export function useProjects(user: User | null) {
             (lm.order ?? null) === (c.position ?? null);
           if (samePlacement) continue;
           const cloudPlaced = c.placed_at ?? c.updated_at;
-          const localPlaced = lm.placedAt ?? lm.updatedAt;
+          // Fall back to createdAt (NOT updatedAt) when this device never set an
+          // explicit placement: a content save or status change bumps updatedAt,
+          // and using it here would let a project that was never deliberately
+          // placed locally out-rank — and erase — a real cloud folder filing.
+          const localPlaced = lm.placedAt ?? lm.createdAt;
           if (new Date(cloudPlaced).getTime() > new Date(localPlaced).getTime()) {
             setProjectPlacement(c.id, c.folder_id ?? null, c.position ?? null, cloudPlaced);
           } else {

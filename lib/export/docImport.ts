@@ -22,7 +22,7 @@ const isAllCaps = (t: string): boolean => /[A-Za-z]/.test(t) && t === t.toUpperC
 // recognizes them instead of demoting them to action. Mirrors the editor's
 // SmartType transition catalog.
 const TERMINAL_TRANSITION =
-  /^(FADE (IN|OUT)|FADE TO (BLACK|WHITE)|SMASH CUT|MATCH CUT|JUMP CUT|TIME CUT|DISSOLVE|CUT TO BLACK|END(\s+OF\s+\w+)?|THE END)\.?:?\s*$/;
+  /^(FADE (IN|OUT)|FADE TO (BLACK|WHITE)|SMASH CUT|MATCH CUT|JUMP CUT|TIME CUT|DISSOLVE|CUT TO BLACK|END(\s+OF\s+.+)?|THE END)\s*\.?:?\s*$/;
 
 interface Para {
   text: string;
@@ -83,22 +83,38 @@ function pushLine(out: ScriptLine[], element: ElementType, text: string): void {
  */
 function classifyParagraphs(paras: Para[]): ScriptLine[] {
   const out: ScriptLine[] = [];
+  // inDialogue: we are inside a character's dialogue run.
+  // pendingDialogue: a cue/parenthetical was just seen and its dialogue is still
+  // expected; a blank line between the cue and its dialogue (double-spaced
+  // scripts) must NOT end the run, but a blank line AFTER dialogue must.
   let inDialogue = false;
+  let pendingDialogue = false;
 
-  // Drop empty paragraphs entirely. Office formats are classified by style name
-  // and element adjacency, not by blank-line structure, so a blank paragraph
-  // (common in double-spaced hand-typed scripts) only breaks the cue/dialogue
-  // run and the look-ahead. Removing them makes single- and double-spaced
-  // documents classify identically.
-  const ps = paras.filter((p) => (p.text || "").replace(/\s+/g, " ").trim().length > 0);
+  const norm = (s?: string) => (s ?? "").replace(/\s+/g, " ").trim();
+  // The next non-empty paragraph's normalized text (look-ahead skips blanks).
+  const nextNonEmpty = (i: number): string => {
+    for (let j = i + 1; j < paras.length; j++) {
+      const t = norm(paras[j].text);
+      if (t) return t;
+    }
+    return "";
+  };
 
-  for (let i = 0; i < ps.length; i++) {
-    const t = ps[i].text.replace(/\s+/g, " ").trim();
+  for (let i = 0; i < paras.length; i++) {
+    const t = norm(paras[i].text);
+    if (!t) {
+      // A blank ends a dialogue run, except the blank that separates a cue from
+      // its dialogue (kept pending). This is what distinguishes inter-dialogue
+      // action from dialogue in double-spaced styleless scripts.
+      if (!pendingDialogue) inDialogue = false;
+      continue;
+    }
 
-    const styled = STYLE_ELEMENT[normStyle(ps[i].style)];
+    const styled = STYLE_ELEMENT[normStyle(paras[i].style)];
     if (styled) {
       pushLine(out, styled, t);
-      inDialogue = styled === "character" || styled === "parenthetical" || styled === "dialogue";
+      inDialogue = styled === "dialogue" || styled === "character" || styled === "parenthetical";
+      pendingDialogue = styled === "character" || styled === "parenthetical";
       continue;
     }
 
@@ -106,17 +122,20 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
     if (SCENE_PREFIX.test(t)) {
       pushLine(out, "scene_heading", t);
       inDialogue = false;
+      pendingDialogue = false;
       continue;
     }
     if (/^\(.*\)$/.test(t)) {
       pushLine(out, "parenthetical", t);
       inDialogue = true;
+      pendingDialogue = true;
       continue;
     }
-    const align = ps[i].align;
+    const align = paras[i].align;
     if (isAllCaps(t) && (/TO:\s*$/.test(t) || align === "right" || TERMINAL_TRANSITION.test(t))) {
       pushLine(out, "transition", t);
       inDialogue = false;
+      pendingDialogue = false;
       continue;
     }
     // A character cue: a short all-caps line (a trailing "(V.O.)" / "(CONT'D)"
@@ -125,19 +144,22 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
     const core = t.replace(/\s*\([^)]*\)\s*$/, "");
     const looksCharacter =
       isAllCaps(core) && core.length > 0 && t.length <= 38 && !/[.!?]$/.test(core);
-    const nextRaw = (ps[i + 1]?.text ?? "").replace(/\s+/g, " ").trim();
-    const nextCore = nextRaw.replace(/\s*\([^)]*\)\s*$/, "");
-    const dialogueFollows = nextRaw.length > 0 && !isAllCaps(nextCore);
+    const nextCore = nextNonEmpty(i).replace(/\s*\([^)]*\)\s*$/, "");
+    const dialogueFollows = nextCore.length > 0 && !isAllCaps(nextCore);
     if (looksCharacter && (align === "center" || dialogueFollows)) {
       pushLine(out, "character", t);
       inDialogue = true;
+      pendingDialogue = true;
       continue;
     }
-    if (inDialogue) {
+    if (inDialogue || pendingDialogue) {
       pushLine(out, "dialogue", t);
+      inDialogue = true;
+      pendingDialogue = false;
       continue;
     }
     pushLine(out, "action", t);
+    inDialogue = false;
   }
 
   return out;

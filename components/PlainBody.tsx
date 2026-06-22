@@ -258,6 +258,13 @@ export function PlainBody({
         <HistoryPanel
           getVersions={getVersions}
           onRestore={(content, tp) => {
+            if (
+              !window.confirm(
+                "Restore this version? It replaces your current text (a snapshot of the current version is saved first so you can undo)."
+              )
+            ) {
+              return;
+            }
             restoreVersion(content, tp);
             setShowHistory(false);
           }}

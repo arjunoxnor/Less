@@ -357,11 +357,16 @@ export function useCloudSync(
     const doc = ed.getJSON();
     const tp = titlePageRef.current;
     const title = (o.getTitle?.() || "").trim() || o.deriveTitle(doc);
-    const approxBytes = JSON.stringify({ content: doc, title, title_page: tp }).length;
-    if (approxBytes < 60000) {
+    // Measure UTF-8 bytes (the keepalive cap is on the wire body, not UTF-16
+    // chars), so a multi-byte (CJK/emoji) doc is not wrongly admitted.
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ content: doc, title, title_page: tp })
+    ).length;
+    if (bytes < 60000) {
+      // Fall back to a normal best-effort push if the keepalive send is rejected.
       void saveScript(o.projectId, doc, title, o.isTitlePageDirty() ? tp : undefined, {
         keepalive: true,
-      });
+      }).catch(() => void pushNow());
     } else {
       void pushNow();
     }

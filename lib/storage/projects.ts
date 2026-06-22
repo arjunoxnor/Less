@@ -269,10 +269,12 @@ export function renameProject(id: string, title: string): void {
 }
 
 export function setStatus(id: string, status: ProjectStatus): void {
-  // Bump updatedAt so a status change advances the metadata clock. Without this,
-  // an offline status change leaves updatedAt equal to the cloud's, so reconcile
-  // (which is last-write-wins on updatedAt) never pushes it and it never heals.
-  patchMeta(id, { status, updatedAt: nowIso() });
+  // Do NOT bump updatedAt here: status, title, and placement share that single
+  // clock, so advancing it on a status change would let a stale local title or
+  // placement out-rank (and clobber) a newer cloud one. Instead mark a dedicated
+  // status-dirty flag so reconcile can push the status without the shared clock.
+  patchMeta(id, { status });
+  setStatusDirty(id, true);
 }
 
 /**
@@ -334,6 +336,7 @@ export function deleteProject(id: string): void {
   lsSet(breakdownKey(id), null);
   lsSet(dirtyKey(id), null);
   lsSet(tpDirtyKey(id), null);
+  lsSet(statusDirtyKey(id), null);
   lsSet(lastSavedKey(id), null);
   if (getLastOpenedId() === id) setLastOpenedId(null);
 }
@@ -376,6 +379,14 @@ export const isTitlePageDirty = (id: string) => lsGet(tpDirtyKey(id)) === "1";
 export const setTitlePageDirty = (id: string, dirty: boolean) =>
   lsSet(tpDirtyKey(id), dirty ? "1" : null);
 
+// Status-specific dirty flag (persisted), set when the user changes a project's
+// status. Reconcile pushes a status-dirty project's status WITHOUT advancing the
+// shared updatedAt clock, so a status change never clobbers a title or placement.
+const statusDirtyKey = (id: string) => `less:project:${id}:statusDirty`;
+export const isStatusDirty = (id: string) => lsGet(statusDirtyKey(id)) === "1";
+export const setStatusDirty = (id: string, dirty: boolean) =>
+  lsSet(statusDirtyKey(id), dirty ? "1" : null);
+
 /* --- Tombstones (offline cloud deletes, flushed on reconnect) ------------ */
 
 function readTombstones(): string[] {
@@ -405,6 +416,8 @@ export function clearTombstone(id: string): void {
 export function clearAllBookkeeping(): void {
   for (const m of readIndex()) {
     lsSet(dirtyKey(m.id), null);
+    lsSet(tpDirtyKey(m.id), null);
+    lsSet(statusDirtyKey(m.id), null);
     lsSet(lastSavedKey(m.id), null);
   }
   setLastOpenedId(null);
@@ -423,6 +436,8 @@ export function dropCloudProjects(): void {
       lsSet(lockKey(m.id), null);
       lsSet(breakdownKey(m.id), null);
       lsSet(dirtyKey(m.id), null);
+      lsSet(tpDirtyKey(m.id), null);
+      lsSet(statusDirtyKey(m.id), null);
       lsSet(lastSavedKey(m.id), null);
     } else {
       keep.push(m);

@@ -31,9 +31,11 @@ export async function listCloudFolderTombstones(): Promise<CloudFolderTombstone[
   return (await api<CloudFolderTombstone[]>("folders/deleted")) ?? [];
 }
 
-/** Insert or update a folder (idempotent on id). */
-export async function upsertCloudFolder(_userId: string, f: Folder): Promise<void> {
-  await api(`folders/${f.id}`, {
+// Returns false when the write did not reach the server (e.g. a 401 makes api()
+// return null), so reconcile counts it as a failure rather than reporting a
+// false "Synced" or dropping a queued folder delete.
+export async function upsertCloudFolder(_userId: string, f: Folder): Promise<boolean> {
+  const r = await api(`folders/${f.id}`, {
     method: "PUT",
     body: {
       name: f.name,
@@ -44,8 +46,9 @@ export async function upsertCloudFolder(_userId: string, f: Folder): Promise<voi
       updated_at: f.updatedAt,
     },
   });
+  return r !== null;
 }
 
-export async function deleteCloudFolder(id: string): Promise<void> {
-  await api(`folders/${id}`, { method: "DELETE" });
+export async function deleteCloudFolder(id: string): Promise<boolean> {
+  return (await api(`folders/${id}`, { method: "DELETE" })) !== null;
 }
