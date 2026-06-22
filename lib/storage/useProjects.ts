@@ -442,10 +442,21 @@ export function useProjects(user: User | null) {
     return () => window.removeEventListener("online", onOnline);
   }, [user, reconcile]);
 
+  // Manual "Sync now": run the same reconcile (pull + push + heal) on demand,
+  // so a writer can force everything up/down and watch it confirm.
+  const syncNow = useCallback(async (): Promise<boolean> => {
+    if (!user || !online()) return false;
+    await reconcile(user);
+    refresh();
+    refreshFolders();
+    return true;
+  }, [user, reconcile, refresh, refreshFolders]);
+
   return {
     projects,
     folders,
     refresh,
+    syncNow,
     create,
     remove,
     rename,

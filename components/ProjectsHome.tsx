@@ -137,6 +137,7 @@ export function ProjectsHome({
   onReorderFolders,
   onToggleFolder,
   onImportScreenplays,
+  onSyncNow,
   onSignIn,
   onSignOut,
 }: {
@@ -172,6 +173,7 @@ export function ProjectsHome({
   onReorderFolders: (orderedIds: string[]) => void;
   onToggleFolder: (id: string) => void;
   onImportScreenplays: (files: File[]) => Promise<{ imported: number; failed: string[] }>;
+  onSyncNow: () => Promise<boolean>;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -198,6 +200,20 @@ export function ProjectsHome({
       return n;
     });
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Manual "Sync now".
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "done">("idle");
+  const runSync = async () => {
+    if (syncState === "syncing") return;
+    setSyncState("syncing");
+    try {
+      await onSyncNow();
+      setSyncState("done");
+      setTimeout(() => setSyncState("idle"), 2200);
+    } catch {
+      setSyncState("idle");
+    }
+  };
 
   // Bulk screenplay import (file picker + transient result line).
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -648,6 +664,15 @@ export function ProjectsHome({
         {cloudConfigured &&
           (user ? (
             <div className="toolbar-group toolbar-account">
+              <button
+                type="button"
+                className={"tb-btn" + (syncState === "done" ? " tb-btn-active" : "")}
+                onClick={runSync}
+                disabled={syncState === "syncing"}
+                title="Pull and push everything now"
+              >
+                {syncState === "syncing" ? "Syncing" : syncState === "done" ? "Synced" : "Sync"}
+              </button>
               <span className="account-email" title={user.email ?? ""}>
                 {user.email}
               </span>

@@ -53,6 +53,7 @@ export function AppShell() {
     projects,
     folders,
     refresh,
+    syncNow,
     create,
     remove,
     rename,
@@ -279,6 +280,7 @@ export function AppShell() {
         onReorderFolders={reorderFolders}
         onToggleFolder={toggleFolder}
         onImportScreenplays={importScreenplays}
+        onSyncNow={syncNow}
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOut()}
       />
