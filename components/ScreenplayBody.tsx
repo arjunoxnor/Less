@@ -243,12 +243,18 @@ export function ScreenplayBody({
     return n;
   }, [outline.scenes, caretLine]);
 
+  // The live project title, read through a ref so the memoized sync opts always
+  // see the current value (e.g. after a rename) without re-creating.
+  const titleRef = useRef(title);
+  titleRef.current = title;
+
   const syncOpts = useMemo(
     () => ({
       projectId,
       type: "screenplay" as const,
       status,
       deriveTitle,
+      getTitle: () => titleRef.current,
       saveLocalDoc: (d: JSONContent) => saveProjectDoc(projectId, d),
       loadLocalTitlePage: () => loadProjectTitlePage(projectId),
       saveLocalTitlePage: (tp: ReturnType<typeof loadProjectTitlePage>) =>

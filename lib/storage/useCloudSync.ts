@@ -33,6 +33,9 @@ export interface CloudSyncOpts {
   type: ProjectType;
   status: ProjectStatus;
   deriveTitle: (doc: JSONContent) => string;
+  /** The project's real title; preferred over deriveTitle so an explicit title
+   *  is never overwritten by the document's first line. */
+  getTitle?: () => string;
   saveLocalDoc: (doc: JSONContent) => void;
   loadLocalTitlePage: () => TitlePage | null;
   saveLocalTitlePage: (tp: TitlePage | null) => void;
@@ -117,7 +120,7 @@ export function useCloudSync(
       const tp = titlePageRef.current;
       const snapshotJson = JSON.stringify(doc);
       const tpSnapshot = JSON.stringify(tp);
-      const ts = await saveScript(o.projectId, doc, o.deriveTitle(doc), tp);
+      const ts = await saveScript(o.projectId, doc, (o.getTitle?.() || "").trim() || o.deriveTitle(doc), tp);
       if (ts) o.setLastSavedAt(ts);
       // Only mark clean if neither doc nor title page changed during the round trip.
       if (
@@ -174,7 +177,7 @@ export function useCloudSync(
             const ts = await saveScript(
               projectId,
               live,
-              o.deriveTitle(live),
+              (o.getTitle?.() || "").trim() || o.deriveTitle(live),
               titlePageRef.current
             );
             if (ts) o.setLastSavedAt(ts);
@@ -187,7 +190,7 @@ export function useCloudSync(
           // No cloud row yet (a local-only project opened while signed in):
           // create it under the SAME id so local id == cloud id.
           const live = editor.getJSON();
-          const row = await createScript(user.id, o.deriveTitle(live), live, {
+          const row = await createScript(user.id, (o.getTitle?.() || "").trim() || o.deriveTitle(live), live, {
             id: projectId,
             type: o.type,
             status: o.status,
