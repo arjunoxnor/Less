@@ -39,3 +39,6 @@ COMMIT_MSG.txt
 .vercel
 _import/
 public/_test_import.json
+.dev.vars
+.wrangler/
+.dev.vars*

@@ -10,12 +10,62 @@ import {
 } from "./client";
 
 /**
- * Auth is "Sign in with Google". The Google button (rendered in AuthModal via
- * Google Identity Services) hands us an ID token; we trade it at /api/auth/google
- * for a 30-day session token, which the api() helper attaches to every call.
- * useAuth just reflects the stored session, so the rest of the app keeps using
- * a `user` with `.id` and `.email`, same as before.
+ * Auth for LESS sync.
+ *
+ * Primary method is a private sync code: a random code that IS your identity.
+ * You create one on the first device, then paste it on your others to link
+ * them. The code is sent as `Authorization: Bearer code:<code>`; the API hashes
+ * it for the user id, so the raw code never touches the database.
+ *
+ * Google sign-in (signInWithGoogle) is also supported by the API and can be
+ * turned on later by configuring a Google client id; the code path needs no
+ * setup, so it is the default today.
  */
+
+const CODE_KEY = "less:synccode";
+const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I, L, O, 0, 1
+
+export function getSyncCode(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(CODE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Group into blocks of four for display, e.g. ABCD-EFGH-... */
+export function formatSyncCode(code: string): string {
+  return code.replace(/(.{4})(?=.)/g, "$1-");
+}
+
+function newCode(): string {
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  let s = "";
+  for (const b of bytes) s += ALPHABET[b % ALPHABET.length];
+  return s;
+}
+
+/** Adopt a code (link this device to it). Normalizes formatting. */
+export function adoptSyncCode(code: string): boolean {
+  const clean = code.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (clean.length < 16) return false;
+  try {
+    window.localStorage.setItem(CODE_KEY, clean);
+  } catch {
+    /* ignore */
+  }
+  setSession("code:" + clean, { id: "synced", email: "Synced", name: "Synced" });
+  return true;
+}
+
+/** Create a fresh code on this device and link to it. */
+export function createSyncCode(): string {
+  const code = newCode();
+  adoptSyncCode(code);
+  return code;
+}
 
 export function useAuth() {
   const [user, setUser] = useState<CloudUser | null>(null);
@@ -30,7 +80,7 @@ export function useAuth() {
   return { user, loading };
 }
 
-/** Exchange a Google ID token (credential) for a LESS session. */
+/** Exchange a Google ID token for a session (used when Google login is on). */
 export async function signInWithGoogle(idToken: string): Promise<{ error?: Error }> {
   try {
     const res = await fetch("/api/auth/google", {
@@ -51,5 +101,10 @@ export async function signInWithGoogle(idToken: string): Promise<{ error?: Error
 }
 
 export async function signOut(): Promise<void> {
+  try {
+    window.localStorage.removeItem(CODE_KEY);
+  } catch {
+    /* ignore */
+  }
   clearSession();
 }

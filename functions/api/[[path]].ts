@@ -56,6 +56,11 @@ function bytesToB64url(b: Uint8Array): string {
 }
 const b64urlToString = (s: string) => new TextDecoder().decode(b64urlToBytes(s));
 
+async function sha256hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", enc.encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /* ---------- session token (HS256) ---------- */
 function hmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
@@ -136,7 +141,16 @@ async function verifyGoogleIdToken(
 async function userFrom(request: Request, env: Env): Promise<{ id: string; email?: string } | null> {
   const m = (request.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  const payload = await verifySession(m[1], env.SESSION_SECRET);
+  const raw = m[1];
+  // Sync-code login: the code IS the identity. Possessing it grants access to
+  // its data; the user id is a hash so the raw code never lands in the database.
+  if (raw.startsWith("code:")) {
+    const code = raw.slice(5);
+    if (code.length < 16) return null;
+    return { id: "c_" + (await sha256hex(code)).slice(0, 40) };
+  }
+  // Google login: a signed 30-day session token.
+  const payload = await verifySession(raw, env.SESSION_SECRET);
   if (!payload || typeof payload.sub !== "string") return null;
   return { id: payload.sub, email: payload.email as string | undefined };
 }

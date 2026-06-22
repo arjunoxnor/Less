@@ -1,124 +1,94 @@
 "use client";
 
 import { useState } from "react";
-import { signIn, signUp } from "@/lib/supabase/auth";
+import { createSyncCode, adoptSyncCode, formatSyncCode } from "@/lib/cloud/auth";
 
 /**
- * Map raw Supabase auth errors to neutral, user-facing copy. We log the raw
- * error to the console for debugging but never render it: verbatim messages
- * differ by case ("User already registered", weak-password details, rate
- * limits) and would help an attacker probe which emails have accounts.
- */
-function friendlyAuthError(raw: string, mode: "signin" | "signup"): string {
-  console.error("auth error:", raw);
-  const m = raw.toLowerCase();
-  if (m.includes("rate") || m.includes("too many") || m.includes("429")) {
-    return "Too many attempts. Please wait a moment and try again.";
-  }
-  if (m.includes("password") && (m.includes("short") || m.includes("least") || m.includes("weak") || m.includes("6"))) {
-    return "Please use a password of at least 6 characters.";
-  }
-  if (mode === "signin") {
-    return "That email or password didn’t work.";
-  }
-  // For sign-up, stay non-committal about whether the address already exists.
-  return "Couldn’t create that account. If you already have one, try signing in.";
-}
-
-/**
- * Sign in / sign up modal. Appears only when the writer chooses to save to the
- * cloud — you never need an account just to start writing.
+ * Sync setup. There is no account or password: you create a private sync code
+ * (which is also your recovery key) and paste it on your other devices to link
+ * them. Appears only when the writer chooses to sync; you never need it to
+ * start writing.
  */
 export function AuthModal({ onClose }: { onClose: () => void }) {
-  const [mode, setMode] = useState<"signin" | "signup">("signup");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [created, setCreated] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [entry, setEntry] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const create = () => setCreated(createSyncCode());
+
+  const copy = () => {
+    if (!created) return;
+    navigator.clipboard?.writeText(formatSyncCode(created)).then(
+      () => setCopied(true),
+      () => setCopied(false)
+    );
+  };
+
+  const link = () => {
     setError(null);
-    setBusy(true);
-    const fn = mode === "signup" ? signUp : signIn;
-    const { error } = await fn(email.trim(), password);
-    setBusy(false);
-    if (error) {
-      setError(friendlyAuthError(error.message, mode));
+    if (!adoptSyncCode(entry)) {
+      setError("That code looks too short. Paste the full code from your other device.");
       return;
     }
-    onClose(); // auth state change triggers sync automatically
+    onClose();
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="modal-title">
-          {mode === "signup" ? "Create your account" : "Welcome back"}
-        </h2>
-        <p className="modal-sub">
-          Your work is saved locally already. Sign {mode === "signup" ? "up" : "in"}{" "}
-          to back it up and sync across devices.
-        </p>
+        {created ? (
+          <>
+            <h2 className="modal-title">Your sync is on</h2>
+            <p className="modal-sub">
+              This is your private sync code. Save it somewhere safe. It is the only way to
+              reach your work on another device, so treat it like a key.
+            </p>
+            <div className="synccode-box">{formatSyncCode(created)}</div>
+            <button type="button" className="modal-primary" onClick={copy}>
+              {copied ? "Copied" : "Copy code"}
+            </button>
+            <button type="button" className="modal-close" onClick={onClose}>
+              Done
+            </button>
+          </>
+        ) : (
+          <>
+            <h2 className="modal-title">Sync across devices</h2>
+            <p className="modal-sub">
+              Your work is saved on this device already. Turn on sync to back it up and open it
+              from your other computers.
+            </p>
 
-        <form onSubmit={submit}>
-          <label className="field">
-            <span>Email</span>
-            <input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoFocus
-            />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              autoComplete={
-                mode === "signup" ? "new-password" : "current-password"
-              }
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
+            <button type="button" className="modal-primary" onClick={create}>
+              Create my sync code
+            </button>
 
-          {error && <div className="modal-error">{error}</div>}
+            <div className="modal-divider">
+              <span>or link a device</span>
+            </div>
 
-          <button type="submit" className="modal-primary" disabled={busy}>
-            {busy
-              ? "Working…"
-              : mode === "signup"
-                ? "Create account"
-                : "Sign in"}
-          </button>
-        </form>
+            <label className="field">
+              <span>Paste a code from another device</span>
+              <input
+                type="text"
+                value={entry}
+                onChange={(e) => setEntry(e.target.value)}
+                placeholder="ABCD-EFGH-..."
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            {error && <div className="modal-error">{error}</div>}
+            <button type="button" className="modal-primary modal-secondary" onClick={link}>
+              Link this device
+            </button>
 
-        <div className="modal-switch">
-          {mode === "signup" ? (
-            <>
-              Already have an account?{" "}
-              <button type="button" onClick={() => setMode("signin")}>
-                Sign in
-              </button>
-            </>
-          ) : (
-            <>
-              New here?{" "}
-              <button type="button" onClick={() => setMode("signup")}>
-                Create an account
-              </button>
-            </>
-          )}
-        </div>
-
-        <button type="button" className="modal-close" onClick={onClose}>
-          Keep writing without an account
-        </button>
+            <button type="button" className="modal-close" onClick={onClose}>
+              Keep writing without sync
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

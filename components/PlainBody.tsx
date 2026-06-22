@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
-import type { User } from "@supabase/supabase-js";
+import type { CloudUser as User } from "@/lib/cloud/client";
 
 import { buildPlainExtensions } from "@/lib/editor/buildPlainExtensions";
 import { derivePlainTitle } from "@/lib/editor/plainDocUtils";
@@ -19,8 +19,8 @@ import {
   setLastSavedAt as projSetLastSavedAt,
   type ProjectStatus,
 } from "@/lib/storage/projects";
-import { isCloudConfigured } from "@/lib/supabase/client";
-import { signOut } from "@/lib/supabase/auth";
+import { isCloudConfigured } from "@/lib/cloud/client";
+import { signOut } from "@/lib/cloud/auth";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { EditorChrome } from "./EditorChrome";

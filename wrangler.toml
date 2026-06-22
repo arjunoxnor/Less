@@ -1,0 +1,10 @@
+# Cloudflare Pages config for LESS. The static site builds to out/ (Next export)
+# and the API lives in functions/. D1 is the database that replaced Supabase.
+name = "less"
+pages_build_output_dir = "out"
+compatibility_date = "2024-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "less-db"
+database_id = "ec14ff01-64ae-48e0-b176-0ffa0bf596e9"

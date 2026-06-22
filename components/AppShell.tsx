@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useAuth, signOut } from "@/lib/supabase/auth";
-import { isCloudConfigured } from "@/lib/supabase/client";
+import { useAuth, signOut } from "@/lib/cloud/auth";
+import { isCloudConfigured } from "@/lib/cloud/client";
 import {
   DEFAULT_PREFS,
   loadPrefs,

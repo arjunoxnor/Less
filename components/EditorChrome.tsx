@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import type { User } from "@supabase/supabase-js";
+import type { CloudUser as User } from "@/lib/cloud/client";
 import type { Prefs } from "@/lib/storage/localStore";
 import type { SyncStatus } from "@/lib/storage/useCloudSync";
 import type { ProjectStatus } from "@/lib/storage/projects";

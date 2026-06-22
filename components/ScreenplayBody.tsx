@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
-import type { User } from "@supabase/supabase-js";
+import type { CloudUser as User } from "@/lib/cloud/client";
 
 import { buildExtensions } from "@/lib/editor/buildExtensions";
 import { docToLines } from "@/lib/export/flatten";
@@ -59,8 +59,8 @@ import {
   type ProjectStatus,
 } from "@/lib/storage/projects";
 import { modKeyLabel } from "@/lib/platform";
-import { isCloudConfigured } from "@/lib/supabase/client";
-import { signOut } from "@/lib/supabase/auth";
+import { isCloudConfigured } from "@/lib/cloud/client";
+import { signOut } from "@/lib/cloud/auth";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
 import {
   exportDoc,

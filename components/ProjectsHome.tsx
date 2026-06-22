@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import type { CloudUser as User } from "@/lib/cloud/client";
 import type { JSONContent } from "@tiptap/core";
 import type { Prefs } from "@/lib/storage/localStore";
 import type {

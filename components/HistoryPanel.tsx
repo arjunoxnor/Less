@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { JSONContent } from "@tiptap/core";
-import type { VersionRow } from "@/lib/supabase/scripts";
+import type { VersionRow } from "@/lib/cloud/scripts";
 import type { TitlePage } from "@/lib/export/titlePage";
 import { docText } from "@/lib/editor/docUtils";
 

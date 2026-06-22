@@ -1,6 +1,6 @@
 "use client";
 
-import type { User } from "@supabase/supabase-js";
+import type { CloudUser as User } from "@/lib/cloud/client";
 import type { Prefs } from "@/lib/storage/localStore";
 import type { ProjectStatus, ProjectType } from "@/lib/storage/projects";
 import { ScreenplayBody } from "./ScreenplayBody";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import type { CloudUser as User } from "@/lib/cloud/client";
 import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
 
@@ -51,12 +51,12 @@ import {
   saveScript,
   setScriptStatus,
   setScriptFolder,
-} from "@/lib/supabase/scripts";
+} from "@/lib/cloud/scripts";
 import {
   listCloudFolders,
   upsertCloudFolder,
   deleteCloudFolder,
-} from "@/lib/supabase/folders";
+} from "@/lib/cloud/folders";
 import { isMeaningfulFor } from "@/lib/editor/plainDocUtils";
 
 const online = () => typeof navigator === "undefined" || navigator.onLine;

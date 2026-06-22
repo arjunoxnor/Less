@@ -11,8 +11,13 @@ export interface CloudUser {
 const TOKEN_KEY = "less:session";
 const USER_KEY = "less:user";
 
-/** Cloud sync is available when a Google client id is configured at build. */
-export const isCloudConfigured = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
+/**
+ * Sync is part of the app now (the API ships with it), so it is always offered.
+ * The sync-code login needs no configuration; Google login activates when a
+ * client id is set. Under `next dev` the API isn't running, so calls just fail
+ * softly and LESS stays local-only there.
+ */
+export const isCloudConfigured = true;
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;

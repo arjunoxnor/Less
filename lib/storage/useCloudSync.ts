@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
-import type { User } from "@supabase/supabase-js";
+import type { CloudUser as User } from "@/lib/cloud/client";
 
 import {
   createScript,
@@ -12,7 +12,7 @@ import {
   listVersions,
   saveScript,
   type VersionRow,
-} from "@/lib/supabase/scripts";
+} from "@/lib/cloud/scripts";
 import { trimTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import { debounce } from "./localStore";
 import type { ProjectStatus, ProjectType } from "./projects";
