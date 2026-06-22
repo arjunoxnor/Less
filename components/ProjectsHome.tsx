@@ -10,7 +10,6 @@ import type {
   ProjectType,
 } from "@/lib/storage/projects";
 import {
-  stageOfStatus,
   FOLDER_COLORS,
   STAGE_LABEL,
   STAGE_ORDER,
@@ -19,12 +18,6 @@ import {
 } from "@/lib/storage/folders";
 import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
 import { hasTitlePage, type TitlePage } from "@/lib/export/titlePage";
-
-const DOC_STAGE_OPTIONS: { value: ProjectStatus; label: string }[] = [
-  { value: "not_started", label: "Idea" },
-  { value: "writing", label: "In progress" },
-  { value: "done", label: "Completed" },
-];
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -42,6 +35,43 @@ function relativeTime(iso: string): string {
 
 function typeLabel(type: ProjectType): string {
   return type === "plain" ? "Document" : "Screenplay";
+}
+
+/** A document (page) or screenplay (clapperboard) glyph, tinted by `color`. */
+function TypeIcon({ type, color }: { type: ProjectType; color: string }) {
+  return (
+    <svg
+      className="chip-icon"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ color }}
+      role="img"
+      aria-label={typeLabel(type)}
+    >
+      {type === "plain" ? (
+        <>
+          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+          <polyline points="14 3 14 9 20 9" />
+          <line x1="8" y1="13" x2="16" y2="13" />
+          <line x1="8" y1="17" x2="13" y2="17" />
+        </>
+      ) : (
+        <>
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="3" y1="8.5" x2="21" y2="8.5" />
+          <line x1="7.5" y1="3" x2="5.5" y2="8.5" />
+          <line x1="12.5" y1="3" x2="10.5" y2="8.5" />
+          <line x1="17.5" y1="3" x2="15.5" y2="8.5" />
+        </>
+      )}
+    </svg>
+  );
 }
 
 /**
@@ -98,7 +128,6 @@ export function ProjectsHome({
   onCreate,
   onDelete,
   onRename,
-  onStatusChange,
   onSetFolder,
   onReorder,
   folders,
@@ -308,7 +337,11 @@ export function ProjectsHome({
   };
 
   const projectChip = (p: ProjectMeta) => {
-    const stage = stageOfStatus(p.status);
+    // The type glyph is tinted with the colour of the folder the project lives
+    // in (a neutral tone when it is loose at the top level).
+    const fid = effFolderId(p);
+    const iconColor =
+      (fid ? folders.find((f) => f.id === fid)?.color : null) ?? "var(--muted)";
     return (
       <div
         key={p.id}
@@ -348,41 +381,28 @@ export function ProjectsHome({
           }
         }}
       >
-        {renaming === p.id ? (
-          <input
-            ref={renameRef}
-            className="chip-rename"
-            value={renameDraft}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setRenameDraft(e.target.value)}
-            onBlur={() => commitRename(p.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitRename(p.id);
-              } else if (e.key === "Escape") {
-                setRenaming(null);
-              }
-            }}
-          />
-        ) : (
-          <div className="chip-title">{p.title}</div>
-        )}
-        <div className="chip-meta">
-          <span className={"badge badge-" + p.type}>{typeLabel(p.type)}</span>
-          <select
-            className={"chip-stage stage-" + stage}
-            value={p.status}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onStatusChange(p.id, e.target.value as ProjectStatus)}
-            aria-label="Stage"
-          >
-            {DOC_STAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+        <div className="chip-head">
+          <TypeIcon type={p.type} color={iconColor} />
+          {renaming === p.id ? (
+            <input
+              ref={renameRef}
+              className="chip-rename"
+              value={renameDraft}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onBlur={() => commitRename(p.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitRename(p.id);
+                } else if (e.key === "Escape") {
+                  setRenaming(null);
+                }
+              }}
+            />
+          ) : (
+            <div className="chip-title">{p.title}</div>
+          )}
         </div>
         <div className="chip-foot">
           <span className="chip-time">{relativeTime(p.updatedAt)}</span>

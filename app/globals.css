@@ -1437,7 +1437,18 @@ body {
 .chip.chip-drop {
   border-left: 3px solid var(--accent);
 }
+.chip-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.chip-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
 .chip-title {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 600;
   color: var(--toolbar-fg);
   line-height: 1.25;
@@ -1447,6 +1458,8 @@ body {
   overflow: hidden;
 }
 .chip-rename {
+  flex: 1 1 auto;
+  min-width: 0;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
