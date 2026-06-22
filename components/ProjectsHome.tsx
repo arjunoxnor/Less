@@ -18,6 +18,7 @@ import {
 } from "@/lib/storage/folders";
 import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
 import { hasTitlePage, type TitlePage } from "@/lib/export/titlePage";
+import { IMPORT_ACCEPT } from "@/lib/export";
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -704,7 +705,7 @@ export function ProjectsHome({
           ref={importInputRef}
           type="file"
           multiple
-          accept=".fdx,.fountain,.txt,.xml,.spmd,.json"
+          accept={`${IMPORT_ACCEPT},.json`}
           style={{ display: "none" }}
           onChange={(e) => runImport(e.target.files)}
         />
@@ -713,7 +714,7 @@ export function ProjectsHome({
           className="tb-btn"
           onClick={() => importInputRef.current?.click()}
           disabled={importing}
-          title="Import Final Draft (.fdx) or Fountain screenplays"
+          title="Import Word, Final Draft, Fountain, RTF or OpenDocument scripts"
         >
           {importing ? "Importing" : "Import"}
         </button>

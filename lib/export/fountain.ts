@@ -118,7 +118,7 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       // Start a cue cluster: the character line plus the parentheticals and
       // dialogue that immediately follow, joined by single newlines so they
       // re-import as one cue (no blank line breaks the cluster).
-      const cue = isAllCaps(text) ? text : `@${text}`;
+      const cue = isAllCaps(text) ? escapeInline(text) : `@${escapeInline(text)}`;
       // A dual (right-column) cue carries a trailing caret.
       const cluster: string[] = [lines[i].dual ? `${cue} ^` : cue];
       i++;
@@ -128,7 +128,7 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       ) {
         const l = lines[i];
         cluster.push(
-          l.element === "parenthetical" ? ensureParens(l.text) : escapeInline(l.text)
+          l.element === "parenthetical" ? escapeInline(ensureParens(l.text)) : escapeInline(l.text)
         );
         i++;
       }
@@ -138,14 +138,16 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
 
     switch (element) {
       case "scene_heading":
-        blocks.push(SCENE_PREFIX.test(text) ? text : `.${text}`);
+        blocks.push(SCENE_PREFIX.test(text) ? escapeInline(text) : `.${escapeInline(text)}`);
         break;
-      case "transition":
-        blocks.push(/TO:$/.test(text.trim()) ? text.trim() : `>${text.trim()}`);
+      case "transition": {
+        const t = escapeInline(text.trim());
+        blocks.push(/TO:$/.test(text.trim()) ? t : `>${t}`);
         break;
+      }
       case "parenthetical":
         // Orphaned parenthetical (no preceding cue): keep it as its own block.
-        blocks.push(ensureParens(text));
+        blocks.push(escapeInline(ensureParens(text)));
         break;
       case "dialogue":
         // Orphaned dialogue: keep it so nothing is lost.

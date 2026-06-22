@@ -202,7 +202,10 @@ export function AppShell() {
         try {
           const { doc, titlePage } = await importFile(file);
           const info = placement[file.name] ?? {};
-          const fallback = file.name.replace(/\.(fdx|fountain|txt|xml|spmd)$/i, "");
+          const fallback = file.name.replace(
+            /\.(fdx|fountain|txt|text|md|markdown|spmd|xml|docx|odt|rtf)$/i,
+            ""
+          );
           const meta = create("screenplay", info.title || titlePage?.title || fallback, {
             content: doc,
             titlePage,
@@ -225,8 +228,12 @@ export function AppShell() {
   // Dev hook so a bulk import can be driven/tested without a file picker.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
-    (window as unknown as { __lessImportFiles?: typeof importScreenplays }).__lessImportFiles =
-      importScreenplays;
+    const w = window as unknown as {
+      __lessImportFiles?: typeof importScreenplays;
+      __lessImportFile?: typeof importFile;
+    };
+    w.__lessImportFiles = importScreenplays;
+    w.__lessImportFile = importFile;
   }, [importScreenplays]);
 
   const current =

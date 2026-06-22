@@ -5,6 +5,7 @@ import { docToLines, linesToDoc } from "./flatten";
 import { downloadBlob, safeFilename } from "./download";
 import { toFountain, parseFountain } from "./fountain";
 import { parseFdx, toFdx } from "./fdx";
+import { docxToLines, odtToLines, rtfToLines, looksBinary } from "./docImport";
 import { exportPdf } from "./pdf";
 import type { TitlePage } from "./titlePage";
 import type { PageLock } from "./pageLock";
@@ -17,6 +18,13 @@ import type { PageLock } from "./pageLock";
 
 export type ExportFormat = "pdf" | "fountain" | "fdx";
 export type ImportFormat = "fountain" | "fdx";
+
+/**
+ * The file extensions the importer accepts, for a file picker's `accept`. Kept
+ * here next to importFile so the picker and the parser never drift apart.
+ */
+export const IMPORT_ACCEPT =
+  ".docx,.odt,.rtf,.fdx,.fountain,.txt,.text,.md,.markdown,.spmd,.xml";
 
 /**
  * Clear the dual flag on any imported cue cluster that has no left-column
@@ -81,29 +89,63 @@ export async function importFile(
   file: File
 ): Promise<{ doc: JSONContent; titlePage: TitlePage | null }> {
   const name = file.name.toLowerCase();
-  const text = await file.text();
 
-  let result: { lines: ScriptLine[]; titlePage: TitlePage | null };
+  let lines: ScriptLine[];
+  let titlePage: TitlePage | null = null;
+
   if (name.endsWith(".fdx") || name.endsWith(".xml")) {
-    result = parseFdx(text);
+    const r = parseFdx(await file.text());
+    lines = r.lines;
+    titlePage = r.titlePage;
+  } else if (name.endsWith(".docx")) {
+    lines = await docxToLines(await file.arrayBuffer());
+  } else if (name.endsWith(".odt")) {
+    lines = await odtToLines(await file.arrayBuffer());
+  } else if (name.endsWith(".rtf")) {
+    lines = rtfToLines(await file.text());
+  } else if (name.endsWith(".doc")) {
+    throw new Error(
+      "Old .doc files are not supported. In Word, choose File then Save As and pick .docx or .rtf, then import that."
+    );
+  } else if (name.endsWith(".pages")) {
+    throw new Error(
+      "Apple Pages files are not supported. In Pages, choose File then Export To then Word, and import the .docx."
+    );
+  } else if (name.endsWith(".pdf")) {
+    throw new Error(
+      "PDF import is not supported yet. Export the script to .docx, .fdx, or .fountain and import that."
+    );
   } else if (
     name.endsWith(".fountain") ||
+    name.endsWith(".spmd") ||
     name.endsWith(".txt") ||
-    name.endsWith(".spmd")
+    name.endsWith(".text") ||
+    name.endsWith(".md") ||
+    name.endsWith(".markdown")
   ) {
-    result = parseFountain(text);
+    const r = parseFountain(await file.text());
+    lines = r.lines;
+    titlePage = r.titlePage;
   } else {
-    throw new Error(
-      "Unsupported file type. Choose a Fountain (.fountain, .txt) or Final Draft (.fdx) file."
-    );
+    // Unknown extension: if it decodes as text, treat it as Fountain / plain
+    // text; otherwise refuse rather than dumping binary into the editor.
+    const text = await file.text();
+    if (looksBinary(text)) {
+      throw new Error(
+        "Unsupported file type. Import a Word (.docx), Final Draft (.fdx), Fountain (.fountain, .txt), Rich Text (.rtf), or OpenDocument (.odt) file."
+      );
+    }
+    const r = parseFountain(text);
+    lines = r.lines;
+    titlePage = r.titlePage;
   }
 
-  if (!result.lines.length) {
-    throw new Error("That file did not contain any screenplay lines.");
+  if (!lines.length) {
+    throw new Error("That file did not contain any text we could import.");
   }
 
   return {
-    doc: linesToDoc(normalizeDual(result.lines)),
-    titlePage: result.titlePage,
+    doc: linesToDoc(normalizeDual(lines)),
+    titlePage,
   };
 }

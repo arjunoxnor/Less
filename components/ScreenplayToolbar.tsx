@@ -9,6 +9,7 @@ import {
   type ElementType,
 } from "@/lib/editor/elements";
 import type { ExportFormat, ImportFormat } from "@/lib/export";
+import { IMPORT_ACCEPT } from "@/lib/export";
 import type { Prefs } from "@/lib/storage/localStore";
 
 /**
@@ -83,8 +84,7 @@ export function ScreenplayToolbar({
   };
 
   const [openMenu, setOpenMenu] = useState<null | "export" | "import">(null);
-  const fountainInputRef = useRef<HTMLInputElement>(null);
-  const fdxInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -150,43 +150,22 @@ export function ScreenplayToolbar({
         <div className="tb-menu">
           <button
             type="button"
-            className={"tb-btn" + (openMenu === "import" ? " tb-btn-active" : "")}
-            onClick={() => setOpenMenu((m) => (m === "import" ? null : "import"))}
-            title="Import a script"
+            className="tb-btn"
+            onClick={() => importInputRef.current?.click()}
+            title="Import Word, Final Draft, Fountain, RTF or OpenDocument"
           >
             Import
           </button>
-          {openMenu === "import" && (
-            <div className="tb-menu-list">
-              <button type="button" className="tb-menu-item" onClick={() => { fountainInputRef.current?.click(); setOpenMenu(null); }}>
-                Fountain
-              </button>
-              <button type="button" className="tb-menu-item" onClick={() => { fdxInputRef.current?.click(); setOpenMenu(null); }}>
-                FDX
-              </button>
-            </div>
-          )}
         </div>
 
         <input
-          ref={fountainInputRef}
+          ref={importInputRef}
           type="file"
-          accept=".fountain,.txt,.spmd"
+          accept={IMPORT_ACCEPT}
           className="tb-file-input"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) onImport("fountain", f);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={fdxInputRef}
-          type="file"
-          accept=".fdx,.xml"
-          className="tb-file-input"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onImport("fdx", f);
             e.target.value = "";
           }}
         />
