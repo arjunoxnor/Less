@@ -433,14 +433,42 @@ export function useProjects(user: User | null) {
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;
-          if (new Date(c.updated_at).getTime() > new Date(lm.updatedAt).getTime()) {
+          const cloudT = new Date(c.updated_at).getTime();
+          const localT = new Date(lm.updatedAt).getTime();
+          if (cloudT > localT) {
+            // Cloud is newer: adopt its title/status (pull).
             const patch: Partial<ProjectMeta> = {};
-            if (c.title && c.title !== lm.title) patch.title = c.title;
+            if (c.title && c.title !== lm.title) {
+              patch.title = c.title;
+              // Only an actual title adoption is "explicit"; marking titleManual
+              // on a status-only change would permanently disable plain-doc
+              // auto-naming for that document.
+              patch.titleManual = true;
+            }
             if (c.status && c.status !== lm.status) patch.status = c.status;
             if (Object.keys(patch).length) {
-              patch.titleManual = true; // a cloud title is explicit
               patch.updatedAt = c.updated_at; // align so it does not bounce back
               patchProjectMeta(c.id, patch);
+            }
+          } else if (localT > cloudT) {
+            // Local is newer: push status (and an explicit title) up. This is the
+            // self-heal for a status change made offline or while signed out,
+            // which otherwise has no push path (#5/#19).
+            if (c.status && lm.status && lm.status !== c.status) {
+              try {
+                if ((await setScriptStatus(c.id, lm.status)) === null) failures++;
+              } catch (e) {
+                console.error("status push failed", e);
+                failures++;
+              }
+            }
+            if (lm.titleManual && lm.title && lm.title !== c.title) {
+              try {
+                if ((await setScriptTitle(c.id, lm.title)) === null) failures++;
+              } catch (e) {
+                console.error("title push failed", e);
+                failures++;
+              }
             }
           }
         }
@@ -461,7 +489,11 @@ export function useProjects(user: User | null) {
             setProjectPlacement(c.id, c.folder_id ?? null, c.position ?? null, cloudPlaced);
           } else {
             try {
-              await setScriptFolder(c.id, lm.folderId ?? null, lm.order ?? null);
+              // A 401 makes this resolve false (not throw), so count it as a
+              // failure rather than silently dropping the placement push.
+              if (!(await setScriptFolder(c.id, lm.folderId ?? null, lm.order ?? null))) {
+                failures++;
+              }
             } catch (e) {
               console.error("placement push failed", e);
               failures++;
@@ -470,8 +502,11 @@ export function useProjects(user: User | null) {
         }
         for (const id of listTombstones()) {
           try {
-            await deleteScript(id);
-            clearTombstone(id);
+            // Only clear the queued delete when the server actually deleted it;
+            // a 401 returns false, so we keep the tombstone and retry next pass
+            // instead of orphaning the cloud row and reporting success.
+            if (await deleteScript(id)) clearTombstone(id);
+            else failures++;
           } catch (e) {
             console.error("tombstone flush failed", e);
             failures++;

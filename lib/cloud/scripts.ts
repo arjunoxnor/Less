@@ -93,28 +93,36 @@ export async function setScriptTitle(id: string, title: string): Promise<string 
   return r?.updated_at ?? null;
 }
 
+// Returns false when the call did not reach the server (e.g. a 401 makes api()
+// return null after clearing the session), so reconcile can count it as a
+// failure instead of reporting a false "Synced".
 export async function setScriptFolder(
   id: string,
   folderId: string | null,
   position: number | null
-): Promise<void> {
-  await api(`scripts/${id}`, { method: "PATCH", body: { folder_id: folderId, position } });
+): Promise<boolean> {
+  return (await api(`scripts/${id}`, { method: "PATCH", body: { folder_id: folderId, position } })) !== null;
 }
 
-export async function deleteScript(id: string): Promise<void> {
-  await api(`scripts/${id}`, { method: "DELETE" });
+export async function deleteScript(id: string): Promise<boolean> {
+  return (await api(`scripts/${id}`, { method: "DELETE" })) !== null;
 }
 
 export async function saveScript(
   id: string,
   content: JSONContent,
   title: string,
-  titlePage?: TitlePage | null
+  titlePage?: TitlePage | null,
+  opts?: { keepalive?: boolean }
 ): Promise<string | null> {
   const body: Record<string, unknown> = { content, title };
   // Pass null to clear it; omit (undefined) to leave it unchanged.
   if (titlePage !== undefined) body.title_page = titlePage;
-  const r = await api<{ updated_at: string }>(`scripts/${id}`, { method: "PATCH", body });
+  const r = await api<{ updated_at: string }>(`scripts/${id}`, {
+    method: "PATCH",
+    body,
+    keepalive: opts?.keepalive,
+  });
   return r?.updated_at ?? null;
 }
 

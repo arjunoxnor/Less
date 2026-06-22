@@ -646,6 +646,31 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
+.account-code-input {
+  width: 150px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+  background: var(--surface, transparent);
+  color: inherit;
+}
+.account-code-msg {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.history-tp-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--surface-2, rgba(127, 127, 127, 0.14));
+  vertical-align: middle;
+}
 .history-preview {
   font-size: 12.5px;
   color: var(--muted);

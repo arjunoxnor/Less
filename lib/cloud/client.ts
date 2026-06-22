@@ -82,7 +82,7 @@ function notifyAuth() {
  */
 export async function api<T>(
   path: string,
-  opts: { method?: string; body?: unknown } = {}
+  opts: { method?: string; body?: unknown; keepalive?: boolean } = {}
 ): Promise<T | null> {
   const token = getToken();
   if (!token) return null;
@@ -93,6 +93,9 @@ export async function api<T>(
       authorization: `Bearer ${token}`,
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    // keepalive lets a push survive the page unloading (tab close). The browser
+    // caps keepalive bodies at ~64KB, so callers only set it for small payloads.
+    keepalive: opts.keepalive,
   });
   if (res.status === 401) {
     clearSession();

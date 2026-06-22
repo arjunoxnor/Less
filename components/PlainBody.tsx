@@ -15,6 +15,8 @@ import {
   markCloudCreated,
   isDirty as projIsDirty,
   setDirty as projSetDirty,
+  isTitlePageDirty as projIsTpDirty,
+  setTitlePageDirty as projSetTpDirty,
   getLastSavedAt as projGetLastSavedAt,
   setLastSavedAt as projSetLastSavedAt,
   type ProjectStatus,
@@ -121,6 +123,8 @@ export function PlainBody({
       saveLocalTitlePage: () => {},
       isDirty: () => projIsDirty(projectId),
       setDirty: (b: boolean) => projSetDirty(projectId, b),
+      isTitlePageDirty: () => projIsTpDirty(projectId),
+      setTitlePageDirty: (b: boolean) => projSetTpDirty(projectId, b),
       getLastSavedAt: () => projGetLastSavedAt(projectId),
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
       onCloudCreated: (id: string) => markCloudCreated(id),
@@ -128,11 +132,13 @@ export function PlainBody({
     [projectId, status]
   );
 
-  const { status: syncStatus, pulledTick, getVersions, restoreVersion, flush } =
+  const { status: syncStatus, pulledTick, getVersions, restoreVersion, flush, flushBeacon } =
     useCloudSync(editor, user, syncOpts);
 
   const flushRef = useRef(flush);
   flushRef.current = flush;
+  const flushBeaconRef = useRef(flushBeacon);
+  flushBeaconRef.current = flushBeacon;
   useEffect(() => {
     return () => {
       debouncedSave.cancel();
@@ -153,7 +159,10 @@ export function PlainBody({
       const ok = saveProjectDoc(projectId, ed.getJSON());
       setSaveError(!ok);
     };
-    const onPageHide = () => flushLocal();
+    const onPageHide = () => {
+      flushLocal();
+      flushBeaconRef.current(); // keepalive cloud push; the local write above is the guarantee
+    };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
         flushLocal();

@@ -18,6 +18,11 @@ const ODF_TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
 
 const SCENE_PREFIX = /^(INT|EXT|EST|INT\.?\/EXT|INT\/EXT|I\/E)[.\s]/i;
 const isAllCaps = (t: string): boolean => /[A-Za-z]/.test(t) && t === t.toUpperCase();
+// Terminal transitions that end in a period (no "TO:"), so the heuristic path
+// recognizes them instead of demoting them to action. Mirrors the editor's
+// SmartType transition catalog.
+const TERMINAL_TRANSITION =
+  /^(FADE (IN|OUT)|FADE TO (BLACK|WHITE)|SMASH CUT|MATCH CUT|JUMP CUT|TIME CUT|DISSOLVE|CUT TO BLACK|END(\s+OF\s+\w+)?|THE END)\.?:?\s*$/;
 
 interface Para {
   text: string;
@@ -80,14 +85,17 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
   const out: ScriptLine[] = [];
   let inDialogue = false;
 
-  for (let i = 0; i < paras.length; i++) {
-    const t = paras[i].text.replace(/\s+/g, " ").trim();
-    if (!t) {
-      inDialogue = false;
-      continue;
-    }
+  // Drop empty paragraphs entirely. Office formats are classified by style name
+  // and element adjacency, not by blank-line structure, so a blank paragraph
+  // (common in double-spaced hand-typed scripts) only breaks the cue/dialogue
+  // run and the look-ahead. Removing them makes single- and double-spaced
+  // documents classify identically.
+  const ps = paras.filter((p) => (p.text || "").replace(/\s+/g, " ").trim().length > 0);
 
-    const styled = STYLE_ELEMENT[normStyle(paras[i].style)];
+  for (let i = 0; i < ps.length; i++) {
+    const t = ps[i].text.replace(/\s+/g, " ").trim();
+
+    const styled = STYLE_ELEMENT[normStyle(ps[i].style)];
     if (styled) {
       pushLine(out, styled, t);
       inDialogue = styled === "character" || styled === "parenthetical" || styled === "dialogue";
@@ -105,8 +113,8 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
       inDialogue = true;
       continue;
     }
-    const align = paras[i].align;
-    if (isAllCaps(t) && (/TO:\s*$/.test(t) || align === "right")) {
+    const align = ps[i].align;
+    if (isAllCaps(t) && (/TO:\s*$/.test(t) || align === "right" || TERMINAL_TRANSITION.test(t))) {
       pushLine(out, "transition", t);
       inDialogue = false;
       continue;
@@ -117,7 +125,7 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
     const core = t.replace(/\s*\([^)]*\)\s*$/, "");
     const looksCharacter =
       isAllCaps(core) && core.length > 0 && t.length <= 38 && !/[.!?]$/.test(core);
-    const nextRaw = (paras[i + 1]?.text ?? "").replace(/\s+/g, " ").trim();
+    const nextRaw = (ps[i + 1]?.text ?? "").replace(/\s+/g, " ").trim();
     const nextCore = nextRaw.replace(/\s*\([^)]*\)\s*$/, "");
     const dialogueFollows = nextRaw.length > 0 && !isAllCaps(nextCore);
     if (looksCharacter && (align === "center" || dialogueFollows)) {

@@ -54,6 +54,8 @@ import {
   markCloudCreated,
   isDirty as projIsDirty,
   setDirty as projSetDirty,
+  isTitlePageDirty as projIsTpDirty,
+  setTitlePageDirty as projSetTpDirty,
   getLastSavedAt as projGetLastSavedAt,
   setLastSavedAt as projSetLastSavedAt,
   type ProjectStatus,
@@ -261,6 +263,8 @@ export function ScreenplayBody({
         saveProjectTitlePage(projectId, tp),
       isDirty: () => projIsDirty(projectId),
       setDirty: (b: boolean) => projSetDirty(projectId, b),
+      isTitlePageDirty: () => projIsTpDirty(projectId),
+      setTitlePageDirty: (b: boolean) => projSetTpDirty(projectId, b),
       getLastSavedAt: () => projGetLastSavedAt(projectId),
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
       onCloudCreated: (id: string) => markCloudCreated(id),
@@ -277,11 +281,14 @@ export function ScreenplayBody({
     titlePage,
     setTitlePage,
     flush,
+    flushBeacon,
   } = useCloudSync(editor, user, syncOpts);
 
   // Flush local + cloud on the way out of this project.
   const flushRef = useRef(flush);
   flushRef.current = flush;
+  const flushBeaconRef = useRef(flushBeacon);
+  flushBeaconRef.current = flushBeacon;
   useEffect(() => {
     return () => {
       debouncedSave.cancel();
@@ -305,9 +312,9 @@ export function ScreenplayBody({
     };
     const onPageHide = () => {
       flushLocal();
-      // Best-effort cloud push as the page goes away; the synchronous local
-      // write above is the actual no-loss guarantee.
-      flushRef.current();
+      // keepalive cloud push so the last burst survives tab close; the
+      // synchronous local write above is the actual no-loss guarantee.
+      flushBeaconRef.current();
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -330,9 +337,10 @@ export function ScreenplayBody({
       measure(editor);
       computePageCount(editor.getJSON());
       setSaved(true);
-      // The content was just replaced from the cloud, so any earlier local-save
-      // warning no longer applies. Clear it so a stale "not saved" does not stick.
-      setSaveError(false);
+      // The content was just replaced from the cloud. Re-persist it and reflect
+      // the REAL result: this clears a stale "not saved" after a recovered pull,
+      // but does not hide a genuine storage-full that also affects this write.
+      setSaveError(!saveProjectDoc(projectId, editor.getJSON()));
     }
   }, [pulledTick, editor, measure, debouncedSave, debouncedPageCount, computePageCount]);
 
@@ -803,6 +811,16 @@ export function ScreenplayBody({
         <HistoryPanel
           getVersions={getVersions}
           onRestore={(content, tp) => {
+            // Replacing the live document is destructive; confirm first. A
+            // snapshot of the current doc is taken inside restoreVersion so this
+            // is recoverable either way.
+            if (
+              !window.confirm(
+                "Restore this version? It replaces your current text (a snapshot of the current version is saved first so you can undo)."
+              )
+            ) {
+              return;
+            }
             restoreVersion(content, tp);
             setShowHistory(false);
           }}

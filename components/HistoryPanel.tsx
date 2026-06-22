@@ -61,6 +61,11 @@ export function HistoryPanel({
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
+                {v.title_page && (
+                  <span className="history-tp-tag" title="This version includes a title page">
+                    Title page
+                  </span>
+                )}
               </div>
               <div className="history-preview">{preview}</div>
               <button

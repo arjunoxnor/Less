@@ -41,6 +41,10 @@ export interface CloudSyncOpts {
   saveLocalTitlePage: (tp: TitlePage | null) => void;
   isDirty: () => boolean;
   setDirty: (dirty: boolean) => void;
+  /** Title-page-specific dirty flag (persisted), so a pending title-page edit is
+   *  pushed on reconcile but a merely-stale local title page is not. */
+  isTitlePageDirty: () => boolean;
+  setTitlePageDirty: (dirty: boolean) => void;
   getLastSavedAt: () => string | null;
   setLastSavedAt: (iso: string | null) => void;
   /** Called after this project's cloud row is first created. */
@@ -130,11 +134,13 @@ export function useCloudSync(
         return;
       }
       o.setLastSavedAt(ts);
-      // Only mark clean if neither doc nor title page changed during the round trip.
-      if (
-        JSON.stringify(ed.getJSON()) === snapshotJson &&
-        JSON.stringify(titlePageRef.current) === tpSnapshot
-      ) {
+      const docUnchanged = JSON.stringify(ed.getJSON()) === snapshotJson;
+      const tpUnchanged = JSON.stringify(titlePageRef.current) === tpSnapshot;
+      // The title page we just pushed is now current on the cloud, so clear its
+      // dirty flag if it did not change mid-flight.
+      if (tpUnchanged) o.setTitlePageDirty(false);
+      // Only mark the doc clean if neither doc nor title page changed in-flight.
+      if (docUnchanged && tpUnchanged) {
         o.setDirty(false);
       }
       const now = Date.now();
@@ -182,27 +188,30 @@ export function useCloudSync(
           const typedDuringFetch =
             JSON.stringify(live) !== JSON.stringify(localDoc);
           if (o.isDirty() || typedDuringFetch) {
-            // Push the dirty content, but when the cloud row is newer than our
-            // last save, leave the cloud title page alone (pass undefined) rather
-            // than overwriting a title page edited on another device with our
-            // possibly-stale or empty local one.
+            // Push the dirty content. For the title page, push it only when it
+            // was actually edited locally (tpDirty); otherwise pass undefined so
+            // a newer cloud title page is neither clobbered (audit #17) nor a
+            // genuine local title-page edit silently dropped.
+            const tpDirty = o.isTitlePageDirty();
             const ts = await saveScript(
               projectId,
               live,
               (o.getTitle?.() || "").trim() || o.deriveTitle(live),
-              cloudNewer ? undefined : titlePageRef.current
+              tpDirty ? titlePageRef.current : undefined
             );
             // Keep dirty if the save did not actually land (null = 401/offline),
             // so it retries instead of being lost.
             if (ts) {
               o.setLastSavedAt(ts);
               o.setDirty(false);
+              if (tpDirty) o.setTitlePageDirty(false);
             } else {
               setStatus("error");
             }
           } else if (cloudNewer) {
             pullInto(cloud.content, cloud.title_page ?? null);
             o.setLastSavedAt(cloud.updated_at);
+            o.setTitlePageDirty(false);
           }
         } else {
           // No cloud row yet (a local-only project opened while signed in):
@@ -218,6 +227,7 @@ export function useCloudSync(
             o.setLastSavedAt(row.updated_at);
             o.onCloudCreated?.(projectId);
             o.setDirty(false);
+            o.setTitlePageDirty(false); // the created row carries the title page
           } else {
             setStatus("error");
           }
@@ -282,27 +292,48 @@ export function useCloudSync(
     optsRef.current.saveLocalTitlePage(next);
     setTitlePageState(next);
     optsRef.current.setDirty(true);
+    optsRef.current.setTitlePageDirty(true); // a real local title-page edit
     if (userRef.current) debouncedPush.current();
   }, []);
+
+  // Take an immediate, unthrottled snapshot of the CURRENT (pre-replacement) doc
+  // so a restore or import is always recoverable, regardless of the periodic
+  // snapshot throttle. Best-effort and cloud-backed (needs a signed-in session
+  // and an existing cloud row); the in-editor confirm is the other safety layer.
+  const snapshotLive = useCallback(
+    (label: string) => {
+      const u = userRef.current;
+      const ed = editor;
+      if (!u || !ed) return;
+      createSnapshot(optsRef.current.projectId, u.id, ed.getJSON(), titlePageRef.current, label).catch(
+        (e) => console.error("pre-action snapshot failed", e)
+      );
+    },
+    [editor]
+  );
 
   /** Restore a snapshot's content (and its title page) into the editor. */
   const restoreVersion = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
+      snapshotLive("Before restore");
       pullInto(content, tp);
       optsRef.current.setDirty(true);
+      if (tp !== undefined) optsRef.current.setTitlePageDirty(true);
       void pushNow();
     },
-    [pullInto, pushNow]
+    [pullInto, pushNow, snapshotLive]
   );
 
   /** Load imported content into the editor (same path as a version restore). */
   const importContent = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
+      snapshotLive("Before import");
       pullInto(content, tp);
       optsRef.current.setDirty(true);
+      if (tp !== undefined) optsRef.current.setTitlePageDirty(true);
       void pushNow();
     },
-    [pullInto, pushNow]
+    [pullInto, pushNow, snapshotLive]
   );
 
   /** Flush any pending debounced push now (used on navigating away). */
@@ -310,6 +341,31 @@ export function useCloudSync(
     debouncedPush.current.cancel();
     if (userRef.current && optsRef.current.isDirty()) void pushNow();
   }, [pushNow]);
+
+  /**
+   * Flush on tab close: a small dirty doc is sent with keepalive so the request
+   * survives the page tearing down (a plain fetch is cancelled). Bodies over the
+   * browser's ~64KB keepalive cap fall back to a best-effort normal push.
+   */
+  const flushBeacon = useCallback(() => {
+    debouncedPush.current.cancel();
+    const u = userRef.current;
+    const ed = editor;
+    const o = optsRef.current;
+    if (!u || !ed || !o.isDirty()) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    const doc = ed.getJSON();
+    const tp = titlePageRef.current;
+    const title = (o.getTitle?.() || "").trim() || o.deriveTitle(doc);
+    const approxBytes = JSON.stringify({ content: doc, title, title_page: tp }).length;
+    if (approxBytes < 60000) {
+      void saveScript(o.projectId, doc, title, o.isTitlePageDirty() ? tp : undefined, {
+        keepalive: true,
+      });
+    } else {
+      void pushNow();
+    }
+  }, [editor, pushNow]);
 
   return {
     status,
@@ -320,5 +376,6 @@ export function useCloudSync(
     titlePage,
     setTitlePage,
     flush,
+    flushBeacon,
   };
 }

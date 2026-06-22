@@ -250,7 +250,13 @@ export function createProject(
     // so the very first cloud insert is filed, not loose-then-patched.
     ...(opts?.folderId ? { folderId: opts.folderId, placedAt: ts } : {}),
   };
-  lsSet(docKey(id), JSON.stringify(content));
+  const bodyOk = lsSet(docKey(id), JSON.stringify(content));
+  // If real content was provided (an import) and the body did not persist
+  // (storage full), fail loudly instead of committing a named-but-blank project
+  // to the index. The caller's try/catch surfaces it as a failed import.
+  if (!bodyOk && opts?.content) {
+    throw new Error("Storage is full, so this document could not be saved on this device.");
+  }
   if (opts?.titlePage) saveProjectTitlePage(id, opts.titlePage);
   const list = readIndex();
   list.unshift(meta);
@@ -263,7 +269,10 @@ export function renameProject(id: string, title: string): void {
 }
 
 export function setStatus(id: string, status: ProjectStatus): void {
-  patchMeta(id, { status });
+  // Bump updatedAt so a status change advances the metadata clock. Without this,
+  // an offline status change leaves updatedAt equal to the cloud's, so reconcile
+  // (which is last-write-wins on updatedAt) never pushes it and it never heals.
+  patchMeta(id, { status, updatedAt: nowIso() });
 }
 
 /**
@@ -309,21 +318,9 @@ export function reorderProjects(orderedIds: string[]): void {
   if (changed) writeIndex(list);
 }
 
-/** Move every project out of a folder (used when a folder is deleted). */
-export function unfileFolder(folderId: string): void {
-  const list = readIndex();
-  const ts = nowIso();
-  let changed = false;
-  for (let i = 0; i < list.length; i++) {
-    if (list[i].folderId === folderId) {
-      // Bump updatedAt AND placedAt so the un-file wins last-write-wins on the
-      // next sync instead of bouncing back to the (now deleted) folder.
-      list[i] = { ...list[i], folderId: undefined, updatedAt: ts, placedAt: ts };
-      changed = true;
-    }
-  }
-  if (changed) writeIndex(list);
-}
+// (Removed dead `unfileFolder`: folder deletion reparents each child via
+// setProjectFolder in ProjectsHome.removeFolder, which already bumps the
+// placement clock. The standalone helper had no call sites.)
 
 export function markCloudCreated(id: string, value = true): void {
   patchMeta(id, { cloudCreated: value });
@@ -336,6 +333,7 @@ export function deleteProject(id: string): void {
   lsSet(lockKey(id), null);
   lsSet(breakdownKey(id), null);
   lsSet(dirtyKey(id), null);
+  lsSet(tpDirtyKey(id), null);
   lsSet(lastSavedKey(id), null);
   if (getLastOpenedId() === id) setLastOpenedId(null);
 }
@@ -368,6 +366,15 @@ export const setDirty = (id: string, dirty: boolean) =>
 export const getLastSavedAt = (id: string) => lsGet(lastSavedKey(id));
 export const setLastSavedAt = (id: string, iso: string | null) =>
   lsSet(lastSavedKey(id), iso);
+
+// Title-page-specific dirty flag, separate from the content dirty flag and
+// persisted so it survives a reload. It lets the reconcile distinguish "the
+// local title page is a pending edit that must be pushed" from "the local title
+// page is just stale and must not clobber a newer cloud one".
+const tpDirtyKey = (id: string) => `less:project:${id}:tpDirty`;
+export const isTitlePageDirty = (id: string) => lsGet(tpDirtyKey(id)) === "1";
+export const setTitlePageDirty = (id: string, dirty: boolean) =>
+  lsSet(tpDirtyKey(id), dirty ? "1" : null);
 
 /* --- Tombstones (offline cloud deletes, flushed on reconnect) ------------ */
 

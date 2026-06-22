@@ -7,6 +7,7 @@ import {
   setSession,
   clearSession,
   onAuthChange,
+  api,
 } from "./client";
 
 /**
@@ -71,6 +72,22 @@ export function createSyncCode(): string {
   return code;
 }
 
+/**
+ * Claim another sync code's data into the ALREADY signed-in account (e.g. a
+ * Google user pulling in scripts they made under a code, without signing out).
+ * Uses the current session token; the API moves the code's rows into this
+ * account. Returns false if the code is malformed or the call did not land.
+ */
+export async function claimSyncCode(code: string): Promise<boolean> {
+  const clean = code.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (clean.length < 16) return false;
+  const res = await api<{ ok?: boolean }>("auth/claim", {
+    method: "POST",
+    body: { code: clean },
+  });
+  return res !== null;
+}
+
 export function useAuth() {
   const [user, setUser] = useState<CloudUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,18 +133,23 @@ export async function signInWithGoogle(idToken: string): Promise<{ error?: Error
       } catch {
         /* best effort; reconcile will still pull what is there */
       }
-      try {
-        window.localStorage.removeItem(CODE_KEY);
-      } catch {
-        /* ignore */
-      }
     }
     if (!setSession(data.token, data.user)) {
+      // Keep the sync code on a failed session save so the device is not left
+      // signed out with no way back to its data.
       return {
         error: new Error(
           "Signed in, but your browser would not save the session. Check that storage is allowed and try again."
         ),
       };
+    }
+    // Only now that the session is stored is it safe to drop the sync code.
+    if (code) {
+      try {
+        window.localStorage.removeItem(CODE_KEY);
+      } catch {
+        /* ignore */
+      }
     }
     return {};
   } catch (e) {

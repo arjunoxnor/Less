@@ -19,6 +19,7 @@ import {
 import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
 import { hasTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
+import { claimSyncCode } from "@/lib/cloud/auth";
 
 /**
  * Folder-name field that buffers keystrokes locally and only commits on blur or
@@ -28,9 +29,11 @@ import { IMPORT_ACCEPT } from "@/lib/export";
 function FolderNameInput({
   initial,
   onCommit,
+  onDone,
 }: {
   initial: string;
   onCommit: (name: string) => void;
+  onDone: () => void;
 }) {
   const [val, setVal] = useState(initial);
   const commit = () => onCommit(val.trim() || "Untitled folder");
@@ -44,7 +47,7 @@ function FolderNameInput({
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           commit();
-          (e.target as HTMLInputElement).blur();
+          onDone(); // Enter commits AND closes the editor (restores prior behavior)
         }
       }}
       aria-label="Folder name"
@@ -268,6 +271,31 @@ export function ProjectsHome({
     } finally {
       setImporting(false);
       if (importInputRef.current) importInputRef.current.value = "";
+    }
+  };
+
+  // Pull another sync code's data into the already signed-in account.
+  const [showCodeImport, setShowCodeImport] = useState(false);
+  const [codeEntry, setCodeEntry] = useState("");
+  const [codeMsg, setCodeMsg] = useState<string | null>(null);
+  const [codeBusy, setCodeBusy] = useState(false);
+  const importCode = async () => {
+    setCodeBusy(true);
+    setCodeMsg(null);
+    try {
+      const ok = await claimSyncCode(codeEntry);
+      if (!ok) {
+        setCodeMsg("That code did not work. Paste the full code from your other device.");
+        return;
+      }
+      await onSyncNow();
+      setCodeEntry("");
+      setShowCodeImport(false);
+      setCodeMsg("Imported. Your other work is now in this account.");
+    } catch {
+      setCodeMsg("Could not import that code.");
+    } finally {
+      setCodeBusy(false);
     }
   };
 
@@ -606,6 +634,7 @@ export function ProjectsHome({
             <FolderNameInput
               initial={f.name}
               onCommit={(name) => onUpdateFolder(f.id, { name })}
+              onDone={() => closeEdit(f.id)}
             />
             <div className="folder-swatches" role="group" aria-label="Folder color">
               {FOLDER_COLORS.map((c) => (
@@ -697,9 +726,50 @@ export function ProjectsHome({
               <span className="account-email" title={user.email ?? ""}>
                 {user.email}
               </span>
+              {showCodeImport ? (
+                <>
+                  <input
+                    type="text"
+                    className="account-code-input"
+                    value={codeEntry}
+                    onChange={(e) => setCodeEntry(e.target.value)}
+                    placeholder="Paste a sync code"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <button
+                    type="button"
+                    className="tb-btn"
+                    onClick={() => void importCode()}
+                    disabled={codeBusy}
+                  >
+                    {codeBusy ? "Importing" : "Apply"}
+                  </button>
+                  <button
+                    type="button"
+                    className="tb-btn"
+                    onClick={() => {
+                      setShowCodeImport(false);
+                      setCodeMsg(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="tb-btn"
+                  onClick={() => setShowCodeImport(true)}
+                  title="Pull in work saved under a sync code"
+                >
+                  Import a code
+                </button>
+              )}
               <button type="button" className="tb-btn" onClick={onSignOut}>
                 Sign out
               </button>
+              {codeMsg && <span className="account-code-msg">{codeMsg}</span>}
             </div>
           ) : (
             <button type="button" className="tb-btn" onClick={onSignIn} title="Sync across devices">
