@@ -71,7 +71,8 @@ import {
   type ImportFormat,
 } from "@/lib/export";
 import { EditorChrome } from "./EditorChrome";
-import { PageBreaks } from "./PageBreaks";
+import { PageBackdrop } from "./PageBackdrop";
+import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
 import { ScreenplayToolbar } from "./ScreenplayToolbar";
 import { StatusBar } from "./StatusBar";
 import { AuthModal } from "./AuthModal";
@@ -185,9 +186,10 @@ export function ScreenplayBody({
     [computePageCount]
   );
 
+  const [pages, setPages] = useState(1);
   const extensions = useMemo(
-    () =>
-      buildExtensions({
+    () => [
+      ...buildExtensions({
         getOutline: () => outlineRef.current,
         onAutocompleteState: setAcState,
         getSpeller,
@@ -198,6 +200,8 @@ export function ScreenplayBody({
         getBreakdownItems: () => breakdownItemsRef.current,
         isBreakdownEnabled: () => breakdownEnabledRef.current,
       }),
+      Pagination.configure({ onPages: setPages }),
+    ],
     []
   );
 
@@ -785,9 +789,12 @@ export function ScreenplayBody({
 
       <div className="page-scroll">
         <div className="page-wrap">
-          <div className="page-host page-host-sp">
+          <div
+            className="page-host page-host-sp"
+            style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
+          >
+            <PageBackdrop pages={pages} />
             <EditorContent editor={editor} className="sp-editor" />
-            <PageBreaks editor={editor} topOffset={96} pageHeight={864} />
           </div>
         </div>
       </div>

@@ -27,7 +27,8 @@ import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { EditorChrome } from "./EditorChrome";
 import { PlainToolbar } from "./PlainToolbar";
-import { PageBreaks } from "./PageBreaks";
+import { PageBackdrop } from "./PageBackdrop";
+import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
 import { AuthModal } from "./AuthModal";
 import { HistoryPanel } from "./HistoryPanel";
 
@@ -86,7 +87,11 @@ export function PlainBody({
     setChars(text.length);
   }, []);
 
-  const extensions = useMemo(() => buildPlainExtensions(), []);
+  const [pages, setPages] = useState(1);
+  const extensions = useMemo(
+    () => [...buildPlainExtensions(), Pagination.configure({ onPages: setPages })],
+    []
+  );
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -233,9 +238,12 @@ export function PlainBody({
 
       <div className="page-scroll">
         <div className="page-wrap">
-          <div className="page-host page-host-pl">
+          <div
+            className="page-host page-host-pl"
+            style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
+          >
+            <PageBackdrop pages={pages} />
             <EditorContent editor={editor} className="pl-doc" />
-            <PageBreaks editor={editor} topOffset={96} pageHeight={864} />
           </div>
         </div>
       </div>

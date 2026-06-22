@@ -243,43 +243,53 @@ body {
   justify-content: center;
 }
 
-/* ---- Page-break markers drawn over the editor page ---------------------- */
+/* ---- Paginated page sheets (the Google-Docs look) ----------------------- */
 
-/* Relative host so the break overlay can be positioned against the page. The
-   screenplay host is sized to its 8.5in content (centered by page-wrap); the
-   plain host is full width and centers the page itself. */
+/* Relative host. The screenplay host is sized to its 8.5in content (centered by
+   page-wrap); the plain host is full width and centers the page itself. The
+   white sheets are drawn behind; the editor text sits on top (transparent), and
+   the pagination plugin's spacers keep the inter-page gaps empty. */
 .page-host {
   position: relative;
 }
 .page-host-pl {
   width: 100%;
 }
-.page-breaks {
+.page-backdrop {
   position: absolute;
   inset: 0;
+  z-index: 0;
   pointer-events: none;
-  z-index: 3;
 }
-.page-break {
+.page-sheet {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   width: 8.5in;
   max-width: 100%;
-  border-top: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--page-bg);
+  border-radius: 2px;
+  box-shadow: 0 0 80px -45px var(--accent-glow), var(--shadow);
 }
-.page-break-label {
+.page-sheet-num {
   position: absolute;
-  right: 8px;
-  top: -10px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  bottom: 0.45in;
+  right: 0.55in;
+  font-size: 11px;
   color: var(--muted);
-  background: var(--bg);
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  opacity: 0.4;
+  font-variant-numeric: tabular-nums;
+}
+/* The editor text overlays the sheets. */
+.page-host .sp-editor,
+.page-host .pl-doc {
+  position: relative;
+  z-index: 1;
+}
+/* The transparent spacer the pagination plugin inserts at each page boundary. */
+.pm-page-gap {
+  pointer-events: none;
+  user-select: none;
 }
 
 /* ---- Status bar -------------------------------------------------------- */
@@ -360,9 +370,8 @@ body {
   min-height: 11in;
   margin: 0 auto;
   padding: 1in 1in 1in 1.5in;
-  background: var(--page-bg);
+  background: transparent; /* the page sheet behind provides the white page */
   color: var(--page-fg);
-  box-shadow: 0 0 100px -30px var(--accent-glow), var(--shadow);
   font-family: var(--sp-font);
   font-size: 12pt;
   line-height: 16px; /* 6 lines per inch */
@@ -2050,14 +2059,13 @@ body {
   justify-content: center;
 }
 .pl-prose {
-  /* A real US-Letter page (8.5x11in) with 1in margins, like a document editor. */
+  /* A real US-Letter page (8.5x11in) with 1in margins, like a document editor.
+     The white page sheet behind it (PageBackdrop) provides the background. */
   width: 8.5in;
   max-width: 100%;
   min-height: 11in;
-  background: var(--page-bg);
+  background: transparent;
   color: var(--page-fg);
-  box-shadow: 0 0 100px -30px var(--accent-glow), var(--shadow);
-  border-radius: 2px;
   padding: 1in;
   font-family: var(--doc-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   font-size: var(--doc-font-size, 16px);
