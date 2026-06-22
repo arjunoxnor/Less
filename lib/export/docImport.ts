@@ -23,6 +23,10 @@ const isAllCaps = (t: string): boolean => /[A-Za-z]/.test(t) && t === t.toUpperC
 // SmartType transition catalog.
 const TERMINAL_TRANSITION =
   /^(FADE (IN|OUT)|FADE TO (BLACK|WHITE)|SMASH CUT|MATCH CUT|JUMP CUT|TIME CUT|DISSOLVE|CUT TO BLACK|END(\s+OF\s+(ACT|SCENE|EPISODE|PART|CHAPTER|SEQUENCE|TEASER|SHOW|PILOT|SEASON)(\s+\S+){0,3})?|THE END)\s*\.?:?\s*$/;
+// All-caps lines that are camera/shot directions, not character cues. Anchored
+// at the line start so a name like "ANGIE" (not "ANGLE ") is unaffected.
+const NON_CUE_PREFIX =
+  /^(ANGLE|CLOSE|WIDE|EXTREME|TIGHT|MEDIUM|LONG SHOT|FULL SHOT|TWO SHOT|POV|P\.O\.V|INSERT|PAN|TILT|ZOOM|DOLLY|CRANE|TRACKING|AERIAL|ESTABLISHING|BACK TO|INTERCUT|MONTAGE|SERIES OF|SUPER|SUBTITLE|REVERSE)\b/;
 
 interface Para {
   text: string;
@@ -143,7 +147,12 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
     // (its dialogue). All-caps lines with no following dialogue stay as action.
     const core = t.replace(/\s*\([^)]*\)\s*$/, "");
     const looksCharacter =
-      isAllCaps(core) && core.length > 0 && t.length <= 38 && !/[.!?]$/.test(core);
+      isAllCaps(core) &&
+      core.length > 0 &&
+      t.length <= 38 &&
+      !/[.!?]$/.test(core) &&
+      // Exclude camera/shot directions, which are all-caps but never cues.
+      !NON_CUE_PREFIX.test(core);
     const nextRaw = nextNonEmpty(i);
     const nextCore = nextRaw.replace(/\s*\([^)]*\)\s*$/, "");
     // A cue is "followed by dialogue" when the next line is non-caps prose OR a

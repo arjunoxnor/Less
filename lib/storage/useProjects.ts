@@ -457,10 +457,17 @@ export function useProjects(user: User | null) {
           const statusDirty = isStatusDirty(c.id);
           const titleDirty = isTitleDirty(c.id);
 
-          // Title: a locally-renamed (title-dirty) project pushes its title up
-          // (the self-heal for a dashboard rename made offline/signed out, which
-          // has no open editor to carry it); otherwise adopt a newer cloud title.
-          if (titleDirty) {
+          // Title (last-write-wins, with a dirty flag to know we have a pending
+          // local rename): if the cloud row is strictly newer, a remote rename
+          // happened after ours, so adopt it and drop our pending push (never
+          // clobber a newer remote rename). Otherwise push our local rename up.
+          // This is the self-heal for a dashboard rename made offline/signed out
+          // (no open editor to carry the title), without the shared clock ever
+          // letting a stale title win.
+          if (titleDirty && cloudNewer && c.title && c.title !== lm.title) {
+            patchProjectMeta(c.id, { title: c.title, titleManual: true, updatedAt: c.updated_at });
+            setTitleDirty(c.id, false);
+          } else if (titleDirty) {
             if (lm.title && lm.title !== c.title) {
               try {
                 if ((await setScriptTitle(c.id, lm.title)) === null) failures++;
@@ -480,9 +487,12 @@ export function useProjects(user: User | null) {
             });
           }
 
-          // Status: a locally-dirty status is the user's pending intent and is
-          // pushed (below); otherwise adopt the cloud status when it differs.
-          if (statusDirty) {
+          // Status (same shape): a newer remote status supersedes our pending
+          // local one; otherwise push the local status; otherwise adopt cloud.
+          if (statusDirty && cloudNewer && c.status && c.status !== lm.status) {
+            patchProjectMeta(c.id, { status: c.status });
+            setStatusDirty(c.id, false);
+          } else if (statusDirty) {
             if (lm.status && lm.status !== c.status) {
               try {
                 if ((await setScriptStatus(c.id, lm.status)) === null) failures++;
