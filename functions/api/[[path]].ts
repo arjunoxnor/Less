@@ -278,7 +278,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         if (method === "GET") {
           const r = await db
             .prepare(
-              "SELECT id,title,type,status,updated_at,created_at,placed_at,folder_id,position FROM scripts WHERE user_id=? ORDER BY updated_at DESC"
+              "SELECT id,title,type,status,updated_at,created_at,placed_at,title_at,status_at,folder_id,position FROM scripts WHERE user_id=? ORDER BY updated_at DESC"
             )
             .bind(uid)
             .all();
@@ -290,8 +290,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
           const now = new Date().toISOString();
           await db
             .prepare(
-              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(user_id,id) DO UPDATE SET
                  type=excluded.type, title=excluded.title, status=excluded.status,
                  content=excluded.content, title_page=excluded.title_page, updated_at=excluded.updated_at`
@@ -308,7 +308,9 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               b.position ?? null,
               now,
               now,
-              b.placed_at ?? now
+              b.placed_at ?? now,
+              now,
+              now
             )
             .run();
           return json({
@@ -393,6 +395,16 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             // clock so a content save can never out-rank a real move on sync.
             if ("folder_id" in b || "position" in b) {
               sets.push("placed_at=?");
+              vals.push(now);
+            }
+            // Title and status each have their own clock too, so a change to one
+            // field never makes a stale value of another field look "newer".
+            if ("title" in b) {
+              sets.push("title_at=?");
+              vals.push(now);
+            }
+            if ("status" in b) {
+              sets.push("status_at=?");
               vals.push(now);
             }
             vals.push(uid, id);

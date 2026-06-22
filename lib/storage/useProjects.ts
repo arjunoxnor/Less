@@ -175,7 +175,10 @@ export function useProjects(user: User | null) {
         // could push a stale local body over newer cloud content.
         setScriptTitle(id, title.trim() || "Untitled")
           .then((ts) => {
-            if (ts) setTitleDirty(id, false); // landed; no reconcile push needed
+            if (ts) {
+              patchProjectMeta(id, { titleAt: ts }); // align local clock to cloud
+              setTitleDirty(id, false); // landed; no reconcile push needed
+            }
           })
           .catch((e) => console.error("cloud rename failed", e));
       }
@@ -192,7 +195,10 @@ export function useProjects(user: User | null) {
       if (meta?.cloudCreated && user && online()) {
         setScriptStatus(id, status)
           .then((ts) => {
-            if (ts) setStatusDirty(id, false); // landed; no reconcile push needed
+            if (ts) {
+              patchProjectMeta(id, { statusAt: ts }); // align local clock to cloud
+              setStatusDirty(id, false); // landed; no reconcile push needed
+            }
           })
           .catch((e) => console.error("cloud status update failed", e));
       }
@@ -440,38 +446,45 @@ export function useProjects(user: User | null) {
               folderId: c.folder_id ?? undefined,
               order: c.position ?? undefined,
               placedAt: c.placed_at ?? c.updated_at,
+              titleAt: c.title_at ?? c.updated_at,
+              statusAt: c.status_at ?? c.updated_at,
             });
           }
         }
 
-        // Title + status converge across devices. Title is last-write-wins on
-        // the shared updated_at clock (a rename bumps it, and the body sync also
-        // carries the title up). Status uses a dedicated status-dirty flag rather
-        // than the shared clock, so a status change can never out-rank/clobber a
-        // title or placement, and an offline status change still self-heals.
+        // Title + status converge by last-write-wins on their OWN dedicated
+        // clocks (title_at / status_at), so a change to one field can never make
+        // a stale value of another field look "newer" (the shared updated_at is
+        // bumped by every PATCH). The dirty flag means "we have a local edit to
+        // push"; the clock decides who wins on a genuine conflict.
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;
-          const cloudNewer =
-            new Date(c.updated_at).getTime() > new Date(lm.updatedAt).getTime();
           const statusDirty = isStatusDirty(c.id);
           const titleDirty = isTitleDirty(c.id);
+          const cloudTitleNewer =
+            new Date(c.title_at ?? c.updated_at).getTime() >
+            new Date(lm.titleAt ?? lm.updatedAt).getTime();
+          const cloudStatusNewer =
+            new Date(c.status_at ?? c.updated_at).getTime() >
+            new Date(lm.statusAt ?? lm.updatedAt).getTime();
 
-          // Title (last-write-wins, with a dirty flag to know we have a pending
-          // local rename): if the cloud row is strictly newer, a remote rename
-          // happened after ours, so adopt it and drop our pending push (never
-          // clobber a newer remote rename). Otherwise push our local rename up.
-          // This is the self-heal for a dashboard rename made offline/signed out
-          // (no open editor to carry the title), without the shared clock ever
-          // letting a stale title win.
-          if (titleDirty && cloudNewer && c.title && c.title !== lm.title) {
-            patchProjectMeta(c.id, { title: c.title, titleManual: true, updatedAt: c.updated_at });
+          // Title: a strictly-newer cloud title (by title_at) supersedes a pending
+          // local rename; otherwise push the local rename (self-heal for an
+          // offline/signed-out dashboard rename); otherwise adopt a newer cloud
+          // title. Never let a non-title PATCH's clock bump clobber a rename.
+          if (titleDirty && cloudTitleNewer && c.title && c.title !== lm.title) {
+            patchProjectMeta(c.id, { title: c.title, titleManual: true, titleAt: c.title_at ?? c.updated_at });
             setTitleDirty(c.id, false);
           } else if (titleDirty) {
             if (lm.title && lm.title !== c.title) {
               try {
-                if ((await setScriptTitle(c.id, lm.title)) === null) failures++;
-                else setTitleDirty(c.id, false);
+                const ts = await setScriptTitle(c.id, lm.title);
+                if (ts === null) failures++;
+                else {
+                  patchProjectMeta(c.id, { titleAt: ts });
+                  setTitleDirty(c.id, false);
+                }
               } catch (e) {
                 console.error("title push failed", e);
                 failures++;
@@ -479,24 +492,27 @@ export function useProjects(user: User | null) {
             } else {
               setTitleDirty(c.id, false); // already matches the cloud
             }
-          } else if (cloudNewer && c.title && c.title !== lm.title) {
+          } else if (cloudTitleNewer && c.title && c.title !== lm.title) {
             patchProjectMeta(c.id, {
               title: c.title,
               titleManual: true,
-              updatedAt: c.updated_at,
+              titleAt: c.title_at ?? c.updated_at,
             });
           }
 
-          // Status (same shape): a newer remote status supersedes our pending
-          // local one; otherwise push the local status; otherwise adopt cloud.
-          if (statusDirty && cloudNewer && c.status && c.status !== lm.status) {
-            patchProjectMeta(c.id, { status: c.status });
+          // Status: same shape, on status_at.
+          if (statusDirty && cloudStatusNewer && c.status && c.status !== lm.status) {
+            patchProjectMeta(c.id, { status: c.status, statusAt: c.status_at ?? c.updated_at });
             setStatusDirty(c.id, false);
           } else if (statusDirty) {
             if (lm.status && lm.status !== c.status) {
               try {
-                if ((await setScriptStatus(c.id, lm.status)) === null) failures++;
-                else setStatusDirty(c.id, false);
+                const ts = await setScriptStatus(c.id, lm.status);
+                if (ts === null) failures++;
+                else {
+                  patchProjectMeta(c.id, { statusAt: ts });
+                  setStatusDirty(c.id, false);
+                }
               } catch (e) {
                 console.error("status push failed", e);
                 failures++;
@@ -504,8 +520,8 @@ export function useProjects(user: User | null) {
             } else {
               setStatusDirty(c.id, false); // already matches the cloud
             }
-          } else if (c.status && c.status !== lm.status) {
-            patchProjectMeta(c.id, { status: c.status });
+          } else if (cloudStatusNewer && c.status && c.status !== lm.status) {
+            patchProjectMeta(c.id, { status: c.status, statusAt: c.status_at ?? c.updated_at });
           }
         }
 

@@ -39,6 +39,11 @@ export interface ProjectMeta {
   /** When the placement (folder/position) last changed. Synced separately from
    *  updatedAt so a content save can never out-rank a real folder move. */
   placedAt?: string;
+  /** When the title last changed locally. Its own clock so an unrelated remote
+   *  status/folder change can never make a stale cloud title out-rank a rename. */
+  titleAt?: string;
+  /** When the status last changed locally (own clock, same reason as titleAt). */
+  statusAt?: string;
 }
 
 /** A full project: metadata plus its body. */
@@ -265,16 +270,16 @@ export function createProject(
 }
 
 export function renameProject(id: string, title: string): void {
-  patchMeta(id, { title: title.trim() || "Untitled", titleManual: true, updatedAt: nowIso() });
+  const ts = nowIso();
+  patchMeta(id, { title: title.trim() || "Untitled", titleManual: true, updatedAt: ts, titleAt: ts });
   setTitleDirty(id, true);
 }
 
 export function setStatus(id: string, status: ProjectStatus): void {
-  // Do NOT bump updatedAt here: status, title, and placement share that single
-  // clock, so advancing it on a status change would let a stale local title or
-  // placement out-rank (and clobber) a newer cloud one. Instead mark a dedicated
-  // status-dirty flag so reconcile can push the status without the shared clock.
-  patchMeta(id, { status });
+  // Do NOT bump updatedAt here (it would let a stale local title/placement
+  // out-rank a newer cloud one). Stamp the dedicated status clock instead, and
+  // mark status-dirty so reconcile pushes it.
+  patchMeta(id, { status, statusAt: nowIso() });
   setStatusDirty(id, true);
 }
 

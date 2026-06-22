@@ -23,10 +23,13 @@ const isAllCaps = (t: string): boolean => /[A-Za-z]/.test(t) && t === t.toUpperC
 // SmartType transition catalog.
 const TERMINAL_TRANSITION =
   /^(FADE (IN|OUT)|FADE TO (BLACK|WHITE)|SMASH CUT|MATCH CUT|JUMP CUT|TIME CUT|DISSOLVE|CUT TO BLACK|END(\s+OF\s+(ACT|SCENE|EPISODE|PART|CHAPTER|SEQUENCE|TEASER|SHOW|PILOT|SEASON)(\s+\S+){0,3})?|THE END)\s*\.?:?\s*$/;
-// All-caps lines that are camera/shot directions, not character cues. Anchored
-// at the line start so a name like "ANGIE" (not "ANGLE ") is unaffected.
+// All-caps lines that are camera/shot directions, not character cues. Two groups:
+//   - unambiguous shot words that are never names (match bare or with a target)
+//   - words that are ALSO plausible character names (DOLLY, CRANE, PAN, CLOSE,
+//     WIDE, SUPER...): only treat as a shot when a target token follows, so a
+//     bare "DOLLY"/"CRANE" cue is preserved.
 const NON_CUE_PREFIX =
-  /^(ANGLE|CLOSE|WIDE|EXTREME|TIGHT|MEDIUM|LONG SHOT|FULL SHOT|TWO SHOT|POV|P\.O\.V|INSERT|PAN|TILT|ZOOM|DOLLY|CRANE|TRACKING|AERIAL|ESTABLISHING|BACK TO|INTERCUT|MONTAGE|SERIES OF|SUPER|SUBTITLE|REVERSE)\b/;
+  /^(ANGLE|INSERT|INTERCUT|MONTAGE|ESTABLISHING|AERIAL|TRACKING|POV|P\.O\.V|SUBTITLE|SERIES OF|BACK TO)\b|^(CLOSE|WIDE|EXTREME|TIGHT|MEDIUM|LONG|FULL|TWO|PAN|TILT|ZOOM|DOLLY|CRANE|SUPER|REVERSE)\b\s+\S/;
 
 interface Para {
   text: string;

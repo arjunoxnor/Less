@@ -29,6 +29,8 @@ export interface ScriptSummary {
   updated_at: string;
   created_at: string | null;
   placed_at: string | null;
+  title_at: string | null;
+  status_at: string | null;
   folder_id: string | null;
   position: number | null;
 }
