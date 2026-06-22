@@ -1399,6 +1399,18 @@ body {
   font-weight: 700;
   margin: 22px 0 10px;
 }
+.home-import-msg {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  font-size: 13px;
+  color: var(--toolbar-fg);
+}
 .chip-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));

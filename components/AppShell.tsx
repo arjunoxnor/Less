@@ -15,12 +15,26 @@ import {
   getProjectMeta,
   setLastOpenedId,
   type ProjectType,
+  type ProjectStatus,
 } from "@/lib/storage/projects";
 import { ProjectsHome } from "./ProjectsHome";
 import { EditorHost } from "./EditorHost";
 import { AuthModal } from "./AuthModal";
+import { importFile } from "@/lib/export";
+import type { Stage } from "@/lib/storage/folders";
 
 type View = { kind: "home" } | { kind: "editor"; id: string };
+
+/**
+ * Optional sidecar that tells a bulk import how to lay the files out: which
+ * folders to make (with colour + stage) and where each file goes. Any selected
+ * file the manifest does not mention still imports as a loose project.
+ */
+type ImportManifest = {
+  folders?: { key: string; name: string; color: string; stage: Stage; parentKey?: string }[];
+  files?: Record<string, { folderKey?: string; status?: ProjectStatus; title?: string }>;
+  order?: string[];
+};
 
 function parseHash(): string | null {
   if (typeof window === "undefined") return null;
@@ -145,6 +159,75 @@ export function AppShell() {
     [create, setFolder, openProject]
   );
 
+  // Bulk-import screenplays (Final Draft .fdx / Fountain) into the account,
+  // staying on the home screen. One project per file; an optional .json
+  // manifest in the selection lays them out into coloured folders. Each create
+  // syncs to Supabase exactly like a hand-made project, so an import done while
+  // signed in lands on every device.
+  const importScreenplays = useCallback(
+    async (files: File[]): Promise<{ imported: number; failed: string[] }> => {
+      const manifestFile = files.find((f) => f.name.toLowerCase().endsWith(".json"));
+      let manifest: ImportManifest | null = null;
+      if (manifestFile) {
+        try {
+          manifest = JSON.parse(await manifestFile.text());
+        } catch {
+          manifest = null;
+        }
+      }
+
+      const folderIdByKey: Record<string, string> = {};
+      for (const def of manifest?.folders ?? []) {
+        const parentId = def.parentKey ? folderIdByKey[def.parentKey] : undefined;
+        const folder = createFolder(parentId);
+        updateFolder(folder.id, { name: def.name, color: def.color, stage: def.stage });
+        folderIdByKey[def.key] = folder.id;
+      }
+
+      const placement = manifest?.files ?? {};
+      const order = manifest?.order;
+      const scriptFiles = files
+        .filter((f) => !f.name.toLowerCase().endsWith(".json"))
+        .sort((a, b) => {
+          if (!order) return 0;
+          const ia = order.indexOf(a.name);
+          const ib = order.indexOf(b.name);
+          return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
+        });
+
+      const failed: string[] = [];
+      let imported = 0;
+      for (const file of scriptFiles) {
+        try {
+          const { doc, titlePage } = await importFile(file);
+          const info = placement[file.name] ?? {};
+          const fallback = file.name.replace(/\.(fdx|fountain|txt|xml|spmd)$/i, "");
+          const meta = create("screenplay", info.title || titlePage?.title || fallback, {
+            content: doc,
+            titlePage,
+          });
+          if (info.status) setStatus(meta.id, info.status);
+          const folderId = info.folderKey ? folderIdByKey[info.folderKey] : undefined;
+          if (folderId) setFolder(meta.id, folderId);
+          imported++;
+        } catch (e) {
+          console.error("import failed for", file.name, e);
+          failed.push(file.name);
+        }
+      }
+      refresh();
+      return { imported, failed };
+    },
+    [create, createFolder, updateFolder, setFolder, setStatus, refresh]
+  );
+
+  // Dev hook so a bulk import can be driven/tested without a file picker.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __lessImportFiles?: typeof importScreenplays }).__lessImportFiles =
+      importScreenplays;
+  }, [importScreenplays]);
+
   const current =
     view.kind === "editor"
       ? projects.find((p) => p.id === view.id) ?? getProjectMeta(view.id)
@@ -195,6 +278,7 @@ export function AppShell() {
         onDeleteFolder={deleteFolder}
         onReorderFolders={reorderFolders}
         onToggleFolder={toggleFolder}
+        onImportScreenplays={importScreenplays}
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOut()}
       />

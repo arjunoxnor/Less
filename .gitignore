@@ -37,3 +37,5 @@ COMMIT_MSG.txt
 
 # vercel
 .vercel
+_import/
+public/_test_import.json

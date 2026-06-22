@@ -136,6 +136,7 @@ export function ProjectsHome({
   onDeleteFolder,
   onReorderFolders,
   onToggleFolder,
+  onImportScreenplays,
   onSignIn,
   onSignOut,
 }: {
@@ -170,6 +171,7 @@ export function ProjectsHome({
   onDeleteFolder: (id: string) => void;
   onReorderFolders: (orderedIds: string[]) => void;
   onToggleFolder: (id: string) => void;
+  onImportScreenplays: (files: File[]) => Promise<{ imported: number; failed: string[] }>;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -196,6 +198,29 @@ export function ProjectsHome({
       return n;
     });
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Bulk screenplay import (file picker + transient result line).
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const runImport = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const { imported, failed } = await onImportScreenplays(Array.from(fileList));
+      setImportMsg(
+        `Imported ${imported} script${imported === 1 ? "" : "s"}` +
+          (failed.length ? `, ${failed.length} could not be read` : "") +
+          "."
+      );
+    } catch {
+      setImportMsg("Import failed.");
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  };
 
   const dragKind = useRef<null | "project" | "folder">(null);
   const dragId = useRef<string | null>(null);
@@ -632,6 +657,23 @@ export function ProjectsHome({
             {prefs.theme === "system" ? "System" : prefs.theme === "dark" ? "Dark" : "Light"}
           </button>
         </div>
+        <input
+          ref={importInputRef}
+          type="file"
+          multiple
+          accept=".fdx,.fountain,.txt,.xml,.spmd,.json"
+          style={{ display: "none" }}
+          onChange={(e) => runImport(e.target.files)}
+        />
+        <button
+          type="button"
+          className="tb-btn"
+          onClick={() => importInputRef.current?.click()}
+          disabled={importing}
+          title="Import Final Draft (.fdx) or Fountain screenplays"
+        >
+          {importing ? "Importing" : "Import"}
+        </button>
         <button type="button" className="tb-btn" onClick={() => addFolder()} title="Create a folder">
           New folder
         </button>
@@ -639,6 +681,14 @@ export function ProjectsHome({
           New project
         </button>
       </div>
+      {importMsg && (
+        <div className="home-import-msg">
+          <span>{importMsg}</span>
+          <button type="button" className="chip-act" onClick={() => setImportMsg(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div
         className={"home-body" + (dropHi === "root" ? " root-drop" : "")}
