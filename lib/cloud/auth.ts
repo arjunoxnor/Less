@@ -7,6 +7,7 @@ import {
   setSession,
   clearSession,
   onAuthChange,
+  api,
 } from "./client";
 
 /**
@@ -94,6 +95,21 @@ export async function signInWithGoogle(idToken: string): Promise<{ error?: Error
     }
     const data = (await res.json()) as { token: string; user: CloudUser };
     setSession(data.token, data.user);
+    // If this device had a sync code, move that data into the Google account so
+    // nothing is left stranded under the old identity.
+    const code = getSyncCode();
+    if (code) {
+      try {
+        await api("auth/claim", { method: "POST", body: { code } });
+      } catch {
+        /* best effort; reconcile will still pull what is there */
+      }
+      try {
+        window.localStorage.removeItem(CODE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
     return {};
   } catch (e) {
     return { error: e instanceof Error ? e : new Error("Sign-in failed") };

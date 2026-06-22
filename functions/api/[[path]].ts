@@ -178,6 +178,34 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
     if (!user) return fail("Not signed in", 401);
     const uid = user.id;
 
+    // Claim a sync code's data into the signed-in account (used when switching
+    // from a sync code to Google sign-in). Moves rows whose id the destination
+    // does not already own, so it is safe to run more than once.
+    if (method === "POST" && path === "auth/claim") {
+      const b = (await request.json().catch(() => ({}))) as { code?: string };
+      const code = (b.code || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      if (code.length < 16) return fail("Invalid code", 400);
+      const srcId = "c_" + (await sha256hex(code)).slice(0, 40);
+      if (srcId === uid) return json({ ok: true, moved: 0 });
+      await db
+        .prepare(
+          "UPDATE scripts SET user_id=? WHERE user_id=? AND id NOT IN (SELECT id FROM scripts WHERE user_id=?)"
+        )
+        .bind(uid, srcId, uid)
+        .run();
+      await db
+        .prepare(
+          "UPDATE folders SET user_id=? WHERE user_id=? AND id NOT IN (SELECT id FROM folders WHERE user_id=?)"
+        )
+        .bind(uid, srcId, uid)
+        .run();
+      await db
+        .prepare("UPDATE script_versions SET user_id=? WHERE user_id=?")
+        .bind(uid, srcId)
+        .run();
+      return json({ ok: true });
+    }
+
     /* ---- folders ---- */
     if (seg[0] === "folders") {
       if (method === "GET" && seg.length === 1) {

@@ -548,6 +548,12 @@ body {
   word-break: break-all;
   color: var(--toolbar-fg);
 }
+.google-btn-host {
+  display: flex;
+  justify-content: center;
+  min-height: 40px;
+  margin: 4px 0 2px;
+}
 .modal-divider {
   display: flex;
   align-items: center;
