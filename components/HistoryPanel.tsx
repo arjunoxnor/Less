@@ -66,6 +66,11 @@ export function HistoryPanel({
               <button
                 type="button"
                 className="history-restore"
+                title={
+                  v.title_page
+                    ? "Restore this version's text and its title page"
+                    : "Restore this version's text"
+                }
                 onClick={() => onRestore(v.content, v.title_page ?? undefined)}
               >
                 Restore

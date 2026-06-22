@@ -36,6 +36,10 @@ export function computeContinuations(
       if (base) {
         if (base === prevSpeaker && !HAS_CONTD.test(lines[i].text)) flags[i] = true;
         prevSpeaker = base;
+      } else {
+        // An empty or extension-only cue ("(V.O.)" with no name) is still a new
+        // cue, so it breaks the run: the next same-name cue is not a CONT'D.
+        prevSpeaker = null;
       }
     }
     // action / parenthetical / dialogue keep the current speaker.

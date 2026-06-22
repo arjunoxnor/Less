@@ -7,6 +7,7 @@ import {
   formatSyncCode,
   signInWithGoogle,
 } from "@/lib/cloud/auth";
+import { listScripts } from "@/lib/cloud/scripts";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
@@ -82,12 +83,30 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
       () => setCopied(false)
     );
   };
-  const link = () => {
+  const [linking, setLinking] = useState(false);
+  const link = async () => {
     setError(null);
     if (!adoptSyncCode(entry)) {
       setError("That code looks too short. Paste the full code from your other device.");
       return;
     }
+    setLinking(true);
+    try {
+      // A code is just an identity, so a typo links to a valid-but-empty account.
+      // Peek at the cloud: if there is nothing there, keep the modal open with a
+      // hint instead of dropping the writer into a blank workspace.
+      const scripts = await listScripts();
+      if (scripts.length === 0) {
+        setLinking(false);
+        setError(
+          "Linked, but this code has no scripts in the cloud yet. If you expected your work here, double-check the code. Otherwise you can keep going."
+        );
+        return;
+      }
+    } catch {
+      /* network issue: fall through and let reconcile handle it */
+    }
+    setLinking(false);
     onClose();
   };
 
@@ -147,8 +166,13 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
           />
         </label>
         {error && <div className="modal-error">{error}</div>}
-        <button type="button" className="modal-primary modal-secondary" onClick={link}>
-          Link this device
+        <button
+          type="button"
+          className="modal-primary modal-secondary"
+          onClick={() => void link()}
+          disabled={linking}
+        >
+          {linking ? "Linking" : "Link this device"}
         </button>
 
         <button type="button" className="modal-close" onClick={onClose}>

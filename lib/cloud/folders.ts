@@ -21,6 +21,16 @@ export async function listCloudFolders(): Promise<CloudFolder[]> {
   return (await api<CloudFolder[]>("folders")) ?? [];
 }
 
+export interface CloudFolderTombstone {
+  id: string;
+  deleted_at: string;
+}
+
+/** Folders deleted on the cloud, so this device can drop them and not re-upload. */
+export async function listCloudFolderTombstones(): Promise<CloudFolderTombstone[]> {
+  return (await api<CloudFolderTombstone[]>("folders/deleted")) ?? [];
+}
+
 /** Insert or update a folder (idempotent on id). */
 export async function upsertCloudFolder(_userId: string, f: Folder): Promise<void> {
   await api(`folders/${f.id}`, {

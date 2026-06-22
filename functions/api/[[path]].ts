@@ -187,6 +187,17 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
       if (code.length < 16) return fail("Invalid code", 400);
       const srcId = "c_" + (await sha256hex(code)).slice(0, 40);
       if (srcId === uid) return json({ ok: true, moved: 0 });
+      // Move version history FIRST, and only for scripts the destination does not
+      // already own. A script whose id the destination already holds is NOT moved
+      // (its content stays), so moving its versions would graft another document's
+      // history onto the destination's script. Evaluating the guard before the
+      // scripts move keeps "scripts the dest already has" correct.
+      await db
+        .prepare(
+          "UPDATE script_versions SET user_id=? WHERE user_id=? AND script_id NOT IN (SELECT id FROM scripts WHERE user_id=?)"
+        )
+        .bind(uid, srcId, uid)
+        .run();
       await db
         .prepare(
           "UPDATE scripts SET user_id=? WHERE user_id=? AND id NOT IN (SELECT id FROM scripts WHERE user_id=?)"
@@ -199,10 +210,6 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         )
         .bind(uid, srcId, uid)
         .run();
-      await db
-        .prepare("UPDATE script_versions SET user_id=? WHERE user_id=?")
-        .bind(uid, srcId)
-        .run();
       return json({ ok: true });
     }
 
@@ -211,6 +218,14 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
       if (method === "GET" && seg.length === 1) {
         const r = await db
           .prepare("SELECT id,name,color,stage,parent_id,position,updated_at FROM folders WHERE user_id=?")
+          .bind(uid)
+          .all();
+        return json(r.results);
+      }
+      // Deletion records, so a delete on one device is not re-uploaded by another.
+      if (method === "GET" && seg.length === 2 && seg[1] === "deleted") {
+        const r = await db
+          .prepare("SELECT id,deleted_at FROM folder_tombstones WHERE user_id=?")
           .bind(uid)
           .all();
         return json(r.results);
@@ -237,10 +252,22 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             b.updated_at ?? now
           )
           .run();
+        // Re-creating (or updating) a folder clears any prior deletion record.
+        await db
+          .prepare("DELETE FROM folder_tombstones WHERE user_id=? AND id=?")
+          .bind(uid, seg[1])
+          .run();
         return json({ ok: true });
       }
       if (method === "DELETE" && seg.length === 2) {
+        const now = new Date().toISOString();
         await db.prepare("DELETE FROM folders WHERE user_id=? AND id=?").bind(uid, seg[1]).run();
+        await db
+          .prepare(
+            "INSERT INTO folder_tombstones (user_id,id,deleted_at) VALUES (?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET deleted_at=excluded.deleted_at"
+          )
+          .bind(uid, seg[1], now)
+          .run();
         return json({ ok: true });
       }
     }
@@ -251,7 +278,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         if (method === "GET") {
           const r = await db
             .prepare(
-              "SELECT id,title,type,status,updated_at,placed_at,folder_id,position FROM scripts WHERE user_id=? ORDER BY updated_at DESC"
+              "SELECT id,title,type,status,updated_at,created_at,placed_at,folder_id,position FROM scripts WHERE user_id=? ORDER BY updated_at DESC"
             )
             .bind(uid)
             .all();

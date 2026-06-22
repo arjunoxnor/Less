@@ -206,13 +206,15 @@ export function AppShell() {
             /\.(fdx|fountain|txt|text|md|markdown|spmd|xml|docx|odt|rtf)$/i,
             ""
           );
-          const meta = create("screenplay", info.title || titlePage?.title || fallback, {
+          const folderId = info.folderKey ? folderIdByKey[info.folderKey] : undefined;
+          // Create already filed and with its status, so the first cloud insert
+          // is correct rather than loose-then-patched over two round-trips.
+          create("screenplay", info.title || titlePage?.title || fallback, {
             content: doc,
             titlePage,
+            folderId: folderId ?? undefined,
+            status: info.status,
           });
-          if (info.status) setStatus(meta.id, info.status);
-          const folderId = info.folderKey ? folderIdByKey[info.folderKey] : undefined;
-          if (folderId) setFolder(meta.id, folderId);
           imported++;
         } catch (e) {
           console.error("import failed for", file.name, e);

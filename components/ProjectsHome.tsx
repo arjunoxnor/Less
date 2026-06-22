@@ -20,6 +20,38 @@ import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
 import { hasTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
 
+/**
+ * Folder-name field that buffers keystrokes locally and only commits on blur or
+ * Enter. The folder rename pushes to the cloud, so committing per keystroke fired
+ * a network write for every letter typed; this commits once when editing ends.
+ */
+function FolderNameInput({
+  initial,
+  onCommit,
+}: {
+  initial: string;
+  onCommit: (name: string) => void;
+}) {
+  const [val, setVal] = useState(initial);
+  const commit = () => onCommit(val.trim() || "Untitled folder");
+  return (
+    <input
+      className="folder-name-input"
+      value={val}
+      autoFocus
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          commit();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      aria-label="Folder name"
+    />
+  );
+}
+
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
@@ -571,18 +603,9 @@ export function ProjectsHome({
 
         {isEditing && (
           <div className="fcard-edit">
-            <input
-              className="folder-name-input"
-              value={f.name}
-              autoFocus
-              onChange={(e) => onUpdateFolder(f.id, { name: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  onUpdateFolder(f.id, { name: f.name.trim() || "Untitled folder" });
-                  closeEdit(f.id);
-                }
-              }}
-              aria-label="Folder name"
+            <FolderNameInput
+              initial={f.name}
+              onCommit={(name) => onUpdateFolder(f.id, { name })}
             />
             <div className="folder-swatches" role="group" aria-label="Folder color">
               {FOLDER_COLORS.map((c) => (
@@ -629,10 +652,7 @@ export function ProjectsHome({
             <button
               type="button"
               className="tb-btn tb-btn-active"
-              onClick={() => {
-                onUpdateFolder(f.id, { name: f.name.trim() || "Untitled folder" });
-                closeEdit(f.id);
-              }}
+              onClick={() => closeEdit(f.id)}
             >
               Done
             </button>

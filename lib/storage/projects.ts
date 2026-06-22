@@ -161,6 +161,10 @@ export function loadProject(id: string): Project | null {
  */
 export function saveProjectDoc(id: string, content: JSONContent): boolean {
   const ok = lsSet(docKey(id), JSON.stringify(content));
+  // If the body did not persist (storage full/disabled), do NOT bump updatedAt
+  // or re-derive the title: that would advance the index past content we failed
+  // to save and could push a stale/empty doc up on the next sync.
+  if (!ok) return false;
   const meta = getProjectMeta(id);
   if (meta) {
     const patch: Partial<ProjectMeta> = { updatedAt: nowIso() };
@@ -224,6 +228,8 @@ export function createProject(
     content?: JSONContent;
     titlePage?: TitlePage | null;
     pageTarget?: number;
+    folderId?: string | null;
+    status?: ProjectStatus;
   }
 ): Project {
   const id = crypto.randomUUID();
@@ -234,12 +240,15 @@ export function createProject(
     id,
     title: opts?.title?.trim() || "Untitled",
     type,
-    status: "not_started",
+    status: opts?.status ?? "not_started",
     createdAt: ts,
     updatedAt: ts,
     cloudCreated: false,
     titleManual: Boolean(opts?.title?.trim()),
     ...(opts?.pageTarget ? { pageTarget: opts.pageTarget } : {}),
+    // Created already filed (bulk import): carry the folder + a placement clock
+    // so the very first cloud insert is filed, not loose-then-patched.
+    ...(opts?.folderId ? { folderId: opts.folderId, placedAt: ts } : {}),
   };
   lsSet(docKey(id), JSON.stringify(content));
   if (opts?.titlePage) saveProjectTitlePage(id, opts.titlePage);
@@ -303,10 +312,13 @@ export function reorderProjects(orderedIds: string[]): void {
 /** Move every project out of a folder (used when a folder is deleted). */
 export function unfileFolder(folderId: string): void {
   const list = readIndex();
+  const ts = nowIso();
   let changed = false;
   for (let i = 0; i < list.length; i++) {
     if (list[i].folderId === folderId) {
-      list[i] = { ...list[i], folderId: undefined };
+      // Bump updatedAt AND placedAt so the un-file wins last-write-wins on the
+      // next sync instead of bouncing back to the (now deleted) folder.
+      list[i] = { ...list[i], folderId: undefined, updatedAt: ts, placedAt: ts };
       changed = true;
     }
   }

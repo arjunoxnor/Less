@@ -27,6 +27,7 @@ export interface ScriptSummary {
   type: ProjectType;
   status: ProjectStatus;
   updated_at: string;
+  created_at: string | null;
   placed_at: string | null;
   folder_id: string | null;
   position: number | null;
@@ -80,6 +81,15 @@ export async function listScripts(): Promise<ScriptSummary[]> {
 
 export async function setScriptStatus(id: string, status: ProjectStatus): Promise<string | null> {
   const r = await api<{ updated_at: string }>(`scripts/${id}`, { method: "PATCH", body: { status } });
+  return r?.updated_at ?? null;
+}
+
+/** Title-only update, so a rename never re-uploads (and risks clobbering) content. */
+export async function setScriptTitle(id: string, title: string): Promise<string | null> {
+  const r = await api<{ updated_at: string }>(`scripts/${id}`, {
+    method: "PATCH",
+    body: { title },
+  });
   return r?.updated_at ?? null;
 }
 

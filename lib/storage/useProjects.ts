@@ -50,12 +50,13 @@ import {
   createScript,
   deleteScript,
   listScripts,
-  saveScript,
   setScriptStatus,
+  setScriptTitle,
   setScriptFolder,
 } from "@/lib/cloud/scripts";
 import {
   listCloudFolders,
+  listCloudFolderTombstones,
   upsertCloudFolder,
   deleteCloudFolder,
 } from "@/lib/cloud/folders";
@@ -91,13 +92,21 @@ export function useProjects(user: User | null) {
     (
       type: ProjectType,
       title?: string,
-      opts?: { content?: JSONContent; titlePage?: TitlePage | null; pageTarget?: number }
+      opts?: {
+        content?: JSONContent;
+        titlePage?: TitlePage | null;
+        pageTarget?: number;
+        folderId?: string | null;
+        status?: ProjectStatus;
+      }
     ): ProjectMeta => {
       const meta = localCreate(type, {
         title,
         content: opts?.content,
         titlePage: opts?.titlePage,
         pageTarget: opts?.pageTarget,
+        folderId: opts?.folderId,
+        status: opts?.status,
       });
       if (user && online()) {
         const doc = loadProjectDoc(meta.id);
@@ -126,16 +135,26 @@ export function useProjects(user: User | null) {
 
   const remove = useCallback(
     (id: string) => {
-      const meta = getProjectMeta(id);
+      const wasCloud = getProjectMeta(id)?.cloudCreated;
       localDelete(id);
-      if (meta?.cloudCreated && user) {
-        if (online()) {
-          deleteScript(id).catch((e) => {
-            console.error("cloud delete failed", e);
+      if (user) {
+        if (wasCloud) {
+          if (online()) {
+            deleteScript(id).catch((e) => {
+              console.error("cloud delete failed", e);
+              markDeletedTombstone(id);
+            });
+          } else {
             markDeletedTombstone(id);
-          });
+          }
         } else {
+          // Not yet marked cloud-created: a createScript may still be in flight.
+          // Tombstone unconditionally so the reconcile flush removes any orphan
+          // that in-flight create leaves behind (the server delete is idempotent).
           markDeletedTombstone(id);
+          if (online()) {
+            deleteScript(id).catch((e) => console.error("cloud delete failed", e));
+          }
         }
       }
       refresh();
@@ -148,12 +167,11 @@ export function useProjects(user: User | null) {
       localRename(id, title);
       const meta = getProjectMeta(id);
       if (meta?.cloudCreated && user && online()) {
-        const doc = loadProjectDoc(id);
-        if (doc) {
-          saveScript(id, doc, title.trim() || "Untitled", loadProjectTitlePage(id)).catch(
-            (e) => console.error("cloud rename failed", e)
-          );
-        }
+        // Title-only PATCH: a rename must never re-upload the document, which
+        // could push a stale local body over newer cloud content.
+        setScriptTitle(id, title.trim() || "Untitled").catch((e) =>
+          console.error("cloud rename failed", e)
+        );
       }
       refresh();
     },
@@ -192,10 +210,14 @@ export function useProjects(user: User | null) {
 
   const reorder = useCallback(
     (orderedIds: string[]) => {
+      // Snapshot positions before the local write so we only push the rows whose
+      // position actually changed, instead of every row in the container.
+      const before = new Map(orderedIds.map((id) => [id, getProjectMeta(id)?.order]));
       localReorder(orderedIds);
       refresh();
       if (user && online()) {
         orderedIds.forEach((id, i) => {
+          if (before.get(id) === i) return; // unchanged: nothing to push
           const meta = getProjectMeta(id);
           if (meta?.cloudCreated) {
             setScriptFolder(id, meta.folderId ?? null, i).catch((e) =>
@@ -283,7 +305,10 @@ export function useProjects(user: User | null) {
   // One pass that pushes anonymous meaningful local projects to the cloud, pulls
   // cloud-only projects into the local index, and flushes delete tombstones.
   const reconcile = useCallback(
-    async (u: User) => {
+    async (u: User): Promise<boolean> => {
+      // Count anything that did not go through, so a manual "Sync" never reports
+      // success when pushes silently failed (e.g. an expired session 401s).
+      let failures = 0;
       try {
         for (const m of listProjects()) {
           if (!m.cloudCreated) {
@@ -299,8 +324,10 @@ export function useProjects(user: User | null) {
                   position: m.order ?? null,
                 });
                 if (row) markCloudCreated(m.id);
+                else failures++; // null row = not created (auth/expired)
               } catch (e) {
                 console.error("push anonymous project failed", e);
+                failures++;
               }
             }
           }
@@ -310,6 +337,11 @@ export function useProjects(user: User | null) {
         try {
           const cloudFolders = await listCloudFolders();
           const cloudFolderById = new Map(cloudFolders.map((c) => [c.id, c]));
+          // Server-side deletion records: a folder deleted on another device must
+          // be dropped here and NOT re-uploaded (the resurrection bug).
+          const cloudTombAt = new Map(
+            (await listCloudFolderTombstones()).map((t) => [t.id, t.deleted_at])
+          );
 
           // 1. Flush delete tombstones. A folder re-created/edited after our
           //    delete (cloud newer than the tombstone) survives; otherwise the
@@ -337,12 +369,24 @@ export function useProjects(user: User | null) {
           // Push local-only or locally-newer folders (never a tombstoned one).
           for (const lf of localFolders) {
             if (tombed.has(lf.id)) continue;
+            // Deleted on another device after our copy: honor the delete locally
+            // and do not re-upload. A local copy NEWER than the deletion is a
+            // genuine re-creation, so it still pushes (which clears the record).
+            const deletedAt = cloudTombAt.get(lf.id);
+            if (
+              deletedAt &&
+              new Date(deletedAt).getTime() >= new Date(lf.updatedAt).getTime()
+            ) {
+              removeLocalFolder(lf.id);
+              continue;
+            }
             const cf = cloudFolderById.get(lf.id);
             if (!cf || new Date(lf.updatedAt).getTime() > new Date(cf.updated_at).getTime()) {
               try {
                 await upsertCloudFolder(u.id, lf);
               } catch (e) {
                 console.error("folder push failed", e);
+                failures++;
               }
             }
           }
@@ -357,6 +401,7 @@ export function useProjects(user: User | null) {
           refreshFolders();
         } catch (e) {
           console.error("folder reconcile failed", e);
+          failures++;
         }
 
         const cloud = await listScripts();
@@ -372,7 +417,7 @@ export function useProjects(user: User | null) {
               title: c.title,
               type: c.type,
               status: c.status,
-              createdAt: c.updated_at,
+              createdAt: c.created_at ?? c.updated_at,
               updatedAt: c.updated_at,
               cloudCreated: true,
               folderId: c.folder_id ?? undefined,
@@ -419,6 +464,7 @@ export function useProjects(user: User | null) {
               await setScriptFolder(c.id, lm.folderId ?? null, lm.order ?? null);
             } catch (e) {
               console.error("placement push failed", e);
+              failures++;
             }
           }
         }
@@ -428,12 +474,15 @@ export function useProjects(user: User | null) {
             clearTombstone(id);
           } catch (e) {
             console.error("tombstone flush failed", e);
+            failures++;
           }
         }
         refresh();
         refreshFolders();
+        return failures === 0;
       } catch (e) {
         console.error("sign-in reconcile failed", e);
+        return false;
       }
     },
     [refresh, refreshFolders]
@@ -468,10 +517,10 @@ export function useProjects(user: User | null) {
   // so a writer can force everything up/down and watch it confirm.
   const syncNow = useCallback(async (): Promise<boolean> => {
     if (!user || !online()) return false;
-    await reconcile(user);
+    const ok = await reconcile(user);
     refresh();
     refreshFolders();
-    return true;
+    return ok;
   }, [user, reconcile, refresh, refreshFolders]);
 
   return {

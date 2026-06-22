@@ -303,7 +303,12 @@ export function ScreenplayBody({
       const ok = saveProjectDoc(projectId, ed.getJSON());
       setSaveError(!ok);
     };
-    const onPageHide = () => flushLocal();
+    const onPageHide = () => {
+      flushLocal();
+      // Best-effort cloud push as the page goes away; the synchronous local
+      // write above is the actual no-loss guarantee.
+      flushRef.current();
+    };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
         flushLocal();
@@ -325,6 +330,9 @@ export function ScreenplayBody({
       measure(editor);
       computePageCount(editor.getJSON());
       setSaved(true);
+      // The content was just replaced from the cloud, so any earlier local-save
+      // warning no longer applies. Clear it so a stale "not saved" does not stick.
+      setSaveError(false);
     }
   }, [pulledTick, editor, measure, debouncedSave, debouncedPageCount, computePageCount]);
 

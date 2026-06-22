@@ -38,14 +38,21 @@ export function getStoredUser(): CloudUser | null {
   }
 }
 
-export function setSession(token: string, user: CloudUser): void {
+/**
+ * Persist a session. Returns false when the browser refused to store it (private
+ * mode, full quota), so the caller can report a real failure instead of a
+ * sign-in that silently evaporates on the next reload.
+ */
+export function setSession(token: string, user: CloudUser): boolean {
+  let ok = true;
   try {
     window.localStorage.setItem(TOKEN_KEY, token);
     window.localStorage.setItem(USER_KEY, JSON.stringify(user));
   } catch {
-    /* ignore */
+    ok = false;
   }
   notifyAuth();
+  return ok;
 }
 
 export function clearSession(): void {

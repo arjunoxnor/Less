@@ -182,11 +182,15 @@ export function useCloudSync(
           const typedDuringFetch =
             JSON.stringify(live) !== JSON.stringify(localDoc);
           if (o.isDirty() || typedDuringFetch) {
+            // Push the dirty content, but when the cloud row is newer than our
+            // last save, leave the cloud title page alone (pass undefined) rather
+            // than overwriting a title page edited on another device with our
+            // possibly-stale or empty local one.
             const ts = await saveScript(
               projectId,
               live,
               (o.getTitle?.() || "").trim() || o.deriveTitle(live),
-              titlePageRef.current
+              cloudNewer ? undefined : titlePageRef.current
             );
             // Keep dirty if the save did not actually land (null = 401/offline),
             // so it retries instead of being lost.

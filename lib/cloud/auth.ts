@@ -7,7 +7,6 @@ import {
   setSession,
   clearSession,
   onAuthChange,
-  api,
 } from "./client";
 
 /**
@@ -57,8 +56,12 @@ export function adoptSyncCode(code: string): boolean {
   } catch {
     /* ignore */
   }
-  setSession("code:" + clean, { id: "synced", email: "Synced", name: "Synced" });
-  return true;
+  // Derive the local id from the code so switching from one code to another
+  // changes user.id, which is what makes the reconcile effect re-run and pull
+  // the new code's data. (The real server-side id is the code hash; this local
+  // id is only used to detect an identity change.)
+  const localId = "synced:" + clean.slice(0, 12);
+  return setSession("code:" + clean, { id: localId, email: "Synced", name: "Synced" });
 }
 
 /** Create a fresh code on this device and link to it. */
@@ -94,13 +97,22 @@ export async function signInWithGoogle(idToken: string): Promise<{ error?: Error
       return { error: new Error(detail.error || "Sign-in failed") };
     }
     const data = (await res.json()) as { token: string; user: CloudUser };
-    setSession(data.token, data.user);
-    // If this device had a sync code, move that data into the Google account so
-    // nothing is left stranded under the old identity.
+    // If this device had a sync code, move that data into the Google account
+    // BEFORE storing the session. Storing the session is what triggers the
+    // reconcile pull; if the claim has not run yet, that pull sees an empty
+    // account and the writer's scripts look like they vanished. Claim with the
+    // Google token directly so the re-key is done first.
     const code = getSyncCode();
     if (code) {
       try {
-        await api("auth/claim", { method: "POST", body: { code } });
+        await fetch("/api/auth/claim", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer " + data.token,
+          },
+          body: JSON.stringify({ code }),
+        });
       } catch {
         /* best effort; reconcile will still pull what is there */
       }
@@ -109,6 +121,13 @@ export async function signInWithGoogle(idToken: string): Promise<{ error?: Error
       } catch {
         /* ignore */
       }
+    }
+    if (!setSession(data.token, data.user)) {
+      return {
+        error: new Error(
+          "Signed in, but your browser would not save the session. Check that storage is allowed and try again."
+        ),
+      };
     }
     return {};
   } catch (e) {
