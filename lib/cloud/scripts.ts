@@ -43,7 +43,14 @@ export async function createScript(
   _userId: string,
   title: string,
   content: JSONContent,
-  opts?: { id?: string; type?: ProjectType; status?: ProjectStatus; titlePage?: TitlePage | null }
+  opts?: {
+    id?: string;
+    type?: ProjectType;
+    status?: ProjectStatus;
+    titlePage?: TitlePage | null;
+    folderId?: string | null;
+    position?: number | null;
+  }
 ): Promise<ScriptRow | null> {
   return api<ScriptRow>("scripts", {
     method: "POST",
@@ -54,6 +61,10 @@ export async function createScript(
       type: opts?.type ?? "screenplay",
       status: opts?.status ?? "not_started",
       title_page: opts?.titlePage ?? null,
+      // Carry the folder placement so a script's organization reaches the cloud
+      // at creation, instead of only via a separate (easily-missed) call.
+      folder_id: opts?.folderId ?? null,
+      position: opts?.position ?? null,
     },
   });
 }

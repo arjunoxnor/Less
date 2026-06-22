@@ -249,8 +249,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               b.status ?? "not_started",
               b.content != null ? JSON.stringify(b.content) : null,
               b.title_page != null ? JSON.stringify(b.title_page) : null,
-              null,
-              null,
+              b.folder_id ?? null,
+              b.position ?? null,
               now,
               now
             )

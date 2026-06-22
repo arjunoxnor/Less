@@ -105,6 +105,8 @@ export function useProjects(user: User | null) {
             type,
             status: meta.status,
             titlePage: opts?.titlePage,
+            folderId: meta.folderId ?? null,
+            position: meta.order ?? null,
           })
             .then(() => markCloudCreated(meta.id))
             .catch((e) => console.error("cloud create failed", e));
@@ -287,6 +289,8 @@ export function useProjects(user: User | null) {
                   type: m.type,
                   status: m.status,
                   titlePage: loadProjectTitlePage(m.id),
+                  folderId: m.folderId ?? null,
+                  position: m.order ?? null,
                 });
                 markCloudCreated(m.id);
               } catch (e) {
@@ -375,9 +379,20 @@ export function useProjects(user: User | null) {
             (lm.folderId ?? null) === (c.folder_id ?? null) &&
             (lm.order ?? null) === (c.position ?? null);
           if (samePlacement) continue;
+          const cloudLoose = (c.folder_id ?? null) === null;
+          const localFiled = (lm.folderId ?? null) !== null;
           const cloudNewer =
             new Date(c.updated_at).getTime() > new Date(lm.updatedAt).getTime();
-          if (cloudNewer) {
+          // Heal: a script we filed locally whose folder never reached the cloud
+          // (the placement-on-create bug). A loose cloud row must not erase a
+          // real local folder, so push ours rather than adopt the empty one.
+          if (cloudLoose && localFiled) {
+            try {
+              await setScriptFolder(c.id, lm.folderId ?? null, lm.order ?? null);
+            } catch (e) {
+              console.error("placement heal failed", e);
+            }
+          } else if (cloudNewer) {
             setProjectPlacement(c.id, c.folder_id ?? null, c.position ?? null, c.updated_at);
           } else {
             try {
