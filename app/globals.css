@@ -1311,19 +1311,55 @@ body {
   color: var(--toolbar-fg);
 }
 .folder-swatches {
-  display: flex;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 6px;
+  max-width: 232px;
 }
 .swatch {
   width: 18px;
   height: 18px;
-  border-radius: 5px;
-  border: 2px solid transparent;
+  border-radius: 50%;
+  border: none;
   cursor: pointer;
   padding: 0;
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: transform 0.08s ease;
 }
+.swatch:hover {
+  transform: scale(1.18);
+}
+/* The selected swatch gets a clean ring offset from the colour itself. */
 .swatch-on {
-  border-color: var(--toolbar-fg);
+  box-shadow: 0 0 0 2px var(--toolbar-bg), 0 0 0 4px var(--accent);
+}
+/* Custom-colour picker: a small colour wheel until a custom hue is chosen,
+   after which it shows that colour. The native input is hidden behind it. */
+.swatch-custom {
+  background: conic-gradient(
+    from 90deg,
+    #e0533b,
+    #e08a2e,
+    #c9a227,
+    #6fa63c,
+    #1d9e75,
+    #378add,
+    #7f77dd,
+    #c45fb8,
+    #e0533b
+  );
+  overflow: hidden;
+}
+.swatch-custom-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  padding: 0;
+  cursor: pointer;
 }
 .folder-stage-select,
 .doc-stage {

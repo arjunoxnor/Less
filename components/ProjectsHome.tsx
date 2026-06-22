@@ -578,6 +578,24 @@ export function ProjectsHome({
                   aria-label={"Color " + c}
                 />
               ))}
+              {(() => {
+                const custom = !FOLDER_COLORS.includes(f.color);
+                return (
+                  <label
+                    className={"swatch swatch-custom" + (custom ? " swatch-on" : "")}
+                    style={custom ? { background: f.color } : undefined}
+                    title="Custom color"
+                  >
+                    <input
+                      type="color"
+                      className="swatch-custom-input"
+                      value={f.color}
+                      onChange={(e) => onUpdateFolder(f.id, { color: e.target.value })}
+                      aria-label="Pick a custom folder color"
+                    />
+                  </label>
+                );
+              })()}
             </div>
             <select
               className="folder-stage-select"

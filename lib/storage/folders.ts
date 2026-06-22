@@ -27,13 +27,26 @@ export function stageOfStatus(s: ProjectStatus): Stage {
 }
 
 /** Folder accent colors, deliberately distinct from the stage chip colors. */
+// A curated palette ordered around the colour wheel so the swatches read as a
+// gentle spectrum. The original seven hexes are kept (folders created before the
+// palette grew still match a swatch). A custom picker in the UI covers anything
+// beyond these.
 export const FOLDER_COLORS: string[] = [
-  "#7F77DD", // purple
-  "#1D9E75", // teal
+  "#E0533B", // red
   "#D85A30", // coral
-  "#D4537E", // pink
-  "#378ADD", // blue
+  "#E08A2E", // orange
   "#BA7517", // amber
+  "#C9A227", // gold
+  "#6FA63C", // lime
+  "#3FA663", // green
+  "#1D9E75", // teal
+  "#2BA8A0", // cyan
+  "#378ADD", // blue
+  "#4F6BD6", // indigo
+  "#7F77DD", // purple
+  "#9B5FD0", // violet
+  "#C45FB8", // magenta
+  "#D4537E", // pink
   "#5F5E5A", // gray
 ];
 
