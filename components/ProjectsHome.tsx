@@ -207,9 +207,9 @@ export function ProjectsHome({
     if (syncState === "syncing") return;
     setSyncState("syncing");
     try {
-      await onSyncNow();
-      setSyncState("done");
-      setTimeout(() => setSyncState("idle"), 2200);
+      const ok = await onSyncNow();
+      setSyncState(ok ? "done" : "idle");
+      if (ok) setTimeout(() => setSyncState("idle"), 2200);
     } catch {
       setSyncState("idle");
     }
