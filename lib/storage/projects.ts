@@ -156,8 +156,12 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
   const meta = getProjectMeta(id);
   if (meta) {
     const patch: Partial<ProjectMeta> = { updatedAt: nowIso() };
-    // Only auto-derive the title while the user has not set one manually.
-    if (!meta.titleManual) patch.title = deriveTitleFor(meta.type, content);
+    // Auto-name only plain docs (Google-Docs style), and only while the writer
+    // has not set a title. A screenplay's title is always explicit; deriving it
+    // from the first line (a scene heading) would clobber the real title.
+    if (!meta.titleManual && meta.type === "plain") {
+      patch.title = deriveTitleFor(meta.type, content);
+    }
     patchMeta(id, patch);
   }
   return ok;
@@ -319,8 +323,12 @@ export function deleteProject(id: string): void {
 export function upsertCloudMeta(meta: ProjectMeta): void {
   const list = readIndex();
   const i = list.findIndex((m) => m.id === meta.id);
-  if (i < 0) list.unshift(meta);
-  else list[i] = { ...list[i], ...meta };
+  // A title pulled from the cloud is an explicit title (it was set on some
+  // device), so mark it manual; the local doc-save auto-namer must not rewrite
+  // it from the document's first line.
+  const incoming = { ...meta, titleManual: true };
+  if (i < 0) list.unshift(incoming);
+  else list[i] = { ...list[i], ...incoming };
   writeIndex(list);
 }
 
