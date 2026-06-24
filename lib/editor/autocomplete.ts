@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { lineAt } from "./keymap";
+import { lineAt, runEnterFlow } from "./keymap";
 import { cueBaseName, TIME_OF_DAY } from "./outline";
 import {
   CHARACTER_EXTENSIONS,
@@ -426,6 +426,7 @@ export function buildAutocomplete(
     name: "screenplayAutocomplete",
     priority: 200,
     addProseMirrorPlugins() {
+      const editor = this.editor;
       return [
         new Plugin<AcPluginState>({
           key: autocompleteKey,
@@ -467,12 +468,22 @@ export function buildAutocomplete(
                   if (event.shiftKey) return false;
                   consume();
                   return acceptAutocomplete(view, st.active);
-                case "Enter":
+                case "Enter": {
                   // Let modified Enter fall through to the keymap / default.
                   if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
                     return false;
                   consume();
-                  return acceptAutocomplete(view, st.active);
+                  // On a CHARACTER cue, Enter should accept the name AND drop
+                  // into dialogue in one press (the whole point of a cue is the
+                  // line beneath it). For other elements, accept and stay so the
+                  // writer can keep building the line (e.g. add a scene-heading
+                  // time, or a (V.O.) extension).
+                  const line = lineAt(view.state.selection.$from);
+                  const isCharacter = line?.node.attrs.element === "character";
+                  const accepted = acceptAutocomplete(view, st.active);
+                  if (accepted && isCharacter && editor) runEnterFlow(editor);
+                  return true;
+                }
                 case "Escape":
                   consume();
                   view.dispatch(

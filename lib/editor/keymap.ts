@@ -1,4 +1,4 @@
-import { Extension } from "@tiptap/core";
+import { Extension, type Editor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import type { ResolvedPos } from "@tiptap/pm/model";
 import {
@@ -42,6 +42,36 @@ export function currentElementType(state: EditorState): ElementType {
   return (line?.node.attrs.element as ElementType) ?? DEFAULT_ELEMENT;
 }
 
+/**
+ * The Enter behavior: split the current line and set the new line's element by
+ * the flow map (e.g. CHARACTER -> DIALOGUE). Exported so the autocomplete menu
+ * can reuse it: accepting a character suggestion with Enter both accepts the
+ * name and drops into dialogue, in a single keystroke.
+ */
+export function runEnterFlow(editor: Editor): boolean {
+  const fromType = currentElementType(editor.state);
+  const nextType = ENTER_FLOW[fromType];
+
+  return editor
+    .chain()
+    .splitBlock()
+    .command(({ tr, dispatch }) => {
+      // After splitBlock the cursor sits in the freshly created line. Read it
+      // from `tr.selection` (the chain's evolving transaction), not the stale
+      // `state`, and set its element type.
+      const line = lineAt(tr.selection.$from);
+      if (!line) return false;
+      if (line.node.attrs.element !== nextType && dispatch) {
+        tr.setNodeMarkup(line.pos, undefined, {
+          ...line.node.attrs,
+          element: nextType,
+        });
+      }
+      return true;
+    })
+    .run();
+}
+
 export const ScreenplayKeymap = Extension.create({
   name: "screenplayKeymap",
 
@@ -53,31 +83,7 @@ export const ScreenplayKeymap = Extension.create({
       editor.commands.setElement(type);
 
     return {
-      Enter: () => {
-        const fromType = currentElementType(editor.state);
-        const nextType = ENTER_FLOW[fromType];
-
-        return editor
-          .chain()
-          .splitBlock()
-          .command(({ tr, dispatch }) => {
-            // After splitBlock the cursor sits in the freshly created line.
-            // Read it from `tr.selection` (the chain's evolving transaction),
-            // not from the stale `state`, and set its element type.
-            const line = lineAt(tr.selection.$from);
-            if (!line) return false;
-            if (line.node.attrs.element !== nextType) {
-              if (dispatch) {
-                tr.setNodeMarkup(line.pos, undefined, {
-                  ...line.node.attrs,
-                  element: nextType,
-                });
-              }
-            }
-            return true;
-          })
-          .run();
-      },
+      Enter: () => runEnterFlow(editor),
 
       Tab: () => {
         const type = currentElementType(editor.state);
