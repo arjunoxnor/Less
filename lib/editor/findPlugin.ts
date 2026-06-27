@@ -153,6 +153,41 @@ export function setFindQuery(
   view.dispatch(view.state.tr.setMeta(findPluginKey, patch).setMeta("addToHistory", false));
 }
 
+/** The nearest scrollable ancestor of the editor (the `.page-scroll` viewport). */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  let n: HTMLElement | null = el;
+  while (n && n !== document.body) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight) return n;
+    n = n.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Scroll a document position to the center of the editor's scroll viewport.
+ * ProseMirror's own transaction `.scrollIntoView()` does not move the paginated
+ * container reliably when focus is on the Find panel rather than the editor, so
+ * we scroll from the match's measured DOM coordinates instead.
+ */
+export function scrollPosToCenter(view: EditorView, pos: number): void {
+  const scroller = scrollParent(view.dom as HTMLElement);
+  if (!scroller) return;
+  let coords: { top: number; bottom: number };
+  try {
+    coords = view.coordsAtPos(pos);
+  } catch {
+    return;
+  }
+  const sRect = scroller.getBoundingClientRect();
+  const matchMid = (coords.top + coords.bottom) / 2;
+  const delta = matchMid - (sRect.top + scroller.clientHeight / 2);
+  // Only scroll when the match is not already comfortably inside the viewport.
+  if (coords.top < sRect.top + 60 || coords.bottom > sRect.bottom - 60) {
+    scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
+  }
+}
+
 /** Make `index` (wrapped) the active match and scroll it into view. */
 export function gotoMatch(view: EditorView, index: number): void {
   const s = findPluginKey.getState(view.state);
@@ -167,6 +202,7 @@ export function gotoMatch(view: EditorView, index: number): void {
       .setSelection(TextSelection.create(view.state.doc, m.from, m.to))
       .scrollIntoView()
   );
+  scrollPosToCenter(view, m.from);
 }
 
 /** Replace the active match, then advance to the next match past the insertion. */
@@ -192,6 +228,7 @@ export function replaceOne(view: EditorView, replaceText: string): boolean {
         .setSelection(TextSelection.create(view.state.doc, next.from, next.to))
         .scrollIntoView()
     );
+    scrollPosToCenter(view, next.from);
   }
   return true;
 }

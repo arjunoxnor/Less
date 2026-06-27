@@ -30,6 +30,7 @@ import {
   findPluginKey,
   setFindQuery,
   gotoMatch,
+  scrollPosToCenter,
   replaceOne,
   replaceAll,
 } from "@/lib/editor/findPlugin";
@@ -513,7 +514,11 @@ export function ScreenplayBody({
 
   const jumpToScene = useCallback(
     (pos: number) => {
-      editor?.chain().focus().setTextSelection(pos).scrollIntoView().run();
+      if (!editor) return;
+      editor.chain().focus().setTextSelection(pos).scrollIntoView().run();
+      // Belt-and-suspenders: the paginated overlay doesn't always honor PM's
+      // transaction scrollIntoView, so scroll the target into view explicitly.
+      scrollPosToCenter(editor.view, pos);
     },
     [editor]
   );
