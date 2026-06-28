@@ -49,12 +49,45 @@ function measure(el: HTMLElement): { height: number; marginTop: number } {
   return { height: r.height + marginTop + (parseFloat(cs.marginBottom) || 0), marginTop };
 }
 
+// Elements that must never be the last thing on a page: a scene heading needs
+// its first line under it, a character cue needs its dialogue, and a
+// parenthetical needs the dialogue it introduces. Mirrors the export engine's
+// keep-with-next rule (lib/export/paginate.ts), so the live page sheets break
+// where the printed PDF does.
+const KEEP_WITH_NEXT = new Set(["scene_heading", "character", "parenthetical"]);
+
 function compute(view: EditorView): { decos: DecorationSet; pages: number; sig: string } {
-  const blocks: { pos: number; el: HTMLElement }[] = [];
+  const blocks: { pos: number; el: HTMLElement; element: string }[] = [];
   view.state.doc.forEach((node, offset) => {
     const dom = view.nodeDOM(offset) as HTMLElement | null;
-    if (dom && dom.nodeType === 1) blocks.push({ pos: offset, el: dom });
+    if (dom && dom.nodeType === 1)
+      blocks.push({ pos: offset, el: dom, element: (node.attrs.element as string) ?? "action" });
   });
+
+  const n = blocks.length;
+  const m = blocks.map((b) => measure(b.el));
+
+  // The combined flow height a keep-with-next block must reserve so it is not
+  // stranded at a page bottom: its own height, any consecutive parentheticals,
+  // and the dialogue (or, for a heading/cue chain, that block's own group). If
+  // this does not fit in the remaining page, the block moves to the next page
+  // WITH what follows, instead of orphaning (a cue alone at the bottom).
+  const groupHeight = (i: number, depth = 0): number => {
+    let total = m[i].height;
+    let j = i + 1;
+    while (j < n && blocks[j].element === "parenthetical") {
+      total += m[j].height;
+      j++;
+    }
+    if (j < n) {
+      const k = blocks[j].element;
+      if (k === "dialogue") total += m[j].height;
+      else if (depth < 6 && (k === "character" || k === "scene_heading"))
+        total += groupHeight(j, depth + 1);
+      else total += m[j].height;
+    }
+    return total;
+  };
 
   const decos: Decoration[] = [];
   let page = 0;
@@ -62,12 +95,16 @@ function compute(view: EditorView): { decos: DecorationSet; pages: number; sig: 
   let limit = MARGIN + TEXT_H; // bottom of current page's text area
   let sig = "";
 
-  for (let i = 0; i < blocks.length; i++) {
-    const { height: h, marginTop: mt } = measure(blocks[i].el);
+  for (let i = 0; i < n; i++) {
+    const { height: h, marginTop: mt } = m[i];
     const pageTextTop = page * STRIDE + MARGIN;
-    // Break before this block when it overflows the page (but never before the
-    // first block on a page, so a block taller than a page does not loop).
-    if (y + h > limit && y > pageTextTop) {
+    // A keep-with-next line must reserve room for its whole group, so it is
+    // pushed to the next page as a unit rather than orphaned at the bottom.
+    const commit = KEEP_WITH_NEXT.has(blocks[i].element) ? groupHeight(i) : h;
+    // Break before this block when it (or its group) overflows the page, but
+    // never before the first block on a page, so a block/group taller than a
+    // page does not loop.
+    if (y + commit > limit && y > pageTextTop) {
       page++;
       const newY = page * STRIDE + MARGIN;
       // Absorb the block's top margin into the gap so a page does not start with

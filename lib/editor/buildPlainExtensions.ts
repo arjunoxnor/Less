@@ -6,6 +6,7 @@ import { Highlight } from "@tiptap/extension-highlight";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
+import { SmartCaps } from "./smartCaps";
 
 /**
  * The plain-document editor schema: the STANDARD ProseMirror rich-text schema,
@@ -26,6 +27,7 @@ export function buildPlainExtensions() {
     TextAlign.configure({ types: ["heading", "paragraph"] }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    SmartCaps,
     Placeholder.configure({
       placeholder: "Start writing. Outline, beats, notes, anything.",
     }),

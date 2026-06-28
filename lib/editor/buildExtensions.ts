@@ -5,6 +5,7 @@ import { UndoRedo, Gapcursor, Dropcursor, Placeholder } from "@tiptap/extensions
 import { ScreenplayLine } from "./screenplayLine";
 import { ScreenplayKeymap } from "./keymap";
 import { AutoCaps } from "./autoCaps";
+import { SmartCaps } from "./smartCaps";
 import { AutoElement } from "./autoElement";
 import { ElementIcons } from "./elementIcons";
 import { buildContdMarkers } from "./contd";
@@ -82,6 +83,7 @@ export function buildExtensions(opts?: {
     ScreenplayLine,
     ScreenplayKeymap,
     AutoCaps,
+    SmartCaps,
     AutoElement,
     ElementIcons,
     // Autocomplete carries priority 200 so its keydown handler runs before the
