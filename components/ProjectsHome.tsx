@@ -773,6 +773,17 @@ export function ProjectsHome({
                   Import a code
                 </button>
               )}
+              {user.email?.toLowerCase() === "arjunguptebhai@gmail.com" && (
+                <a
+                  className="tb-btn"
+                  href="https://screenwriter.oxnorhub.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Your Storyteller practice log and growth dashboard"
+                >
+                  Storyteller
+                </a>
+              )}
               <button type="button" className="tb-btn" onClick={onSignOut}>
                 Sign out
               </button>
