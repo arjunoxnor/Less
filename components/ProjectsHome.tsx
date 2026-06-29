@@ -776,7 +776,7 @@ export function ProjectsHome({
               {user.email?.toLowerCase() === "arjunguptebhai@gmail.com" && (
                 <a
                   className="tb-btn"
-                  href="https://screenwriter.oxnorhub.com"
+                  href="https://screenwriter.oxnorhub.com/practice.html"
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Your Storyteller practice log and growth dashboard"
