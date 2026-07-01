@@ -17,7 +17,13 @@ import {
 import { trimTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import { debounce } from "./localStore";
 import { onBroadcast } from "./broadcast";
-import { loadProjectDoc, type ProjectStatus, type ProjectType } from "./projects";
+import {
+  loadProjectDoc,
+  listLocalVersions,
+  addLocalVersion,
+  type ProjectStatus,
+  type ProjectType,
+} from "./projects";
 
 export type SyncStatus =
   | "local" // not signed in — local only
@@ -320,11 +326,21 @@ export function useCloudSync(
     if (!user) setStatus("local");
   }, [user]);
 
-  /** For the history panel: snapshots of this project. */
-  const getVersions = useCallback(
-    async (): Promise<VersionRow[]> => listVersions(projectId),
-    [projectId]
-  );
+  /** For the history panel: cloud snapshots (when signed in) merged with the
+   *  on-device ring, newest first, so a signed-out writer still has rollback. */
+  const getVersions = useCallback(async (): Promise<VersionRow[]> => {
+    const cloud = userRef.current ? await listVersions(projectId) : [];
+    const local: VersionRow[] = listLocalVersions(projectId).map((v) => ({
+      id: `local:${v.at}`,
+      content: v.content,
+      title_page: v.titlePage ?? null,
+      label: v.label ? `${v.label} (this device)` : "On this device",
+      created_at: v.at,
+    }));
+    return [...cloud, ...local].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, [projectId]);
 
   /** Edit the title page: persist locally, mark dirty, schedule a cloud push. */
   const setTitlePage = useCallback((tp: TitlePage | null) => {
@@ -337,15 +353,19 @@ export function useCloudSync(
     if (userRef.current) debouncedPush.current();
   }, []);
 
-  // Take an immediate, unthrottled snapshot of the CURRENT (pre-replacement) doc
-  // so a restore or import is always recoverable, regardless of the periodic
-  // snapshot throttle. Best-effort and cloud-backed (needs a signed-in session
-  // and an existing cloud row); the in-editor confirm is the other safety layer.
+  // Take an immediate, unthrottled snapshot of the CURRENT (pre-replacement)
+  // doc so a restore or import is always recoverable, regardless of the
+  // periodic snapshot throttle. The local ring always gets one (works signed
+  // out); the cloud snapshot additionally lands when signed in.
   const snapshotLive = useCallback(
     (label: string) => {
-      const u = userRef.current;
       const ed = editor;
-      if (!u || !ed) return;
+      if (!ed) return;
+      addLocalVersion(optsRef.current.projectId, ed.getJSON(), titlePageRef.current, label, {
+        force: true,
+      });
+      const u = userRef.current;
+      if (!u) return;
       createSnapshot(optsRef.current.projectId, u.id, ed.getJSON(), titlePageRef.current, label).catch(
         (e) => console.error("pre-action snapshot failed", e)
       );

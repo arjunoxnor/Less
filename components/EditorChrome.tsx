@@ -116,13 +116,14 @@ export function EditorChrome({
 
         {cloudConfigured && (
           <div className="toolbar-group toolbar-account">
+            {/* History works signed out too: local on-device snapshots. */}
+            <button type="button" className="tb-btn" onClick={onHistoryClick} title="Version history">
+              History
+            </button>
             {user ? (
               <>
                 <span className={"sync-dot sync-" + syncStatus} title={SYNC_LABEL[syncStatus]} />
                 <span className="sync-label">{SYNC_LABEL[syncStatus]}</span>
-                <button type="button" className="tb-btn" onClick={onHistoryClick} title="Version history">
-                  History
-                </button>
                 <span className="account-email" title={user.email ?? ""}>
                   {user.email}
                 </span>

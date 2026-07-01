@@ -66,6 +66,7 @@ export function HistoryPanel({
                     Title page
                   </span>
                 )}
+                {v.label && <span className="history-tp-tag">{v.label}</span>}
               </div>
               <div className="history-preview">{preview}</div>
               <button

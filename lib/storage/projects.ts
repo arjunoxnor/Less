@@ -75,6 +75,8 @@ const lockKey = (id: string) => `less:project:${id}:pageLock`;
 const breakdownKey = (id: string) => `less:project:${id}:breakdown`;
 const dirtyKey = (id: string) => `less:project:${id}:dirty`;
 const lastSavedKey = (id: string) => `less:project:${id}:lastSavedAt`;
+const localVersKey = (id: string) => `less:project:${id}:localvers`;
+const localVersAtKey = (id: string) => `less:project:${id}:localversAt`;
 
 // Legacy single-document keys, read once during migration.
 const LEGACY_DOC = "less:script:current";
@@ -166,6 +168,85 @@ export function loadProject(id: string): Project | null {
  * storage is full or disabled, so the caller can warn the user rather than show
  * a false "Saved".
  */
+/* --- Local version history --------------------------------------------------
+   A small on-device snapshot ring per project, so a writer who never signs in
+   still has a rollback safety net (cloud snapshots require an account). Ring is
+   bounded by count AND total bytes so it cannot eat the storage quota. */
+
+export interface LocalVersion {
+  at: string; // ISO timestamp; doubles as the id
+  content: JSONContent;
+  titlePage?: TitlePage | null;
+  label?: string;
+}
+
+const LOCAL_VERS_MAX = 8; // snapshots kept per project
+const LOCAL_VERS_BYTES = 1_200_000; // ~1.2MB serialized budget per project
+const LOCAL_VERS_THROTTLE_MS = 3 * 60 * 1000; // one automatic snapshot per 3 min
+
+export function listLocalVersions(id: string): LocalVersion[] {
+  const raw = lsGet(localVersKey(id));
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as LocalVersion[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Add a snapshot to the project's local ring. Automatic snapshots (no `force`)
+ * are throttled and deduped against the newest entry; pre-destructive snapshots
+ * (restore/import, `force: true`) always land. Oldest entries are dropped to
+ * stay inside the count/byte budget; on a quota failure the ring keeps dropping
+ * and retrying so a full disk degrades to fewer snapshots, not a crash.
+ */
+export function addLocalVersion(
+  id: string,
+  content: JSONContent,
+  titlePage?: TitlePage | null,
+  label?: string,
+  opts?: { force?: boolean }
+): void {
+  const now = Date.now();
+  if (!opts?.force) {
+    const last = Number(lsGet(localVersAtKey(id)) || "0");
+    if (now - last < LOCAL_VERS_THROTTLE_MS) return;
+  }
+  const entry: LocalVersion = {
+    at: new Date(now).toISOString(),
+    content,
+    titlePage: titlePage ?? null,
+    ...(label ? { label } : {}),
+  };
+  const serializedDoc = JSON.stringify(content);
+  let ring = listLocalVersions(id);
+  // Dedupe: skip an automatic snapshot identical to the newest one.
+  if (!opts?.force && ring[0] && JSON.stringify(ring[0].content) === serializedDoc) {
+    lsSet(localVersAtKey(id), String(now));
+    return;
+  }
+  ring = [entry, ...ring].slice(0, LOCAL_VERS_MAX);
+  // Enforce the byte budget (keep at least the newest entry).
+  let payload = JSON.stringify(ring);
+  while (ring.length > 1 && payload.length > LOCAL_VERS_BYTES) {
+    ring = ring.slice(0, ring.length - 1);
+    payload = JSON.stringify(ring);
+  }
+  // Quota-resilient write: drop oldest and retry until it fits or one remains.
+  while (!lsSet(localVersKey(id), payload) && ring.length > 1) {
+    ring = ring.slice(0, ring.length - 1);
+    payload = JSON.stringify(ring);
+  }
+  lsSet(localVersAtKey(id), String(now));
+}
+
+export function clearLocalVersions(id: string): void {
+  lsSet(localVersKey(id), null);
+  lsSet(localVersAtKey(id), null);
+}
+
 export function saveProjectDoc(id: string, content: JSONContent): boolean {
   const ok = lsSet(docKey(id), JSON.stringify(content));
   // If the body did not persist (storage full/disabled), do NOT bump updatedAt
@@ -173,6 +254,8 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
   // to save and could push a stale/empty doc up on the next sync.
   if (!ok) return false;
   broadcast({ type: "docSaved", id }); // sibling tabs can adopt the newer body
+  // On-device rollback safety net (throttled inside; ~1 snapshot per 3 min).
+  addLocalVersion(id, content, loadProjectTitlePage(id));
   const meta = getProjectMeta(id);
   if (meta) {
     const patch: Partial<ProjectMeta> = { updatedAt: nowIso() };
@@ -357,6 +440,7 @@ export function deleteProject(id: string): void {
   lsSet(statusDirtyKey(id), null);
   lsSet(titleDirtyKey(id), null);
   lsSet(lastSavedKey(id), null);
+  clearLocalVersions(id);
   if (getLastOpenedId() === id) setLastOpenedId(null);
 }
 
@@ -469,6 +553,7 @@ export function dropCloudProjects(): void {
       lsSet(statusDirtyKey(m.id), null);
       lsSet(titleDirtyKey(m.id), null);
       lsSet(lastSavedKey(m.id), null);
+      clearLocalVersions(m.id);
     } else {
       keep.push(m);
     }
