@@ -183,12 +183,27 @@ export const Pagination = Extension.create<PaginationOptions>({
           schedule();
           const ro = new ResizeObserver(schedule);
           ro.observe(view.dom);
+
+          // Recompute once the web font finishes loading. Block heights change
+          // when Courier Prime replaces the fallback font, so a break computed
+          // mid-load lands in the wrong place and text spills past the sheet.
+          // Belt-and-suspenders delayed passes also catch content that mounts
+          // just after the plugin initializes.
+          const timers: ReturnType<typeof setTimeout>[] = [];
+          if (typeof document !== "undefined" && document.fonts?.ready) {
+            document.fonts.ready.then(schedule).catch(() => {});
+          }
+          timers.push(setTimeout(schedule, 60));
+          timers.push(setTimeout(schedule, 300));
+          timers.push(setTimeout(schedule, 1000));
+
           return {
             update(v, prev) {
               if (v.state.doc !== prev.doc) schedule();
             },
             destroy() {
               if (raf) cancelAnimationFrame(raf);
+              timers.forEach(clearTimeout);
               ro.disconnect();
             },
           };
