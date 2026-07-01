@@ -40,6 +40,48 @@ const json = (data: unknown, status = 200) =>
   });
 const fail = (msg: string, status = 400) => json({ error: msg }, status);
 
+// A single script/version body is at most a few hundred KB in practice; cap the
+// request body so one PATCH cannot store an arbitrarily large document into D1
+// and bloat or DoS the database (F27).
+const MAX_BODY_BYTES = 3 * 1024 * 1024; // 3 MB
+
+/** Parse a JSON body safely: too-large or malformed input yields null (the
+ *  caller returns a clean 4xx) instead of throwing into a 500 that leaks the
+ *  raw parser error (F30). */
+async function readJson(request: Request): Promise<unknown | null> {
+  const len = Number(request.headers.get("content-length") || "0");
+  if (len > MAX_BODY_BYTES) return null;
+  let text: string;
+  try {
+    text = await request.text();
+  } catch {
+    return null;
+  }
+  if (enc.encode(text).length > MAX_BODY_BYTES) return null;
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+// Best-effort in-memory rate limit for the abuse-sensitive auth endpoints
+// (sign-in and code-claim). This lives per Worker isolate, so it is a speed
+// bump, not a wall: a durable limiter (a KV or Durable Object counter keyed by
+// IP) is the real fix and is tracked in the superaudit report (F25/F26).
+const hits = new Map<string, number[]>();
+function rateLimited(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
+  arr.push(now);
+  hits.set(key, arr);
+  if (hits.size > 5000) hits.clear(); // bound memory on a long-lived isolate
+  return arr.length > limit;
+}
+const clientIp = (request: Request) =>
+  request.headers.get("cf-connecting-ip") || "unknown";
+
 /* ---------- base64url ---------- */
 function b64urlToBytes(s: string): Uint8Array {
   s = s.replace(/-/g, "+").replace(/_/g, "/");
@@ -81,6 +123,13 @@ async function signSession(payload: object, secret: string): Promise<string> {
 async function verifySession(token: string, secret: string): Promise<Record<string, unknown> | null> {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
+  // Pin the algorithm: only ever accept the HS256 we mint, so a token that
+  // declares a different alg is rejected outright (defense in depth, F29).
+  try {
+    if (JSON.parse(b64urlToString(parts[0])).alg !== "HS256") return null;
+  } catch {
+    return null;
+  }
   const ok = await crypto.subtle.verify(
     "HMAC",
     await hmacKey(secret),
@@ -98,6 +147,20 @@ async function verifySession(token: string, secret: string): Promise<Record<stri
 }
 
 /* ---------- Google ID token (RS256 against Google's JWKS) ---------- */
+
+// Cache Google's signing keys instead of re-fetching them on every sign-in
+// (F28). The certs rotate slowly; honor the response's max-age when present,
+// else keep them an hour.
+let certsCache: { keys: Array<JsonWebKey & { kid: string }>; exp: number } | null = null;
+async function googleCerts(): Promise<Array<JsonWebKey & { kid: string }>> {
+  if (certsCache && Date.now() < certsCache.exp) return certsCache.keys;
+  const res = await fetch("https://www.googleapis.com/oauth2/v3/certs");
+  const data = (await res.json()) as { keys: Array<JsonWebKey & { kid: string }> };
+  const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get("cache-control") || "")?.[1] || "3600");
+  certsCache = { keys: data.keys, exp: Date.now() + Math.max(300, maxAge) * 1000 };
+  return data.keys;
+}
+
 async function verifyGoogleIdToken(
   idToken: string,
   clientId: string
@@ -112,10 +175,8 @@ async function verifyGoogleIdToken(
   } catch {
     return null;
   }
-  const certs = (await (await fetch("https://www.googleapis.com/oauth2/v3/certs")).json()) as {
-    keys: Array<JsonWebKey & { kid: string }>;
-  };
-  const jwk = certs.keys.find((k) => k.kid === header.kid);
+  const certs = await googleCerts();
+  const jwk = certs.find((k) => k.kid === header.kid);
   if (!jwk) return null;
   const key = await crypto.subtle.importKey(
     "jwk",
@@ -166,7 +227,9 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
   try {
     // Exchange a Google ID token for a session token.
     if (method === "POST" && path === "auth/google") {
-      const body = (await request.json().catch(() => ({}))) as { idToken?: string };
+      if (rateLimited("g:" + clientIp(request), 20, 60_000))
+        return fail("Too many sign-in attempts, try again shortly", 429);
+      const body = ((await readJson(request)) || {}) as { idToken?: string };
       const g = await verifyGoogleIdToken(body.idToken || "", env.GOOGLE_CLIENT_ID);
       if (!g) return fail("Google sign-in could not be verified", 401);
       const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
@@ -182,7 +245,11 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
     // from a sync code to Google sign-in). Moves rows whose id the destination
     // does not already own, so it is safe to run more than once.
     if (method === "POST" && path === "auth/claim") {
-      const b = (await request.json().catch(() => ({}))) as { code?: string };
+      // Claiming re-owns another identity's rows, so throttle it hard: a leaked
+      // code plus an unthrottled endpoint is a data-transfer / brute-force oracle.
+      if (rateLimited("c:" + clientIp(request), 10, 60_000))
+        return fail("Too many attempts, try again shortly", 429);
+      const b = ((await readJson(request)) || {}) as { code?: string };
       const code = (b.code || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
       if (code.length < 16) return fail("Invalid code", 400);
       const srcId = "c_" + (await sha256hex(code)).slice(0, 40);
@@ -231,7 +298,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         return json(r.results);
       }
       if (method === "PUT" && seg.length === 2) {
-        const b = (await request.json()) as Record<string, unknown>;
+        const b = (await readJson(request)) as Record<string, unknown> | null;
+            if (!b) return fail("Bad request body", 400);
         const now = new Date().toISOString();
         await db
           .prepare(
@@ -285,7 +353,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
           return json(r.results);
         }
         if (method === "POST") {
-          const b = (await request.json()) as Record<string, unknown>;
+          const b = (await readJson(request)) as Record<string, unknown> | null;
+            if (!b) return fail("Bad request body", 400);
           const id = (b.id as string) || crypto.randomUUID();
           const now = new Date().toISOString();
           await db
@@ -344,7 +413,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             );
           }
           if (method === "POST") {
-            const b = (await request.json()) as Record<string, unknown>;
+            const b = (await readJson(request)) as Record<string, unknown> | null;
+            if (!b) return fail("Bad request body", 400);
             const now = new Date().toISOString();
             await db
               .prepare(
@@ -378,7 +448,8 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             });
           }
           if (method === "PATCH") {
-            const b = (await request.json()) as Record<string, unknown>;
+            const b = (await readJson(request)) as Record<string, unknown> | null;
+            if (!b) return fail("Bad request body", 400);
             const sets: string[] = [];
             const vals: unknown[] = [];
             // A body save (any PATCH carrying content) must never write title or
@@ -433,6 +504,9 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
 
     return fail("Not found", 404);
   } catch (e) {
-    return fail("Server error: " + (e instanceof Error ? e.message : String(e)), 500);
+    // Do not echo the raw error to the client (it can leak internals). Log it
+    // server-side; return a generic message.
+    console.error("API error", e);
+    return fail("Server error", 500);
   }
 };
