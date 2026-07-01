@@ -119,7 +119,6 @@ export function ScreenplayBody({
   const pageTarget = useMemo(() => getProjectMeta(projectId)?.pageTarget, [projectId]);
 
   const [currentElement, setCurrentElement] = useState<ElementType>("action");
-  const [pageCount, setPageCount] = useState(1);
   const [wordCount, setWordCount] = useState(0);
   const [saved, setSaved] = useState(true);
   const [saveError, setSaveError] = useState(false);
@@ -181,14 +180,10 @@ export function ScreenplayBody({
     setWordCount(text ? text.split(/\s+/).length : 0);
   }, []);
 
-  const computePageCount = useCallback((doc: JSONContent) => {
-    setPageCount(paginate(docToLines(doc), { autoContd: contdEnabledRef.current }).pageCount);
-  }, []);
-  const debouncedPageCount = useMemo(
-    () => debounce((doc: JSONContent) => computePageCount(doc), 300),
-    [computePageCount]
-  );
-
+  // The page count shown to the writer is the SAME one the page sheets use (the
+  // visual Pagination engine, via onPages below). We no longer run the export
+  // paginator on every keystroke: it duplicated work and could disagree with the
+  // pages actually on screen (F17/F37).
   const [pages, setPages] = useState(1);
   const extensions = useMemo(
     () => [
@@ -221,7 +216,6 @@ export function ScreenplayBody({
       setCaretLine(editor.state.selection.$from.index(0));
       setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
       measure(editor);
-      computePageCount(editor.getJSON());
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __lessEditor?: Editor }).__lessEditor = editor;
       }
@@ -230,7 +224,6 @@ export function ScreenplayBody({
       setSaved(false);
       debouncedSave(editor.getJSON());
       measure(editor);
-      debouncedPageCount(editor.getJSON());
       setCaretLine(editor.state.selection.$from.index(0));
       setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
     },
@@ -343,16 +336,14 @@ export function ScreenplayBody({
   useEffect(() => {
     if (editor && pulledTick > 0) {
       debouncedSave.cancel();
-      debouncedPageCount.cancel();
       measure(editor);
-      computePageCount(editor.getJSON());
       setSaved(true);
       // The content was just replaced from the cloud. Re-persist it and reflect
       // the REAL result: this clears a stale "not saved" after a recovered pull,
       // but does not hide a genuine storage-full that also affects this write.
       setSaveError(!saveProjectDoc(projectId, editor.getJSON()));
     }
-  }, [pulledTick, editor, measure, debouncedSave, debouncedPageCount, computePageCount]);
+  }, [pulledTick, editor, measure, debouncedSave]);
 
   useEffect(() => {
     setMod(modKeyLabel());
@@ -371,9 +362,8 @@ export function ScreenplayBody({
     contdEnabledRef.current = prefs.autoContd;
     if (editor) {
       rescanContd(editor.view);
-      computePageCount(editor.getJSON());
     }
-  }, [prefs.autoContd, editor, computePageCount]);
+  }, [prefs.autoContd, editor]);
 
   // Keep the breakdown highlight plugin's live reads current, and repaint when
   // the catalog or the toggle changes.
@@ -814,7 +804,7 @@ export function ScreenplayBody({
       </div>
 
       <StatusBar
-        pageCount={pageCount}
+        pageCount={pages}
         pageTarget={pageTarget}
         wordCount={wordCount}
         currentElement={currentElement}
@@ -876,7 +866,7 @@ export function ScreenplayBody({
       {showReports && (
         <ReportsPanel
           outline={outline}
-          pageCount={pageCount}
+          pageCount={pages}
           wordCount={wordCount}
           title={title}
           onJump={jumpToScene}

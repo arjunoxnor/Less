@@ -181,7 +181,18 @@ export const Pagination = Extension.create<PaginationOptions>({
             if (!raf) raf = requestAnimationFrame(run);
           };
           schedule();
-          const ro = new ResizeObserver(schedule);
+          // Only recompute when the editor's WIDTH changes (which re-wraps text
+          // and changes block heights). Ignore height-only changes: inserting our
+          // own page spacers changes view.dom's height, which would otherwise make
+          // the observer re-trigger the measure loop in a needless feedback loop
+          // on every pagination pass (F32).
+          let lastWidth = view.dom.clientWidth;
+          const ro = new ResizeObserver((entries) => {
+            const w = entries[0]?.contentRect.width ?? view.dom.clientWidth;
+            if (Math.abs(w - lastWidth) < 0.5) return;
+            lastWidth = w;
+            schedule();
+          });
           ro.observe(view.dom);
 
           // Recompute once the web font finishes loading. Block heights change
