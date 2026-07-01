@@ -863,14 +863,21 @@ export function ProjectsHome({
       >
         {projects.length === 0 && folders.length === 0 ? (
           <div className="home-empty">
-            <h2>No projects yet</h2>
+            <h2>Write a screenplay</h2>
             <p>
-              Start a screenplay or a plain document, then make folders and drag projects into
-              them. Everything is saved on this device, and syncs when you sign in.
+              A fast, free screenwriting editor that formats as you type and never
+              locks up your work. Start a script or a plain document. Everything
+              saves on this device instantly, and syncs across devices when you
+              sign in.
             </p>
             <button type="button" className="tb-btn tb-btn-active" onClick={() => setShowNew(true)}>
               New project
             </button>
+            <ul className="home-hints">
+              <li><kbd>Tab</kbd> cycles the line between scene, action, character, and dialogue</li>
+              <li><kbd>Enter</kbd> moves to the next element automatically (a cue drops into dialogue)</li>
+              <li>Formatting, page count, and margins are handled for you</li>
+            </ul>
           </div>
         ) : (
           <>

@@ -1213,6 +1213,30 @@ body {
   max-width: 420px;
   margin: 0 auto 22px;
 }
+.home-hints {
+  list-style: none;
+  padding: 0;
+  margin: 30px auto 0;
+  max-width: 460px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.home-hints li {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.home-hints kbd {
+  font-family: var(--font-courier-prime), monospace;
+  font-size: 12px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--toolbar-bg);
+  color: var(--toolbar-fg);
+}
 
 /* ---- Project card -------------------------------------------------------- */
 
