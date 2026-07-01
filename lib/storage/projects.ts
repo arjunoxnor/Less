@@ -3,6 +3,7 @@ import type { TitlePage } from "@/lib/export/titlePage";
 import type { PageLock } from "@/lib/export/pageLock";
 import type { BreakdownItem } from "@/lib/editor/breakdown";
 import { lsGet, lsSet } from "./localStore";
+import { broadcast } from "./broadcast";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
 
@@ -99,6 +100,7 @@ function readIndex(): ProjectMeta[] {
 
 function writeIndex(list: ProjectMeta[]): void {
   lsSet(INDEX_KEY, JSON.stringify(list));
+  broadcast({ type: "indexChanged" }); // let sibling tabs refresh the dashboard
 }
 
 function patchMeta(id: string, patch: Partial<ProjectMeta>): void {
@@ -170,6 +172,7 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
   // or re-derive the title: that would advance the index past content we failed
   // to save and could push a stale/empty doc up on the next sync.
   if (!ok) return false;
+  broadcast({ type: "docSaved", id }); // sibling tabs can adopt the newer body
   const meta = getProjectMeta(id);
   if (meta) {
     const patch: Partial<ProjectMeta> = { updatedAt: nowIso() };

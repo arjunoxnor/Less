@@ -16,7 +16,8 @@ import {
 } from "@/lib/cloud/scripts";
 import { trimTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import { debounce } from "./localStore";
-import type { ProjectStatus, ProjectType } from "./projects";
+import { onBroadcast } from "./broadcast";
+import { loadProjectDoc, type ProjectStatus, type ProjectType } from "./projects";
 
 export type SyncStatus =
   | "local" // not signed in — local only
@@ -265,6 +266,25 @@ export function useCloudSync(
       }
     })();
   }, [editor, user, projectId, pullInto]);
+
+  // --- Cross-tab: adopt a sibling tab's newer save of THIS project ---------
+  // Another tab on this device just wrote a fresher body to localStorage. If we
+  // have no unsaved edits of our own, load it into the editor so this tab cannot
+  // later autosave a stale copy over it. If we ARE dirty, we keep our edits
+  // (cloud last-write-wins reconciles later) rather than clobber them here.
+  useEffect(() => {
+    if (!editor) return;
+    return onBroadcast((msg) => {
+      if (msg.type !== "docSaved" || msg.id !== projectId) return;
+      if (optsRef.current.isDirty()) return;
+      const fresh = loadProjectDoc(projectId);
+      if (!fresh) return;
+      // Write straight into the editor (no re-save, so no broadcast echo); the
+      // localStorage copy is already the sibling's, which is what we're adopting.
+      editor.commands.setContent(fresh, { emitUpdate: false });
+      setPulledTick((t) => t + 1);
+    });
+  }, [editor, projectId]);
 
   // --- Subscribe to edits: mark dirty + schedule a background push ---------
   useEffect(() => {

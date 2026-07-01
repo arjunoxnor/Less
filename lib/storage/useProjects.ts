@@ -50,6 +50,7 @@ import {
   clearFolderTombstone,
   type Folder,
 } from "./folders";
+import { onBroadcast } from "./broadcast";
 import {
   createScript,
   deleteScript,
@@ -90,6 +91,15 @@ export function useProjects(user: User | null) {
     }
     refresh();
     refreshFolders();
+  }, [refresh, refreshFolders]);
+
+  // Cross-tab: when another tab creates/renames/deletes a project or edits
+  // folders, refresh so this tab's dashboard reflects it instead of drifting.
+  useEffect(() => {
+    return onBroadcast((msg) => {
+      if (msg.type === "indexChanged") refresh();
+      else if (msg.type === "foldersChanged") refreshFolders();
+    });
   }, [refresh, refreshFolders]);
 
   const create = useCallback(
