@@ -56,15 +56,24 @@ export function runEnterFlow(editor: Editor): boolean {
     .chain()
     .splitBlock()
     .command(({ tr, dispatch }) => {
-      // After splitBlock the cursor sits in the freshly created line. Read it
-      // from `tr.selection` (the chain's evolving transaction), not the stale
-      // `state`, and set its element type.
+      // After splitBlock the cursor sits in the freshly created line, which
+      // inherited the previous line's attrs. Normalize it: set the flow element,
+      // never carry a per-line script note onto the new line (that produced
+      // phantom gutter notes), and keep the dual (side-by-side) flag only while
+      // staying inside a dialogue cluster (otherwise it mis-indented the line).
       const line = lineAt(tr.selection.$from);
-      if (!line) return false;
-      if (line.node.attrs.element !== nextType && dispatch) {
+      if (!line || !dispatch) return true;
+      const a = line.node.attrs;
+      const keepDual =
+        !!a.dual && (nextType === "dialogue" || nextType === "parenthetical");
+      const needsFix =
+        a.element !== nextType || a.dual !== keepDual || !!a.note;
+      if (needsFix) {
         tr.setNodeMarkup(line.pos, undefined, {
-          ...line.node.attrs,
+          ...a,
           element: nextType,
+          dual: keepDual,
+          note: "",
         });
       }
       return true;

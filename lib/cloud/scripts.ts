@@ -110,14 +110,18 @@ export async function deleteScript(id: string): Promise<boolean> {
   return (await api(`scripts/${id}`, { method: "DELETE" })) !== null;
 }
 
+// Body save: content (and optionally the title page) ONLY. The title is
+// deliberately NOT sent here. A content autosave that carried the title would
+// let a stale open editor overwrite a rename made on another device; titles
+// flow exclusively through setScriptTitle (title-only, own clock). The server
+// also ignores title on any content PATCH as a second line of defense.
 export async function saveScript(
   id: string,
   content: JSONContent,
-  title: string,
   titlePage?: TitlePage | null,
   opts?: { keepalive?: boolean }
 ): Promise<string | null> {
-  const body: Record<string, unknown> = { content, title };
+  const body: Record<string, unknown> = { content };
   // Pass null to clear it; omit (undefined) to leave it unchanged.
   if (titlePage !== undefined) body.title_page = titlePage;
   const r = await api<{ updated_at: string }>(`scripts/${id}`, {

@@ -177,7 +177,16 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
     // has not set a title. A screenplay's title is always explicit; deriving it
     // from the first line (a scene heading) would clobber the real title.
     if (!meta.titleManual && meta.type === "plain") {
-      patch.title = deriveTitleFor(meta.type, content);
+      const derived = deriveTitleFor(meta.type, content);
+      patch.title = derived;
+      // A changed auto-title is a genuine local title change, so mark it dirty
+      // and advance the title clock. The content save no longer carries the
+      // title, so this is how a plain-doc rename-by-typing reaches the cloud
+      // (via the title-only endpoint on the next push).
+      if (derived !== meta.title) {
+        patch.titleAt = nowIso();
+        setTitleDirty(id, true);
+      }
     }
     patchMeta(id, patch);
   }

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Courier_Prime, Montserrat, Jost } from "next/font/google";
 import "./globals.css";
+import { StorageBanner } from "@/components/StorageBanner";
 
 // Courier Prime — a free, screen-friendly Courier (the spec's preferred font).
 // Exposed as a CSS variable so the editor can switch fonts at runtime.
@@ -48,6 +49,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${courierPrime.variable} ${montserrat.variable} ${jost.variable}`}>
+        <StorageBanner />
         {children}
       </body>
     </html>

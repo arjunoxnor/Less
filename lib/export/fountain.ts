@@ -79,6 +79,18 @@ function ensureParens(text: string): string {
   return /^\(.*\)$/.test(t) ? t : `(${t})`;
 }
 
+/**
+ * An action line whose text would be misread on re-import needs the "!" force
+ * prefix: an all-caps line reads as a character cue, and a line starting with a
+ * Fountain control character (. @ ! > ~ # =) or wrapped in parentheses reads as
+ * a heading / cue / transition / lyric / section / parenthetical. "!" forces
+ * Action and is stripped cleanly on import.
+ */
+function actionNeedsForce(text: string): boolean {
+  const t = text.trim();
+  return isAllCaps(t) || /^[.@!>~#=(]/.test(t);
+}
+
 // ---------------------------------------------------------------------------
 // Export: ScriptLine[] -> Fountain
 // ---------------------------------------------------------------------------
@@ -155,8 +167,9 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
         break;
       case "action":
       default:
-        // Force an uppercase action line with "!" so it is not read as a cue.
-        blocks.push(isAllCaps(text) ? `!${escapeInline(text)}` : escapeInline(text));
+        // Force with "!" any action line that would otherwise re-import as a
+        // different element (all-caps cue, or a leading control character).
+        blocks.push(actionNeedsForce(text) ? `!${escapeInline(text)}` : escapeInline(text));
         break;
     }
     i++;

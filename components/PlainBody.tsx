@@ -17,6 +17,8 @@ import {
   setDirty as projSetDirty,
   isTitlePageDirty as projIsTpDirty,
   setTitlePageDirty as projSetTpDirty,
+  isTitleDirty as projIsTitleDirty,
+  setTitleDirty as projSetTitleDirty,
   getLastSavedAt as projGetLastSavedAt,
   setLastSavedAt as projSetLastSavedAt,
   type ProjectStatus,
@@ -131,6 +133,8 @@ export function PlainBody({
       setDirty: (b: boolean) => projSetDirty(projectId, b),
       isTitlePageDirty: () => projIsTpDirty(projectId),
       setTitlePageDirty: (b: boolean) => projSetTpDirty(projectId, b),
+      isTitleDirty: () => projIsTitleDirty(projectId),
+      setTitleDirty: (b: boolean) => projSetTitleDirty(projectId, b),
       getLastSavedAt: () => projGetLastSavedAt(projectId),
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
       onCloudCreated: (id: string) => markCloudCreated(id),
@@ -230,7 +234,11 @@ export function PlainBody({
         user={user}
         syncStatus={syncStatus}
         onSignInClick={() => setShowAuth(true)}
-        onSignOutClick={() => void signOut()}
+        onSignOutClick={async () => {
+          // Land any pending edit before sign-out clears the local cloud copy.
+          await flushRef.current();
+          void signOut();
+        }}
         onHistoryClick={() => setShowHistory(true)}
       >
         <PlainToolbar editor={editor} onExport={handleExport} />

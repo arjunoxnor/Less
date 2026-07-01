@@ -381,9 +381,16 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             const b = (await request.json()) as Record<string, unknown>;
             const sets: string[] = [];
             const vals: unknown[] = [];
-            if ("title" in b) (sets.push("title=?"), vals.push(b.title));
+            // A body save (any PATCH carrying content) must never write title or
+            // status: those have dedicated title-only / status-only endpoints and
+            // their own clocks. A content autosave used to re-send the local title
+            // on every keystroke, so a stale open editor could silently overwrite
+            // a rename made on another device. Ignoring title/status here closes
+            // that clobber at the source, for every client.
+            const isBodySave = "content" in b;
+            if ("title" in b && !isBodySave) (sets.push("title=?"), vals.push(b.title));
             if ("content" in b) (sets.push("content=?"), vals.push(b.content != null ? JSON.stringify(b.content) : null));
-            if ("status" in b) (sets.push("status=?"), vals.push(b.status));
+            if ("status" in b && !isBodySave) (sets.push("status=?"), vals.push(b.status));
             if ("folder_id" in b) (sets.push("folder_id=?"), vals.push(b.folder_id));
             if ("position" in b) (sets.push("position=?"), vals.push(b.position));
             if ("title_page" in b)

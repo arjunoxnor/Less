@@ -57,6 +57,8 @@ import {
   setDirty as projSetDirty,
   isTitlePageDirty as projIsTpDirty,
   setTitlePageDirty as projSetTpDirty,
+  isTitleDirty as projIsTitleDirty,
+  setTitleDirty as projSetTitleDirty,
   getLastSavedAt as projGetLastSavedAt,
   setLastSavedAt as projSetLastSavedAt,
   type ProjectStatus,
@@ -271,6 +273,8 @@ export function ScreenplayBody({
       setDirty: (b: boolean) => projSetDirty(projectId, b),
       isTitlePageDirty: () => projIsTpDirty(projectId),
       setTitlePageDirty: (b: boolean) => projSetTpDirty(projectId, b),
+      isTitleDirty: () => projIsTitleDirty(projectId),
+      setTitleDirty: (b: boolean) => projSetTitleDirty(projectId, b),
       getLastSavedAt: () => projGetLastSavedAt(projectId),
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
       onCloudCreated: (id: string) => markCloudCreated(id),
@@ -756,7 +760,12 @@ export function ScreenplayBody({
         user={user}
         syncStatus={syncStatus}
         onSignInClick={() => setShowAuth(true)}
-        onSignOutClick={() => void signOut()}
+        onSignOutClick={async () => {
+          // Land any pending edit in the cloud before sign-out wipes the local
+          // cloud-backed copy (the reconcile effect clears it on identity change).
+          await flushRef.current();
+          void signOut();
+        }}
         onHistoryClick={() => setShowHistory(true)}
       >
         <ScreenplayToolbar

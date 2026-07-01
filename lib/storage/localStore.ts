@@ -169,9 +169,16 @@ function set(key: string, value: string | null): boolean {
     else window.localStorage.setItem(key, value);
     return true;
   } catch {
-    // Storage full or disabled. Return false so the callers that persist real
-    // work (the document autosave) can surface a visible "not saved" warning
-    // instead of silently dropping the write and showing a false "Saved".
+    // Storage full or disabled. Return false so callers that persist real work
+    // (the document autosave) can surface a visible "not saved" warning instead
+    // of showing a false "Saved". Also broadcast a global signal so writes that
+    // do NOT thread the boolean back to the UI (folder state, cloud bookkeeping)
+    // still make a full disk visible instead of silently corrupting sync state.
+    try {
+      window.dispatchEvent(new CustomEvent("less:storagefull"));
+    } catch {
+      /* ignore */
+    }
     return false;
   }
 }

@@ -2652,3 +2652,20 @@ body {
   color: #e0533b;
   font-weight: 700;
 }
+
+/* Sticky notice when local storage is full (see components/StorageBanner). */
+.storage-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--fg, #1a1a1e);
+  color: var(--bg, #fff);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.5);
+}

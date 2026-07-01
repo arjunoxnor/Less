@@ -21,6 +21,7 @@ export const AutoCaps = Extension.create({
   name: "screenplayAutoCaps",
 
   addProseMirrorPlugins() {
+    const editor = this.editor;
     return [
       new Plugin({
         key: autoCapsKey,
@@ -30,6 +31,10 @@ export const AutoCaps = Extension.create({
         // characters, we append a follow-up transaction that fixes them.
         appendTransaction: (transactions, _oldState, newState) => {
           if (!transactions.some((t) => t.docChanged)) return null;
+          // Never rewrite the text while an IME composition is in flight:
+          // replacing the composing text node cancels composition and eats
+          // CJK / accented input. AutoCaps re-runs on compositionend anyway.
+          if (editor?.view?.composing) return null;
 
           const tr = newState.tr;
           let modified = false;

@@ -11,6 +11,7 @@ import {
   fetchScript,
   listVersions,
   saveScript,
+  setScriptTitle,
   type VersionRow,
 } from "@/lib/cloud/scripts";
 import { trimTitlePage, type TitlePage } from "@/lib/export/titlePage";
@@ -45,6 +46,11 @@ export interface CloudSyncOpts {
    *  pushed on reconcile but a merely-stale local title page is not. */
   isTitlePageDirty: () => boolean;
   setTitlePageDirty: (dirty: boolean) => void;
+  /** Title-specific dirty flag (persisted). A genuine local title change (a
+   *  rename, or a plain-doc auto-derived title) is pushed via the title-only
+   *  endpoint; the content save never carries the title. */
+  isTitleDirty: () => boolean;
+  setTitleDirty: (dirty: boolean) => void;
   getLastSavedAt: () => string | null;
   setLastSavedAt: (iso: string | null) => void;
   /** Called after this project's cloud row is first created. */
@@ -109,6 +115,19 @@ export function useCloudSync(
     [editor]
   );
 
+  // Push a genuine local title change via the title-only endpoint. Called after
+  // a content save so the content path never carries (and cannot clobber) the
+  // title. Cleared only when the value that landed is still the current title.
+  const flushTitle = useCallback(async () => {
+    const o = optsRef.current;
+    if (!o.isTitleDirty()) return;
+    const ed = editor;
+    if (!ed) return;
+    const title = (o.getTitle?.() || "").trim() || o.deriveTitle(ed.getJSON());
+    const ts = await setScriptTitle(o.projectId, title || "Untitled");
+    if (ts) o.setTitleDirty(false);
+  }, [editor]);
+
   // Push the current document to the cloud (with a throttled snapshot).
   const pushNow = useCallback(async () => {
     const u = userRef.current;
@@ -124,7 +143,7 @@ export function useCloudSync(
       const tp = titlePageRef.current;
       const snapshotJson = JSON.stringify(doc);
       const tpSnapshot = JSON.stringify(tp);
-      const ts = await saveScript(o.projectId, doc, (o.getTitle?.() || "").trim() || o.deriveTitle(doc), tp);
+      const ts = await saveScript(o.projectId, doc, tp);
       // A null result means the save never reached the cloud (e.g. the session
       // expired -> 401). Keep it dirty and show an error so it retries; never
       // report "synced" or clear the dirty flag, which would risk a later pull
@@ -150,12 +169,14 @@ export function useCloudSync(
           console.error("snapshot failed", e)
         );
       }
+      // A local title change (rename / plain-doc auto-name) rides its own path.
+      await flushTitle().catch((e) => console.error("title push failed", e));
       setStatus("synced");
     } catch (e) {
       console.error("cloud save failed", e);
       setStatus("error");
     }
-  }, [editor]);
+  }, [editor, flushTitle]);
 
   const debouncedPush = useRef(debounce(() => void pushNow(), PUSH_DEBOUNCE_MS));
   useEffect(() => {
@@ -196,7 +217,6 @@ export function useCloudSync(
             const ts = await saveScript(
               projectId,
               live,
-              (o.getTitle?.() || "").trim() || o.deriveTitle(live),
               tpDirty ? titlePageRef.current : undefined
             );
             // Keep dirty if the save did not actually land (null = 401/offline),
@@ -205,6 +225,7 @@ export function useCloudSync(
               o.setLastSavedAt(ts);
               o.setDirty(false);
               if (tpDirty) o.setTitlePageDirty(false);
+              await flushTitle().catch((e) => console.error("title push failed", e));
             } else {
               setStatus("error");
             }
@@ -336,10 +357,12 @@ export function useCloudSync(
     [pullInto, pushNow, snapshotLive]
   );
 
-  /** Flush any pending debounced push now (used on navigating away). */
-  const flush = useCallback(() => {
+  /** Flush any pending debounced push now (used on navigating away and before
+   *  sign-out). Awaitable so a caller can ensure the final edit lands in the
+   *  cloud before local cloud-backed copies are cleared. */
+  const flush = useCallback(async () => {
     debouncedPush.current.cancel();
-    if (userRef.current && optsRef.current.isDirty()) void pushNow();
+    if (userRef.current && optsRef.current.isDirty()) await pushNow();
   }, [pushNow]);
 
   /**
@@ -356,15 +379,14 @@ export function useCloudSync(
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     const doc = ed.getJSON();
     const tp = titlePageRef.current;
-    const title = (o.getTitle?.() || "").trim() || o.deriveTitle(doc);
     // Measure UTF-8 bytes (the keepalive cap is on the wire body, not UTF-16
     // chars), so a multi-byte (CJK/emoji) doc is not wrongly admitted.
     const bytes = new TextEncoder().encode(
-      JSON.stringify({ content: doc, title, title_page: tp })
+      JSON.stringify({ content: doc, title_page: tp })
     ).length;
     if (bytes < 60000) {
       // Fall back to a normal best-effort push if the keepalive send is rejected.
-      void saveScript(o.projectId, doc, title, o.isTitlePageDirty() ? tp : undefined, {
+      void saveScript(o.projectId, doc, o.isTitlePageDirty() ? tp : undefined, {
         keepalive: true,
       }).catch(() => void pushNow());
     } else {
