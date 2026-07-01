@@ -51,6 +51,7 @@ import {
   type Folder,
 } from "./folders";
 import { onBroadcast } from "./broadcast";
+import { clockNewer, decideField, decidePlacement, mapLimit } from "./lww";
 import {
   createScript,
   deleteScript,
@@ -339,28 +340,33 @@ export function useProjects(user: User | null) {
       // success when pushes silently failed (e.g. an expired session 401s).
       let failures = 0;
       try {
-        for (const m of listProjects()) {
-          if (!m.cloudCreated) {
-            const doc = loadProjectDoc(m.id);
-            if (doc && isMeaningfulFor(m.type, doc)) {
-              try {
-                const row = await createScript(u.id, m.title, doc, {
-                  id: m.id,
-                  type: m.type,
-                  status: m.status,
-                  titlePage: loadProjectTitlePage(m.id),
-                  folderId: m.folderId ?? null,
-                  position: m.order ?? null,
-                });
-                if (row) markCloudCreated(m.id);
-                else failures++; // null row = not created (auth/expired)
-              } catch (e) {
-                console.error("push anonymous project failed", e);
-                failures++;
-              }
+        // Push local-only ("anonymous") projects up. These are independent, so
+        // run them with bounded concurrency instead of one serial round-trip per
+        // project (a first sign-in with many local scripts used to be a storm).
+        const anon = listProjects().filter((m) => !m.cloudCreated);
+        const anonResults = await mapLimit(anon, 6, async (m) => {
+          const doc = loadProjectDoc(m.id);
+          if (!doc || !isMeaningfulFor(m.type, doc)) return true; // nothing to push
+          try {
+            const row = await createScript(u.id, m.title, doc, {
+              id: m.id,
+              type: m.type,
+              status: m.status,
+              titlePage: loadProjectTitlePage(m.id),
+              folderId: m.folderId ?? null,
+              position: m.order ?? null,
+            });
+            if (row) {
+              markCloudCreated(m.id);
+              return true;
             }
+            return false; // null row = not created (auth/expired)
+          } catch (e) {
+            console.error("push anonymous project failed", e);
+            return false;
           }
-        }
+        });
+        failures += anonResults.filter((ok) => !ok).length;
         // Folders: merge local and cloud, last-write-wins by updated_at, with
         // delete tombstones so a folder removed on one device stays removed.
         try {
@@ -474,24 +480,30 @@ export function useProjects(user: User | null) {
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;
-          const statusDirty = isStatusDirty(c.id);
-          const titleDirty = isTitleDirty(c.id);
-          const cloudTitleNewer =
-            new Date(c.title_at ?? c.updated_at).getTime() >
-            new Date(lm.titleAt ?? lm.updatedAt).getTime();
-          const cloudStatusNewer =
-            new Date(c.status_at ?? c.updated_at).getTime() >
-            new Date(lm.statusAt ?? lm.updatedAt).getTime();
+          const cloudTitleNewer = clockNewer(c.title_at, c.updated_at, lm.titleAt, lm.updatedAt);
+          const cloudStatusNewer = clockNewer(c.status_at, c.updated_at, lm.statusAt, lm.updatedAt);
 
-          // Title: a strictly-newer cloud title (by title_at) supersedes a pending
-          // local rename; otherwise push the local rename (self-heal for an
-          // offline/signed-out dashboard rename); otherwise adopt a newer cloud
-          // title. Never let a non-title PATCH's clock bump clobber a rename.
-          if (titleDirty && cloudTitleNewer && c.title && c.title !== lm.title) {
-            patchProjectMeta(c.id, { title: c.title, titleManual: true, titleAt: c.title_at ?? c.updated_at });
-            setTitleDirty(c.id, false);
-          } else if (titleDirty) {
-            if (lm.title && lm.title !== c.title) {
+          // Title: decide via the shared pure LWW rule (tested in lww.test.ts),
+          // then perform the side effect. A strictly-newer cloud title supersedes
+          // a pending local rename; otherwise the local rename is pushed (offline
+          // self-heal); otherwise a newer cloud title is adopted.
+          switch (
+            decideField({
+              dirty: isTitleDirty(c.id),
+              cloudNewer: cloudTitleNewer,
+              localValue: lm.title,
+              cloudValue: c.title,
+            })
+          ) {
+            case "pull":
+              patchProjectMeta(c.id, {
+                title: c.title,
+                titleManual: true,
+                titleAt: c.title_at ?? c.updated_at,
+              });
+              setTitleDirty(c.id, false);
+              break;
+            case "push":
               try {
                 const ts = await setScriptTitle(c.id, lm.title);
                 if (ts === null) failures++;
@@ -503,23 +515,26 @@ export function useProjects(user: User | null) {
                 console.error("title push failed", e);
                 failures++;
               }
-            } else {
-              setTitleDirty(c.id, false); // already matches the cloud
-            }
-          } else if (cloudTitleNewer && c.title && c.title !== lm.title) {
-            patchProjectMeta(c.id, {
-              title: c.title,
-              titleManual: true,
-              titleAt: c.title_at ?? c.updated_at,
-            });
+              break;
+            case "clearDirty":
+              setTitleDirty(c.id, false);
+              break;
           }
 
-          // Status: same shape, on status_at.
-          if (statusDirty && cloudStatusNewer && c.status && c.status !== lm.status) {
-            patchProjectMeta(c.id, { status: c.status, statusAt: c.status_at ?? c.updated_at });
-            setStatusDirty(c.id, false);
-          } else if (statusDirty) {
-            if (lm.status && lm.status !== c.status) {
+          // Status: same rule, on status_at.
+          switch (
+            decideField({
+              dirty: isStatusDirty(c.id),
+              cloudNewer: cloudStatusNewer,
+              localValue: lm.status,
+              cloudValue: c.status,
+            })
+          ) {
+            case "pull":
+              patchProjectMeta(c.id, { status: c.status, statusAt: c.status_at ?? c.updated_at });
+              setStatusDirty(c.id, false);
+              break;
+            case "push":
               try {
                 const ts = await setScriptStatus(c.id, lm.status);
                 if (ts === null) failures++;
@@ -531,11 +546,10 @@ export function useProjects(user: User | null) {
                 console.error("status push failed", e);
                 failures++;
               }
-            } else {
-              setStatusDirty(c.id, false); // already matches the cloud
-            }
-          } else if (cloudStatusNewer && c.status && c.status !== lm.status) {
-            patchProjectMeta(c.id, { status: c.status, statusAt: c.status_at ?? c.updated_at });
+              break;
+            case "clearDirty":
+              setStatusDirty(c.id, false);
+              break;
           }
         }
 
@@ -545,19 +559,24 @@ export function useProjects(user: User | null) {
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;
-          const samePlacement =
-            (lm.folderId ?? null) === (c.folder_id ?? null) &&
-            (lm.order ?? null) === (c.position ?? null);
-          if (samePlacement) continue;
-          const cloudPlaced = c.placed_at ?? c.updated_at;
-          // Fall back to createdAt (NOT updatedAt) when this device never set an
-          // explicit placement: a content save or status change bumps updatedAt,
-          // and using it here would let a project that was never deliberately
-          // placed locally out-rank — and erase — a real cloud folder filing.
-          const localPlaced = lm.placedAt ?? lm.createdAt;
-          if (new Date(cloudPlaced).getTime() > new Date(localPlaced).getTime()) {
-            setProjectPlacement(c.id, c.folder_id ?? null, c.position ?? null, cloudPlaced);
-          } else {
+          const decision = decidePlacement({
+            localFolderId: lm.folderId,
+            localPosition: lm.order,
+            localPlacedAt: lm.placedAt,
+            localCreatedAt: lm.createdAt,
+            cloudFolderId: c.folder_id,
+            cloudPosition: c.position,
+            cloudPlacedAt: c.placed_at,
+            cloudUpdatedAt: c.updated_at,
+          });
+          if (decision === "pull") {
+            setProjectPlacement(
+              c.id,
+              c.folder_id ?? null,
+              c.position ?? null,
+              c.placed_at ?? c.updated_at
+            );
+          } else if (decision === "push") {
             try {
               // A 401 makes this resolve false (not throw), so count it as a
               // failure rather than silently dropping the placement push.
@@ -570,18 +589,22 @@ export function useProjects(user: User | null) {
             }
           }
         }
-        for (const id of listTombstones()) {
+        // Flush queued deletes concurrently (independent, idempotent). Only clear
+        // a tombstone when the server actually deleted it; a 401 returns false, so
+        // we keep it and retry next pass instead of orphaning the cloud row.
+        const tombResults = await mapLimit(listTombstones(), 6, async (id) => {
           try {
-            // Only clear the queued delete when the server actually deleted it;
-            // a 401 returns false, so we keep the tombstone and retry next pass
-            // instead of orphaning the cloud row and reporting success.
-            if (await deleteScript(id)) clearTombstone(id);
-            else failures++;
+            if (await deleteScript(id)) {
+              clearTombstone(id);
+              return true;
+            }
+            return false;
           } catch (e) {
             console.error("tombstone flush failed", e);
-            failures++;
+            return false;
           }
-        }
+        });
+        failures += tombResults.filter((ok) => !ok).length;
         refresh();
         refreshFolders();
         return failures === 0;
