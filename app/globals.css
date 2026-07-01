@@ -2693,3 +2693,20 @@ body {
   line-height: 1.4;
   box-shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.5);
 }
+
+/* Shown while an evicted (cloud-only) body is re-fetched before the editor mounts. */
+.host-hydrate {
+  max-width: 480px;
+  margin: 120px auto;
+  padding: 0 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.host-hydrate-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 16px;
+}

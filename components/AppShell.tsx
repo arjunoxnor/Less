@@ -14,6 +14,7 @@ import {
   getLastOpenedId,
   getProjectMeta,
   setLastOpenedId,
+  evictSyncedBodies,
   type ProjectType,
   type ProjectStatus,
 } from "@/lib/storage/projects";
@@ -115,6 +116,27 @@ export function AppShell() {
     const id = parseHash();
     if (id && getProjectMeta(id)) setView({ kind: "editor", id });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Storage pressure: free the local bodies of safely-synced projects when a
+  // write fails (quota) or usage is already high at startup. Only clean,
+  // cloud-backed, not-open projects are eligible (see evictSyncedBodies); the
+  // body re-loads from the cloud when that project is next opened.
+  useEffect(() => {
+    const onFull = () => {
+      const n = evictSyncedBodies({ exceptId: getLastOpenedId(), max: 5 });
+      if (n > 0) console.info(`Freed local copies of ${n} synced project(s)`);
+    };
+    window.addEventListener("less:storagefull", onFull);
+    void (async () => {
+      try {
+        const est = await navigator.storage?.estimate?.();
+        if (est?.usage && est?.quota && est.usage / est.quota > 0.85) onFull();
+      } catch {
+        /* estimate unsupported: the event path still covers real failures */
+      }
+    })();
+    return () => window.removeEventListener("less:storagefull", onFull);
   }, []);
 
   // Drive the view from the hash so browser back/forward works.

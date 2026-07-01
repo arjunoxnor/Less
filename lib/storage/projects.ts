@@ -45,6 +45,9 @@ export interface ProjectMeta {
   titleAt?: string;
   /** When the status last changed locally (own clock, same reason as titleAt). */
   statusAt?: string;
+  /** The local body was evicted to free storage (the cloud copy is the truth).
+   *  The editor host re-fetches it from the cloud before mounting. */
+  bodyEvicted?: boolean;
 }
 
 /** A full project: metadata plus its body. */
@@ -245,6 +248,57 @@ export function addLocalVersion(
 export function clearLocalVersions(id: string): void {
   lsSet(localVersKey(id), null);
   lsSet(localVersAtKey(id), null);
+}
+
+/* --- Storage eviction --------------------------------------------------------
+   Under storage pressure, free the LARGE local artifacts (doc body + snapshot
+   ring) of projects whose truth is safely in the cloud. Local-first means a
+   local copy is sacred unless ALL of these hold: it has a cloud row, it has no
+   unsynced edits, it has actually synced at least once, and it is not the
+   project currently open. Metadata, title page, page locks, and breakdown tags
+   are kept (small, and the latter two exist only locally). The evicted body is
+   re-fetched from the cloud before the editor mounts (see EditorHost). */
+
+export function evictSyncedBodies(opts?: { exceptId?: string | null; max?: number }): number {
+  const except = opts?.exceptId ?? getLastOpenedId();
+  const max = opts?.max ?? 5;
+  const candidates = readIndex()
+    .filter(
+      (m) =>
+        m.cloudCreated &&
+        !m.bodyEvicted &&
+        m.id !== except &&
+        lsGet(dirtyKey(m.id)) !== "1" && // no unsynced edits
+        !!lsGet(lastSavedKey(m.id)) && // synced at least once
+        !!lsGet(docKey(m.id)) // has a body to free
+    )
+    // Least-recently-edited first: the writer is least likely to miss these.
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : 1))
+    .slice(0, max);
+  for (const m of candidates) {
+    lsSet(docKey(m.id), null);
+    clearLocalVersions(m.id);
+    // Clearing lastSavedAt makes the open-time reconcile treat the cloud copy
+    // as newer (belt and suspenders behind the bodyEvicted fetch path).
+    lsSet(lastSavedKey(m.id), null);
+    patchMeta(m.id, { bodyEvicted: true });
+  }
+  return candidates.length;
+}
+
+/** Called after the cloud body is re-fetched on open: store it and clear the flag. */
+export function restoreEvictedBody(
+  id: string,
+  content: JSONContent,
+  titlePage: TitlePage | null,
+  cloudUpdatedAt: string
+): boolean {
+  const ok = lsSet(docKey(id), JSON.stringify(content));
+  if (!ok) return false;
+  saveProjectTitlePage(id, titlePage);
+  lsSet(lastSavedKey(id), cloudUpdatedAt);
+  patchMeta(id, { bodyEvicted: false });
+  return true;
 }
 
 export function saveProjectDoc(id: string, content: JSONContent): boolean {
