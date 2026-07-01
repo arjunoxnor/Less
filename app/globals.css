@@ -2710,3 +2710,106 @@ body {
   justify-content: center;
   margin-top: 16px;
 }
+
+/* ============================ Mobile / tablet ============================= */
+/* Under 720px the fixed 8.5in page becomes a full-width sheet with percentage
+   indents (a reflowed page, like mobile word processors). The pagination
+   engine measures the real rendered heights, so page breaks stay correct for
+   the narrower measure. Toolbars become swipeable strips, panels go full
+   screen, and touch targets get room. */
+@media (max-width: 720px) {
+  /* Toolbars: one swipeable row instead of wrapping into a tall stack. */
+  .toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+  .toolbar-group {
+    flex: 0 0 auto;
+  }
+  .tb-btn {
+    padding: 8px 10px; /* comfortable touch target */
+    white-space: nowrap;
+  }
+  .account-email {
+    display: none; /* long emails blow up the strip; the sync dot remains */
+  }
+
+  /* The page: full width, reflowed. */
+  .page-scroll {
+    padding: 12px 0 48px;
+  }
+  .page-sheet {
+    width: 100%;
+    border-radius: 0;
+  }
+  .sp-editor .sp-prose {
+    width: 100%;
+    padding: 40px 5% 56px 7%;
+  }
+  /* Element indents as percentages of the narrow page. */
+  .sp-prose .sp-character {
+    margin-left: 26%;
+  }
+  .sp-prose .sp-parenthetical {
+    margin-left: 18%;
+    margin-right: 18%;
+  }
+  .sp-prose .sp-dialogue {
+    margin-left: 12%;
+    margin-right: 10%;
+  }
+  .sp-prose .sp-line[data-dual="true"] {
+    margin-left: 46%;
+    margin-right: 0;
+    width: 50%;
+  }
+  .sp-prose .sp-character[data-dual="true"] {
+    margin-left: 50%;
+  }
+  .sp-prose .sp-parenthetical[data-dual="true"] {
+    margin-left: 48%;
+  }
+
+  /* Plain documents reflow the same way (.pl-prose is the 8.5in page). */
+  .pl-prose {
+    width: 100%;
+    padding: 40px 6% 56px;
+  }
+
+  /* Panels (find, scenes, cast, notes, reports, history) take the screen. */
+  .side-panel {
+    width: 100vw;
+    max-width: 100vw;
+    border-left: none;
+  }
+
+  /* Status bar: compact, wrapping. */
+  .status-bar {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 6px 12px;
+  }
+
+  /* Home: tighter grid and a swipeable top bar. */
+  .home-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 8px;
+  }
+  .home-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .chip-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+}
