@@ -8,3 +8,10 @@ compatibility_date = "2024-11-01"
 binding = "DB"
 database_name = "less-db"
 database_id = "ec14ff01-64ae-48e0-b176-0ffa0bf596e9"
+
+# Durable rate-limit counters for the abuse-sensitive auth endpoints. KV is
+# eventually consistent, which is fine for a limiter (best-effort counting,
+# but it survives isolate restarts, unlike an in-memory Map).
+[[kv_namespaces]]
+binding = "RATE"
+id = "cae29f4f420b4947bd26888a5ed857d8"

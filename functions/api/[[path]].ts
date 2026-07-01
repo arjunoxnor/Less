@@ -11,6 +11,14 @@ interface Env {
   DB: D1Database;
   GOOGLE_CLIENT_ID: string;
   SESSION_SECRET: string;
+  /** KV namespace for durable rate-limit counters (absent in bare local dev). */
+  RATE?: KVNamespaceLite;
+}
+
+// Minimal KV typing so this file stays dependency-free.
+interface KVNamespaceLite {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string, opts?: { expirationTtl?: number }): Promise<void>;
 }
 
 // Minimal D1 typings so this file is self-contained (no extra deps).
@@ -66,18 +74,39 @@ async function readJson(request: Request): Promise<unknown | null> {
   }
 }
 
-// Best-effort in-memory rate limit for the abuse-sensitive auth endpoints
-// (sign-in and code-claim). This lives per Worker isolate, so it is a speed
-// bump, not a wall: a durable limiter (a KV or Durable Object counter keyed by
-// IP) is the real fix and is tracked in the superaudit report (F25/F26).
+// Rate limit for the abuse-sensitive auth endpoints (sign-in and code-claim).
+// Durable path: a KV counter per (bucket, ip, time-window) with a TTL, so the
+// count survives isolate restarts and is shared across instances. KV counting
+// is eventually consistent (racing increments can undercount briefly), which is
+// acceptable for a limiter. The in-memory Map remains as a same-isolate fast
+// path and as the only layer in bare local dev where KV is not bound.
 const hits = new Map<string, number[]>();
-function rateLimited(key: string, limit: number, windowMs: number): boolean {
+function memLimited(key: string, limit: number, windowMs: number): boolean {
   const now = Date.now();
   const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
   arr.push(now);
   hits.set(key, arr);
   if (hits.size > 5000) hits.clear(); // bound memory on a long-lived isolate
   return arr.length > limit;
+}
+async function rateLimited(
+  env: Env,
+  key: string,
+  limit: number,
+  windowMs: number
+): Promise<boolean> {
+  const mem = memLimited(key, limit, windowMs);
+  if (!env.RATE) return mem;
+  try {
+    const windowSec = Math.ceil(windowMs / 1000);
+    const bucket = Math.floor(Date.now() / windowMs);
+    const k = `rl:${key}:${bucket}`;
+    const n = parseInt((await env.RATE.get(k)) || "0", 10) + 1;
+    await env.RATE.put(k, String(n), { expirationTtl: Math.max(60, windowSec * 2) });
+    return mem || n > limit;
+  } catch {
+    return mem; // KV hiccup: fall back to the in-memory layer, never fail open+closed oddly
+  }
 }
 const clientIp = (request: Request) =>
   request.headers.get("cf-connecting-ip") || "unknown";
@@ -227,7 +256,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
   try {
     // Exchange a Google ID token for a session token.
     if (method === "POST" && path === "auth/google") {
-      if (rateLimited("g:" + clientIp(request), 20, 60_000))
+      if (await rateLimited(env, "g:" + clientIp(request), 20, 60_000))
         return fail("Too many sign-in attempts, try again shortly", 429);
       const body = ((await readJson(request)) || {}) as { idToken?: string };
       const g = await verifyGoogleIdToken(body.idToken || "", env.GOOGLE_CLIENT_ID);
@@ -247,7 +276,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
     if (method === "POST" && path === "auth/claim") {
       // Claiming re-owns another identity's rows, so throttle it hard: a leaked
       // code plus an unthrottled endpoint is a data-transfer / brute-force oracle.
-      if (rateLimited("c:" + clientIp(request), 10, 60_000))
+      if (await rateLimited(env, "c:" + clientIp(request), 10, 60_000))
         return fail("Too many attempts, try again shortly", 429);
       const b = ((await readJson(request)) || {}) as { code?: string };
       const code = (b.code || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
