@@ -260,8 +260,33 @@ body {
 }
 /* The transparent spacer the pagination plugin inserts at each page boundary. */
 .pm-page-gap {
+  display: block;
   pointer-events: none;
   user-select: none;
+}
+
+/* Mid-block split widget (F16): (MORE), the page-gap spacer, and NAME (CONT'D)
+   render as display:block spans inside the straddling dialogue/action block,
+   in the page's own 12pt Courier. The offsets are relative to the dialogue
+   block's content box (already at the 1in dialogue indent): (MORE) sits at the
+   dialogue indent, the continued cue one inch further right at the character
+   indent. Fixed 16px heights keep the pagination math exact; nowrap so a long
+   cue name can never wrap into a second line and shift the page below. */
+.pm-split {
+  pointer-events: none;
+  user-select: none;
+}
+.pm-split-more,
+.pm-split-contd {
+  display: block;
+  height: 16px;
+  line-height: 16px;
+  white-space: nowrap;
+  font: inherit;
+}
+.pm-split-contd {
+  margin-left: 1in;
+  text-transform: uppercase;
 }
 
 /* ---- Status bar (2B.4: 26px) -------------------------------------------- */

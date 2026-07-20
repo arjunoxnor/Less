@@ -216,7 +216,9 @@ function computeTransition(
   const typed = upToCaret.trimStart();
   const lead = upToCaret.length - typed.length;
 
-  // Seed the common transitions the moment you land on an empty transition line.
+  // Seed the common transitions when a doc-changing action (the Enter flow or
+  // a retype) leaves the caret on an empty transition line. A mere caret visit
+  // never reaches here: the plugin only recomputes on document changes.
   if (!typed) {
     const items = TRANSITION_SEED.map((t) => ({ text: t, hint: "" }));
     return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
@@ -477,6 +479,11 @@ export function buildAutocomplete(
     name: "screenplayAutocomplete",
     priority: 200,
     addProseMirrorPlugins() {
+      // Whether the dropdown is actually on screen (set by push(), below).
+      // Key handling follows the RENDERED menu, not the plugin state alone:
+      // when coordsAtPos fails, React gets null and no menu is visible, and an
+      // invisible menu must never consume arrow keys.
+      let rendered = false;
       return [
         new Plugin<AcPluginState>({
           key: autocompleteKey,
@@ -485,13 +492,23 @@ export function buildAutocomplete(
             apply(tr, prev, _old, newState) {
               const meta = tr.getMeta(autocompleteKey) as Partial<AcPluginState> | undefined;
               if (meta) return { ...prev, ...meta };
-              return compute(newState, getOutline);
+              // Typing gate: only a transaction that changed the document may
+              // open or refresh the menu. A caret that merely lands somewhere
+              // (a click, arrow travel over a heading's time token) must never
+              // open it, or ArrowUp/ArrowDown get consumed cycling a menu the
+              // writer never asked for; a pure selection move dismisses an
+              // open menu instead. Transactions that touch neither the doc nor
+              // the selection (decoration passes from other plugins) leave the
+              // state alone.
+              if (tr.docChanged) return compute(newState, getOutline);
+              if (tr.selectionSet) return CLOSED;
+              return prev;
             },
           },
           props: {
             handleKeyDown(view, event) {
               const st = autocompleteKey.getState(view.state);
-              if (!st || !st.open || st.items.length === 0) return false;
+              if (!st || !st.open || st.items.length === 0 || !rendered) return false;
               const n = st.items.length;
               // Stop the key from bubbling to the window-level Escape handlers
               // (focus mode, find panel) once the menu has consumed it.
@@ -571,6 +588,7 @@ export function buildAutocomplete(
                   next = null;
                 }
               }
+              rendered = next != null;
               const sig = next ? JSON.stringify(next) : "null";
               if (sig === last) return;
               last = sig;
@@ -589,6 +607,7 @@ export function buildAutocomplete(
             return {
               update: () => push(),
               destroy: () => {
+                rendered = false;
                 scroller.removeEventListener("scroll", reposition);
                 window.removeEventListener("resize", reposition);
                 if (last !== "null") onState?.(null);

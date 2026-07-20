@@ -10,6 +10,7 @@ import {
   TOP_BASELINE,
   rightAlignX,
   sanitize,
+  sanitizeLoose,
   wrap,
 } from "./layout";
 import { cueBaseName } from "@/lib/editor/outline";
@@ -45,6 +46,8 @@ export interface DrawOp {
   text: string;
   x: number;
   y: number;
+  /** Draw in the bold face (scene headings, matching the on-screen weight). */
+  bold?: boolean;
 }
 /** One laid-out page (1-based number); the renderer omits the stamp on page 1. */
 export interface Page {
@@ -66,6 +69,8 @@ export interface PaginateResult {
 interface Row {
   text: string;
   x: number;
+  /** Draw in the bold face (scene-heading rows). */
+  bold?: boolean;
 }
 interface Block {
   kind: ElementType;
@@ -155,8 +160,13 @@ function buildDualRows(blocks: Block[], originX: number): Row[] {
 }
 
 /** Pass 1: turn lines into laid-out blocks of physical rows. */
-function buildBlocks(lines: ScriptLine[], contdFlags?: boolean[] | null): Block[] {
+function buildBlocks(
+  lines: ScriptLine[],
+  contdFlags?: boolean[] | null,
+  keepUnicode?: boolean
+): Block[] {
   const blocks: Block[] = [];
+  const clean = keepUnicode ? sanitizeLoose : sanitize;
   let currentCue: string | undefined;
   let sceneCounter = 0;
 
@@ -170,10 +180,14 @@ function buildBlocks(lines: ScriptLine[], contdFlags?: boolean[] | null): Block[
       kind === "character" && contdFlags?.[li]
         ? (line.text ?? "") + CONTD
         : line.text ?? "";
-    const text = sanitize(rawText);
+    const text = clean(rawText);
     const rows: Row[] = wrap(text, el.maxChars).map((s) => ({
       text: s,
       x: el.rightAlign ? rightAlignX(s) : el.x,
+      // Scene headings print in the bold face, matching the screen (globals.css
+      // sets font-weight 700 on .sp-scene_heading). Purely a draw attribute:
+      // Courier's metrics are identical across weights, so breaks never move.
+      ...(kind === "scene_heading" ? { bold: true } : {}),
     }));
 
     if (kind === "character") {
@@ -211,10 +225,10 @@ function buildBlocks(lines: ScriptLine[], contdFlags?: boolean[] | null): Block[
 /** Pass 2: place blocks onto pages, applying the break rules. */
 export function paginate(
   lines: ScriptLine[],
-  opts?: { sceneNumbers?: boolean; autoContd?: boolean }
+  opts?: { sceneNumbers?: boolean; autoContd?: boolean; keepUnicode?: boolean }
 ): PaginateResult {
   const contdFlags = opts?.autoContd ? computeContinuations(lines) : null;
-  const blocks = buildBlocks(lines, contdFlags);
+  const blocks = buildBlocks(lines, contdFlags, opts?.keepUnicode);
   const sceneNumbers = opts?.sceneNumbers ?? false;
 
   const pages: Page[] = [];
@@ -234,9 +248,9 @@ export function paginate(
   };
 
   const remainingSlots = () => LINES_PER_PAGE - usedSlots;
-  const place = (text: string, x: number) => {
+  const place = (text: string, x: number, bold?: boolean) => {
     markStart();
-    ops.push({ text, x, y });
+    ops.push({ text, x, y, ...(bold ? { bold: true } : {}) });
     if (revisedMark) ops.push({ text: "*", x: REVISION_X, y });
     y -= LINE;
     usedSlots++;
@@ -326,7 +340,7 @@ export function paginate(
   const placeFlow = (rows: Row[]) => {
     for (const r of rows) {
       if (remainingSlots() <= 0) newPage();
-      place(r.text, r.x);
+      place(r.text, r.x, r.bold);
     }
   };
 
@@ -480,7 +494,7 @@ export function paginate(
       ops.push({ text: num, x: RIGHT_EDGE + CHAR_W, y: headY });
       for (const r of block.rows) {
         if (remainingSlots() <= 0) newPage();
-        place(r.text, r.x);
+        place(r.text, r.x, r.bold);
       }
     } else {
       placeFlow(block.rows);
