@@ -19,8 +19,16 @@ export type MenuItem =
       onSelect: () => void;
       danger?: boolean;
       disabled?: boolean;
+      /** Right-aligned muted hint, e.g. a keyboard shortcut. */
+      hint?: string;
     }
-  | { kind: "checkbox"; label: string; checked: boolean; onToggle: () => void }
+  | {
+      kind: "checkbox";
+      label: string;
+      checked: boolean;
+      onToggle: () => void;
+      hint?: string;
+    }
   | {
       kind: "radio";
       label: string;
@@ -28,6 +36,7 @@ export type MenuItem =
       onSelect: () => void;
       /** Rows sharing a group name announce as one radio set. */
       group?: string;
+      hint?: string;
     }
   | { kind: "divider" };
 
@@ -183,6 +192,9 @@ export function Menu({
               {checked ? (it.kind === "radio" ? "•" : "✓") : ""}
             </span>
             {it.label}
+            {"hint" in it && it.hint && (
+              <span className="ui-menu-hint">{it.hint}</span>
+            )}
           </button>
         );
       })}

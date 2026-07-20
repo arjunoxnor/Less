@@ -33,9 +33,10 @@ export const ELEMENT_CYCLE: ElementType[] = [
   "transition",
 ];
 
-/** Human-readable labels (used in the toolbar and status bar). */
+/** Human-readable labels (used in the chrome and status bar). Sentence case
+    per the copy pass (Superaudit 2, 2I). */
 export const ELEMENT_LABELS: Record<ElementType, string> = {
-  scene_heading: "Scene Heading",
+  scene_heading: "Scene heading",
   action: "Action",
   character: "Character",
   parenthetical: "Parenthetical",

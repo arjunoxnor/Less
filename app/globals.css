@@ -105,18 +105,6 @@ body {
   height: 100vh;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  background: var(--toolbar-bg);
-  color: var(--toolbar-fg);
-  border-bottom: 1px solid var(--border);
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-}
-
 .toolbar-brand {
   font-weight: 700;
   letter-spacing: 2px;
@@ -284,13 +272,14 @@ body {
   user-select: none;
 }
 
-/* ---- Status bar -------------------------------------------------------- */
+/* ---- Status bar (2B.4: 26px) -------------------------------------------- */
 
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 5px 16px;
+  gap: 14px;
+  height: 26px;
+  padding: 0 12px;
   font-size: var(--text-sm);
   background: var(--toolbar-bg);
   color: var(--muted);
@@ -299,10 +288,6 @@ body {
 }
 .status-spacer {
   flex: 1 1 auto;
-}
-.status-element {
-  color: var(--accent);
-  font-weight: 600;
 }
 .status-sub {
   opacity: 0.7;
@@ -324,38 +309,57 @@ body {
   border-radius: var(--r-sm);
   padding: 0 6px;
   font-weight: 600;
+  font-size: var(--text-xs);
+  line-height: 16px;
 }
 
-/* ---- Focus (distraction-free) mode ------------------------------------- */
-
-.focus-mode .chrome-bar,
-.focus-mode .toolbar,
-.focus-mode .status-bar {
-  display: none;
-}
-/* The exit pill behaves like a toast: shown briefly on entering focus mode,
-   then faded out (see FocusExitPill), and brought back only while the pointer
-   is near the bottom-right corner. */
-.focus-exit {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  padding: 6px 12px;
+/* The element pill: current line type, opens the upward element menu. */
+.element-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
   font-size: var(--text-sm);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--toolbar-bg);
-  color: var(--muted);
+  font-weight: 600;
   cursor: pointer;
-  opacity: 0.9;
-  transition: opacity var(--dur-2) var(--ease);
+  white-space: nowrap;
 }
-.focus-exit:hover {
-  opacity: 1;
+.element-pill:hover {
+  background: var(--surface-2);
 }
-.focus-exit-hidden {
-  opacity: 0;
-  pointer-events: none;
+.element-pill svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+}
+
+/* Contextual dual-dialogue chip, visible only inside a cue cluster. */
+.dual-chip {
+  height: 18px;
+  padding: 0 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  line-height: 16px;
+}
+.dual-chip:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+.dual-chip-on {
+  color: var(--ink);
+  border-color: var(--ink);
+  font-weight: 600;
 }
 
 /* ============================================================================
@@ -642,21 +646,13 @@ body {
   text-decoration: underline;
 }
 
-/* ---- History panel ----------------------------------------------------- */
+/* ---- History panel (dock-fill: geometry comes from the dock) ------------ */
 
 .history-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 320px;
-  max-width: 90vw;
-  background: var(--toolbar-bg);
-  border-left: 1px solid var(--border);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
-  z-index: var(--z-dock);
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 .history-head {
   display: flex;
@@ -742,21 +738,14 @@ body {
    PHASE 4: NAVIGATION (scene navigator, cast list, find/replace, autocomplete)
    ========================================================================== */
 
-/* ---- Shared side panel (same geometry as the history panel) ------------- */
+/* ---- Shared side panel (dock-fill: the dock provides the geometry) ------ */
 
 .side-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 320px;
-  max-width: 90vw;
-  background: var(--toolbar-bg);
-  border-left: 1px solid var(--border);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
-  z-index: var(--z-dock);
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
 }
 .side-panel-head {
   display: flex;
@@ -1598,42 +1587,6 @@ body {
   padding: 4px 4px 6px;
 }
 
-/* ---- Editor chrome (project bar above the type toolbar) ----------------- */
-
-.chrome-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  background: var(--toolbar-bg);
-  border-bottom: 1px solid var(--border);
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-}
-.chrome-back::before {
-  content: "‹ ";
-}
-.chrome-title {
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: 600;
-  padding: 5px 9px;
-  min-width: 140px;
-  max-width: 320px;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--toolbar-fg);
-}
-.chrome-title:hover {
-  border-color: var(--border);
-}
-.chrome-title:focus {
-  outline: none;
-  border-color: var(--accent);
-  background: var(--page-bg);
-}
-
 /* ---- Plain document surface --------------------------------------------- */
 
 .pl-doc {
@@ -2299,20 +2252,21 @@ body {
    the narrower measure. Toolbars become swipeable strips, panels go full
    screen, and touch targets get room. */
 @media (max-width: 720px) {
-  /* Toolbars: one swipeable row instead of wrapping into a tall stack. */
-  .toolbar {
+  /* The plain formatting row: one swipeable strip instead of a tall stack. */
+  .editor-secondrow {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     gap: 8px;
-    padding: 8px 10px;
+    padding: 6px 10px;
   }
-  .toolbar::-webkit-scrollbar {
+  .editor-secondrow::-webkit-scrollbar {
     display: none;
   }
-  .toolbar-group {
+  .editor-secondrow .toolbar-group {
     flex: 0 0 auto;
+    flex-wrap: nowrap;
   }
   .tb-btn {
     padding: 8px 10px; /* comfortable touch target */
@@ -2320,6 +2274,9 @@ body {
   }
   .account-email {
     display: none; /* long emails blow up the strip; the sync dot remains */
+  }
+  .topbar-kbd {
+    display: none; /* a keyboard hint chip is noise on touch screens */
   }
 
   /* The page: full width, reflowed. */
@@ -2364,18 +2321,10 @@ body {
     padding: 40px 6% 56px;
   }
 
-  /* Panels (find, scenes, cast, notes, reports, history) take the screen. */
-  .side-panel {
-    width: 100vw;
-    max-width: 100vw;
-    border-left: none;
-  }
-
-  /* Status bar: compact, wrapping. */
+  /* Status bar: compact. */
   .status-bar {
-    flex-wrap: wrap;
-    gap: 8px 14px;
-    padding: 6px 12px;
+    gap: 8px;
+    padding: 0 10px;
   }
 
   /* Home: tighter grid and a swipeable top bar. */
@@ -2655,4 +2604,445 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+/* ============================================================================
+   EDITOR SHELL (Superaudit 2, Part 2B): top bar, left rail, dock, status bar.
+   The shell root also carries the legacy .app class (flex column, 100vh).
+   ========================================================================== */
+
+/* ---- Top bar (2B.1: 48px, --surface, hairline bottom) -------------------- */
+
+.editor-topbar-slot {
+  flex: 0 0 auto;
+  z-index: var(--z-bars);
+}
+.editor-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 48px;
+  padding: 0 var(--space-3);
+  background: var(--surface);
+  color: var(--ink);
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* 32px icon buttons shared by the top bar. */
+.tb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.tb-icon:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* Borderless inline title; hairline appears on hover, field look on focus. */
+.topbar-title {
+  font: inherit;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  padding: 4px 8px;
+  min-width: 80px;
+  max-width: 320px;
+  flex: 0 1 auto;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+}
+.topbar-title:hover {
+  border-color: var(--hairline);
+}
+.topbar-title:focus {
+  outline: none;
+  border-color: var(--ink);
+  background: var(--paper);
+}
+
+/* Quiet sync indicator: one dot, one word. */
+.topbar-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.topbar-sync .sync-dot {
+  transition: background-color var(--dur-2) var(--ease);
+}
+.topbar-sync-btn {
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+.topbar-sync-btn:hover {
+  color: var(--ink);
+}
+
+/* The palette hint chip. */
+.topbar-kbd {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: none;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topbar-kbd:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
+.topbar-export {
+  padding: 6px 14px;
+  font-size: var(--text-sm);
+}
+
+/* The rail toggle lives in the top bar only when the rail is collapsed. */
+.topbar-railtoggle {
+  display: none;
+}
+
+/* ---- Slim second row (plain formatting controls) ------------------------- */
+
+.editor-secondrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+/* ---- Body: rail | page | dock -------------------------------------------- */
+
+.editor-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.editor-page-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.editor-page-col .page-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---- Left rail (2B.2: 44px, icon-only) ----------------------------------- */
+
+.editor-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 44px;
+  flex: 0 0 44px;
+  padding: 8px 0;
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
+}
+.rail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.rail-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.rail-btn-active {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.rail-divider {
+  width: 20px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--hairline);
+}
+
+/* ---- Dock (2B.3: 300px, one panel at a time) ----------------------------- */
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+.editor-dock {
+  display: none;
+  background: var(--surface);
+  overflow: hidden;
+}
+.dock-inner {
+  width: 300px;
+  height: 100%;
+  min-height: 0;
+  animation: dock-in var(--dur-2) var(--ease);
+}
+.dock-scrim {
+  display: none;
+}
+
+/* Below 1280px the dock overlays the page with a scrim. */
+@media (max-width: 1279px) {
+  .dock-open .editor-dock {
+    display: block;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 300px;
+    max-width: 100vw;
+    z-index: var(--z-dock);
+    border-left: 1px solid var(--hairline);
+    box-shadow: var(--e2);
+  }
+  .dock-open .dock-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: calc(var(--z-dock) - 1);
+    background: rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* On phones the dock overlay takes the whole screen (like the old panels). */
+@media (max-width: 720px) {
+  .dock-open .editor-dock {
+    width: 100vw;
+    border-left: none;
+  }
+  .dock-inner {
+    width: 100vw;
+  }
+}
+
+/* At >=1280px the dock is a grid column, so the page recenters as it opens. */
+@media (min-width: 1280px) {
+  .editor-body {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 0px;
+    transition: grid-template-columns var(--dur-2) var(--ease-io);
+  }
+  .editor-body.dock-open {
+    grid-template-columns: 44px minmax(0, 1fr) 300px;
+  }
+  .editor-dock {
+    display: block;
+  }
+  .dock-open .editor-dock {
+    border-left: 1px solid var(--hairline);
+  }
+}
+
+/* Panels inside the dock: 16px padding rhythm comes from the panel classes;
+   hover-revealed row actions also appear on keyboard focus (2H). */
+.dock-inner .cast-rename,
+.dock-inner .note-remove,
+.dock-inner .bd-item-remove,
+.dock-inner .history-restore {
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.dock-inner .cast-item:hover .cast-rename,
+.dock-inner .cast-item:focus-within .cast-rename,
+.dock-inner .note-item:hover .note-remove,
+.dock-inner .note-item:focus-within .note-remove,
+.dock-inner .bd-item:hover .bd-item-remove,
+.dock-inner .bd-item:focus-within .bd-item-remove,
+.dock-inner .history-item:hover .history-restore,
+.dock-inner .history-item:focus-within .history-restore {
+  opacity: 1;
+}
+
+/* ---- Rail collapse below 900px ------------------------------------------- */
+
+@media (max-width: 899px) {
+  .editor-rail {
+    display: none;
+  }
+  .editor-shell.rail-open .editor-rail {
+    display: flex;
+  }
+  .topbar-railtoggle {
+    display: inline-flex;
+  }
+}
+
+/* ---- Focus mode (2F) ------------------------------------------------------ */
+
+.focus-mode .editor-rail,
+.focus-mode .editor-secondrow,
+.focus-mode .status-bar,
+.focus-mode .hint-card {
+  display: none;
+}
+.focus-mode .editor-dock,
+.focus-mode .dock-scrim {
+  display: none;
+}
+/* With the rail and dock gone, the grid columns would re-slot the page into
+   the 44px rail track; fall back to flex so the page takes the full width. */
+.focus-mode .editor-body {
+  display: flex;
+}
+/* The top bar slides off-screen; pointer into the top 8px peeks it back. */
+.focus-mode .editor-topbar-slot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(-100%);
+  transition: transform var(--dur-2) var(--ease);
+}
+.focus-mode.topbar-peek .editor-topbar-slot {
+  transform: translateY(0);
+  box-shadow: var(--e1);
+}
+/* The desk dims 8% behind the page (multiplicatively identical to
+   brightness(.92) on the backdrop, without touching the paper). */
+.focus-mode .page-scroll {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* ---- Menu hint (right-aligned shortcut text) ------------------------------ */
+
+.ui-menu-hint {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* ---- Onboarding (2D): hint card and ghost line ---------------------------- */
+
+.hint-card {
+  position: fixed;
+  left: 16px;
+  bottom: 42px;
+  width: 260px;
+  padding: var(--space-4);
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--e2);
+  z-index: var(--z-bars);
+  transition: opacity var(--dur-3) var(--ease);
+}
+.hint-card p {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+.hint-card p:last-child {
+  margin-bottom: 0;
+}
+.hint-card-fading {
+  opacity: 0;
+}
+.hint-card-x {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+}
+.hint-card-x:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* The ghost line under the placeholder on a brand-new empty screenplay. */
+.sp-ghost-hint {
+  margin-top: 16px;
+  color: var(--muted);
+  font-family: var(--sp-font);
+  font-size: 12pt;
+  line-height: 16px;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ---- Shortcuts overlay (2D.4) --------------------------------------------- */
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4) var(--space-5);
+  min-width: 360px;
+}
+@media (max-width: 480px) {
+  .shortcuts-grid {
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+}
+.shortcuts-section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+.shortcuts-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.shortcuts-keys {
+  flex: 0 0 auto;
+  min-width: 108px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }

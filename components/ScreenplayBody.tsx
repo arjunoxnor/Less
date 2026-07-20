@@ -44,6 +44,7 @@ import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
   EMPTY_SCREENPLAY,
   getProjectMeta,
+  patchProjectMeta,
   loadProjectDoc,
   saveProjectDoc,
   loadProjectTitlePage,
@@ -70,15 +71,16 @@ import { useCloudSync } from "@/lib/storage/useCloudSync";
 import {
   exportDoc,
   importFile,
+  IMPORT_ACCEPT,
   type ExportFormat,
-  type ImportFormat,
 } from "@/lib/export";
-import { EditorChrome } from "./EditorChrome";
-import { FocusExitPill } from "./FocusExitPill";
 import { PageBackdrop } from "./PageBackdrop";
-import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
-import { ScreenplayToolbar } from "./ScreenplayToolbar";
-import { StatusBar } from "./StatusBar";
+import { Pagination, STRIDE, PAGE_H, pageAtPos } from "@/lib/editor/pagination";
+import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
+import { EditorStatusBar } from "./chrome/EditorStatusBar";
+import { HintCard } from "./chrome/HintCard";
+import { ShortcutsModal } from "./chrome/ShortcutsModal";
+import type { MenuItem } from "./ui/Menu";
 import { AuthModal } from "./AuthModal";
 import { HistoryPanel } from "./HistoryPanel";
 import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
@@ -105,6 +107,7 @@ export function ScreenplayBody({
   prefs,
   onPrefsChange,
   user,
+  sessionExpired,
   onImportAsNew,
 }: {
   projectId: string;
@@ -116,13 +119,21 @@ export function ScreenplayBody({
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
+  sessionExpired?: boolean;
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_SCREENPLAY,
     [projectId]
   );
-  const pageTarget = useMemo(() => getProjectMeta(projectId)?.pageTarget, [projectId]);
+  const [pageTarget, setPageTarget] = useState<number | undefined>(
+    () => getProjectMeta(projectId)?.pageTarget
+  );
+  // A brand-new empty screenplay gets the onboarding ghost line (2D.3).
+  const showGhostHint = useMemo(() => {
+    const c = initialContent.content;
+    return !c || (c.length === 1 && (c[0]?.content?.length ?? 0) === 0);
+  }, [initialContent]);
 
   const [currentElement, setCurrentElement] = useState<ElementType>("action");
   const [wordCount, setWordCount] = useState(0);
@@ -130,16 +141,15 @@ export function ScreenplayBody({
   const [saveError, setSaveError] = useState(false);
   const [mod, setMod] = useState("Ctrl");
   const [showAuth, setShowAuth] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showScenes, setShowScenes] = useState(false);
-  const [showCast, setShowCast] = useState(false);
-  const [showReports, setShowReports] = useState(false);
-  const [showNotes, setShowNotes] = useState(false);
-  const [showBreakdown, setShowBreakdown] = useState(false);
-  const [showFind, setShowFind] = useState(false);
+  // ONE dock panel at a time (2B.3): replaces the old per-panel booleans.
+  const [activePanel, setActivePanel] = useState<PanelId | null>(null);
   const [showTitlePage, setShowTitlePage] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showPageTarget, setShowPageTarget] = useState(false);
+  const [pageTargetDraft, setPageTargetDraft] = useState("");
   const [caretLine, setCaretLine] = useState(0);
+  const [caretPage, setCaretPage] = useState(1);
   const [findState, setFindState] = useState<FindInputs>({
     query: "",
     replace: "",
@@ -174,6 +184,7 @@ export function ScreenplayBody({
   const breakdownItemsRef = useRef<BreakdownItem[]>(breakdownItems);
   const breakdownEnabledRef = useRef(prefs.breakdownHighlight);
   const editorRef = useRef<Editor | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const debouncedSave = useMemo(
     () =>
@@ -213,10 +224,11 @@ export function ScreenplayBody({
         isContdEnabled: () => contdEnabledRef.current,
         getBreakdownItems: () => breakdownItemsRef.current,
         isBreakdownEnabled: () => breakdownEnabledRef.current,
+        showGhostHint,
       }),
       Pagination.configure({ onPages: setPages }),
     ],
-    []
+    [showGhostHint]
   );
 
   const editor = useEditor({
@@ -240,6 +252,10 @@ export function ScreenplayBody({
       setSaved(false);
       debouncedSave(editor.getJSON());
       measure(editor);
+      // Retyping a line (setElement) changes the doc without moving the
+      // selection, so the element pill must refresh here too, not only on
+      // selection updates.
+      setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
       setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
     },
@@ -409,7 +425,7 @@ export function ScreenplayBody({
     };
   }, [editor]);
 
-  const breakdownResult = useBreakdown(editor, breakdownItems, showBreakdown);
+  const breakdownResult = useBreakdown(editor, breakdownItems, activePanel === "breakdown");
 
   const addBreakdownItem = useCallback(
     (category: string, name: string) => {
@@ -498,7 +514,7 @@ export function ScreenplayBody({
   }, [projectId]);
 
   const handleImport = useCallback(
-    async (_format: ImportFormat, file: File) => {
+    async (file: File) => {
       try {
         const { doc, titlePage: importedTp } = await importFile(file);
         // Importing can replace the open screenplay. If there is anything to
@@ -564,6 +580,7 @@ export function ScreenplayBody({
     [jumpToScene]
   );
 
+  const showFind = activePanel === "find";
   useEffect(() => {
     if (!editor) return;
     if (showFind) {
@@ -603,18 +620,65 @@ export function ScreenplayBody({
     };
   }, [editor]);
 
+  // Cmd/Ctrl+F opens the find panel in the dock. Escape is handled by the
+  // shell's single ordered handler (dock first, then focus mode).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        setShowFind(true);
-      } else if (e.key === "Escape" && showFind) {
-        setShowFind(false);
+        setActivePanel("find");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showFind]);
+  }, []);
+
+  // Track which visual page the caret is on, from the pagination engine's own
+  // decorations, so the status bar always matches the sheets on screen.
+  useEffect(() => {
+    if (!editor) return;
+    const sync = () => {
+      setCaretPage(pageAtPos(editor.state, editor.state.selection.head));
+    };
+    sync();
+    editor.on("transaction", sync);
+    return () => {
+      editor.off("transaction", sync);
+    };
+  }, [editor]);
+
+  // Typewriter scrolling (2F): keep the caret line vertically centered while
+  // the pref is on, throttled to 120ms.
+  useEffect(() => {
+    if (!editor || !prefs.focusTypewriter) return;
+    let last = 0;
+    const center = () => {
+      const now = Date.now();
+      if (now - last < 120) return;
+      last = now;
+      const { head } = editor.state.selection;
+      const dom = editor.view.domAtPos(head).node;
+      const el = dom.nodeType === 1 ? (dom as HTMLElement) : dom.parentElement;
+      el?.closest(".sp-line")?.scrollIntoView({ block: "center", inline: "nearest" });
+    };
+    editor.on("selectionUpdate", center);
+    return () => {
+      editor.off("selectionUpdate", center);
+    };
+  }, [editor, prefs.focusTypewriter]);
+
+  // "?" outside editable contexts opens the shortcuts overlay (2D.4).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "?" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest("input, textarea, select, [contenteditable]")) return;
+      e.preventDefault();
+      setShowShortcuts(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const activeFindIndex = () =>
     editor ? findPluginKey.getState(editor.state)?.active ?? 0 : 0;
@@ -646,10 +710,6 @@ export function ScreenplayBody({
         : { cues: 0, mentions: 0 },
     [editor]
   );
-
-  const handleFindClick = useCallback(() => {
-    setShowFind((v) => !v);
-  }, []);
 
   // Inline rename from the Cast and Locations panel: cue-only / heading-only,
   // one undo step, no mention rewriting (the Find panel covers that case).
@@ -711,21 +771,20 @@ export function ScreenplayBody({
       });
     }
     cmds.push({ id: "dual", group: "Format", label: "Toggle dual dialogue", run: toggleDual });
-    cmds.push({ id: "scenes", group: "Panel", label: "Open Scenes", run: () => setShowScenes(true) });
+    cmds.push({ id: "scenes", group: "Panel", label: "Open scenes", run: () => setActivePanel("scenes") });
     cmds.push({
       id: "find",
       group: "Panel",
       label: "Find and replace",
-      run: () => setShowFind(true),
+      run: () => setActivePanel("find"),
     });
-    cmds.push({ id: "cast", group: "Panel", label: "Cast and Locations", run: () => setShowCast(true) });
-    cmds.push({ id: "reports", group: "Panel", label: "Reports", run: () => setShowReports(true) });
-    cmds.push({ id: "notes", group: "Panel", label: "Notes", run: () => setShowNotes(true) });
-    cmds.push({ id: "breakdown", group: "Panel", label: "Breakdown", run: () => setShowBreakdown(true) });
+    cmds.push({ id: "cast", group: "Panel", label: "Cast and locations", run: () => setActivePanel("cast") });
+    cmds.push({ id: "reports", group: "Panel", label: "Reports", run: () => setActivePanel("reports") });
+    cmds.push({ id: "notes", group: "Panel", label: "Notes", run: () => setActivePanel("notes") });
+    cmds.push({ id: "breakdown", group: "Panel", label: "Breakdown", run: () => setActivePanel("breakdown") });
+    cmds.push({ id: "history", group: "Panel", label: "Version history", run: () => setActivePanel("history") });
     cmds.push({ id: "titlepage", group: "Panel", label: "Title page", run: () => setShowTitlePage(true) });
-    if (user) {
-      cmds.push({ id: "history", group: "Panel", label: "Version history", run: () => setShowHistory(true) });
-    }
+    cmds.push({ id: "shortcuts", group: "Help", label: "Keyboard shortcuts", run: () => setShowShortcuts(true) });
     cmds.push({ id: "exp-pdf", group: "Export", label: "Export PDF", run: () => handleExport("pdf") });
     cmds.push({ id: "exp-fountain", group: "Export", label: "Export Fountain", run: () => handleExport("fountain") });
     cmds.push({ id: "exp-fdx", group: "Export", label: "Export Final Draft (FDX)", run: () => handleExport("fdx") });
@@ -734,6 +793,7 @@ export function ScreenplayBody({
     cmds.push({ id: "t-rev", group: "Toggle", label: (prefs.revisionMode ? "Turn off" : "Turn on") + " revision mode", run: () => onPrefsChange({ revisionMode: !prefs.revisionMode }) });
     cmds.push({ id: "t-contd", group: "Toggle", label: (prefs.autoContd ? "Turn off" : "Turn on") + " auto (CONT'D)", run: () => onPrefsChange({ autoContd: !prefs.autoContd }) });
     cmds.push({ id: "t-focus", group: "Toggle", label: "Focus mode", run: () => onPrefsChange({ focusMode: !prefs.focusMode }) });
+    cmds.push({ id: "t-typewriter", group: "Toggle", label: (prefs.focusTypewriter ? "Turn off" : "Turn on") + " typewriter scrolling", run: () => onPrefsChange({ focusTypewriter: !prefs.focusTypewriter }) });
     cmds.push({ id: "t-bd", group: "Toggle", label: (prefs.breakdownHighlight ? "Hide" : "Show") + " breakdown highlights", run: () => onPrefsChange({ breakdownHighlight: !prefs.breakdownHighlight }) });
     if (hasSelection) {
       for (const c of BREAKDOWN_CATEGORIES) {
@@ -757,115 +817,241 @@ export function ScreenplayBody({
     return cmds;
   }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection]);
 
+  // ---- Chrome wiring (Part 2B): menus, rail, dock content ------------------
+
+  const signOutAndFlush = async () => {
+    // Land any pending edit in the cloud before sign-out wipes the local
+    // cloud-backed copy (the reconcile effect clears it on identity change).
+    await flushRef.current();
+    void signOut();
+  };
+
+  const exportItems: MenuItem[] = [
+    { label: "PDF", onSelect: () => handleExport("pdf") },
+    { label: "Fountain", onSelect: () => handleExport("fountain") },
+    { label: "Final Draft", onSelect: () => handleExport("fdx") },
+  ];
+
+  const STATUS_ROWS: { value: ProjectStatus; label: string }[] = [
+    { value: "not_started", label: "Idea" },
+    { value: "writing", label: "Writing" },
+    { value: "done", label: "Done" },
+  ];
+
+  // The overflow menu, exactly the 2B.1 groups and order.
+  const overflowItems: MenuItem[] = [
+    { label: "Import into this project…", onSelect: () => importInputRef.current?.click() },
+    { label: "Title page…", onSelect: () => setShowTitlePage(true) },
+    { kind: "divider" },
+    { kind: "checkbox", label: "Spell check", checked: prefs.spellCheck, onToggle: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) },
+    { kind: "checkbox", label: "Scene numbers", checked: prefs.sceneNumbers, onToggle: () => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers }) },
+    { kind: "checkbox", label: "Auto (CONT'D)", checked: prefs.autoContd, onToggle: () => onPrefsChange({ autoContd: !prefs.autoContd }) },
+    { kind: "checkbox", label: "Revision mode", checked: prefs.revisionMode, onToggle: () => onPrefsChange({ revisionMode: !prefs.revisionMode }) },
+    ...(prefs.revisionMode
+      ? [{ label: "Clear revision marks", danger: true, onSelect: clearRevisions } as MenuItem]
+      : []),
+    { kind: "checkbox", label: "Focus: typewriter", checked: prefs.focusTypewriter, onToggle: () => onPrefsChange({ focusTypewriter: !prefs.focusTypewriter }) },
+    { kind: "divider" },
+    { kind: "radio", group: "font", label: "Courier Prime", checked: prefs.font === "courier-prime", onSelect: () => onPrefsChange({ font: "courier-prime" }) },
+    { kind: "radio", group: "font", label: "Courier", checked: prefs.font === "courier", onSelect: () => onPrefsChange({ font: "courier" }) },
+    { kind: "radio", group: "theme", label: "Light", checked: prefs.theme === "light", onSelect: () => onPrefsChange({ theme: "light" }) },
+    { kind: "radio", group: "theme", label: "Dark", checked: prefs.theme === "dark", onSelect: () => onPrefsChange({ theme: "dark" }) },
+    { kind: "radio", group: "theme", label: "System", checked: prefs.theme === "system", onSelect: () => onPrefsChange({ theme: "system" }) },
+    {
+      label: "Page target…",
+      onSelect: () => {
+        setPageTargetDraft(pageTarget ? String(pageTarget) : "");
+        setShowPageTarget(true);
+      },
+    },
+    pageLock
+      ? { label: "Unlock pages", onSelect: unlockPages }
+      : { label: "Lock pages", onSelect: lockPages },
+    { kind: "divider" },
+    ...STATUS_ROWS.map(
+      (s): MenuItem => ({
+        kind: "radio",
+        group: "status",
+        label: s.label,
+        checked: status === s.value,
+        onSelect: () => onStatusChange(s.value),
+      })
+    ),
+    { kind: "divider" },
+    ...(isCloudConfigured
+      ? user
+        ? [
+            { label: user.email ?? "Signed in", onSelect: () => {}, disabled: true } as MenuItem,
+            { label: "Sign out", onSelect: () => void signOutAndFlush() } as MenuItem,
+          ]
+        : [{ label: "Sign in", onSelect: () => setShowAuth(true) } as MenuItem]
+      : []),
+    { label: "Back to projects", onSelect: onBack },
+  ];
+
+  const railItems: RailItem[] = [
+    { kind: "panel", id: "scenes", label: "Scenes" },
+    { kind: "panel", id: "cast", label: "Cast and locations" },
+    { kind: "panel", id: "notes", label: "Notes" },
+    { kind: "panel", id: "breakdown", label: "Breakdown" },
+    { kind: "panel", id: "reports", label: "Reports" },
+    { kind: "panel", id: "history", label: "History" },
+    { kind: "divider" },
+    { kind: "panel", id: "find", label: "Find", shortcut: mod + "F" },
+  ];
+
+  const closePanel = () => setActivePanel(null);
+  const dockPanel =
+    activePanel === "scenes" ? (
+      <SceneNavigatorPanel
+        scenes={outline.scenes}
+        currentSceneNumber={currentSceneNumber}
+        onJump={jumpToScene}
+        onClose={closePanel}
+      />
+    ) : activePanel === "cast" ? (
+      <CastListPanel
+        cast={outline.cast}
+        locations={outline.locations}
+        onJump={jumpToScene}
+        onRenameCharacter={onRenameCharacter}
+        onRenameLocation={onRenameLocation}
+        onClose={closePanel}
+      />
+    ) : activePanel === "notes" ? (
+      <NotesPanel
+        notes={outline.notes}
+        onJump={jumpToScene}
+        onAddToCurrent={addNoteToCurrent}
+        onRemove={removeNote}
+        onClose={closePanel}
+      />
+    ) : activePanel === "breakdown" ? (
+      <BreakdownPanel
+        result={breakdownResult}
+        items={breakdownItems}
+        highlightOn={prefs.breakdownHighlight}
+        hasSelection={hasSelection}
+        onAdd={addBreakdownItem}
+        onTagSelection={tagSelection}
+        onRemove={removeBreakdownItem}
+        onToggleHighlight={() => onPrefsChange({ breakdownHighlight: !prefs.breakdownHighlight })}
+        onJumpScene={jumpToSceneNumber}
+        onExport={exportBreakdown}
+        onClose={closePanel}
+      />
+    ) : activePanel === "reports" ? (
+      <ReportsPanel
+        outline={outline}
+        pageCount={pages}
+        wordCount={wordCount}
+        title={title}
+        onJump={jumpToScene}
+        onClose={closePanel}
+      />
+    ) : activePanel === "history" ? (
+      <HistoryPanel
+        getVersions={getVersions}
+        onRestore={(content, tp) => {
+          // Replacing the live document is destructive; confirm first. A
+          // snapshot of the current doc is taken inside restoreVersion so this
+          // is recoverable either way.
+          setConfirmRestore({ content, titlePage: tp });
+        }}
+        onClose={closePanel}
+      />
+    ) : activePanel === "find" ? (
+      <FindReplacePanel
+        findState={findState}
+        setFindState={setFindPatch}
+        matchCount={findMeta.matchCount}
+        activeIndex={findMeta.activeIndex}
+        cast={outline.cast}
+        onPrev={onFindPrev}
+        onNext={onFindNext}
+        onReplaceOne={onReplaceOne}
+        onReplaceAll={onReplaceAll}
+        onRename={onRenameChar}
+        getPreview={getRenamePreview}
+        onClose={closePanel}
+      />
+    ) : null;
+
   return (
-    <div
-      className={
-        "app" +
-        ` font-${prefs.font}` +
-        (prefs.focusMode ? " focus-mode" : "") +
-        (prefs.sceneNumbers ? " show-scene-numbers" : "")
-      }
-    >
-      <EditorChrome
-        onBack={onBack}
+    <>
+      <EditorShell
+        rootClassName={
+          `app font-${prefs.font}` + (prefs.sceneNumbers ? " show-scene-numbers" : "")
+        }
+        focusMode={prefs.focusMode}
+        onExitFocus={() => onPrefsChange({ focusMode: false })}
+        onEnterFocus={() => onPrefsChange({ focusMode: true })}
         title={title}
         onRename={onRename}
-        status={status}
-        onStatusChange={onStatusChange}
-        prefs={prefs}
-        onPrefsChange={onPrefsChange}
-        fontValue={prefs.font}
-        fontOptions={[
-          { value: "courier-prime", label: "Courier Prime" },
-          { value: "courier", label: "Courier" },
-        ]}
-        onFontChange={(v) => onPrefsChange({ font: v as Prefs["font"] })}
+        onBack={onBack}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}
-        onSignInClick={() => setShowAuth(true)}
-        onSignOutClick={async () => {
-          // Land any pending edit in the cloud before sign-out wipes the local
-          // cloud-backed copy (the reconcile effect clears it on identity change).
-          await flushRef.current();
-          void signOut();
-        }}
-        onHistoryClick={() => setShowHistory(true)}
+        sessionExpired={!!sessionExpired}
+        onSignIn={() => setShowAuth(true)}
+        modLabel={mod}
+        onOpenPalette={() => setShowPalette(true)}
+        exportItems={exportItems}
+        overflowItems={overflowItems}
+        railItems={railItems}
+        activePanel={activePanel}
+        onPanelChange={setActivePanel}
+        dockPanel={dockPanel}
+        statusBar={
+          <EditorStatusBar
+            currentElement={currentElement}
+            onSetElement={(t) => editor?.chain().focus().setElement(t).run()}
+            mod={mod}
+            dualVisible={
+              currentElement === "character" ||
+              currentElement === "dialogue" ||
+              currentElement === "parenthetical"
+            }
+            dualActive={dualActive}
+            onToggleDual={toggleDual}
+            caretPage={caretPage}
+            pageCount={pages}
+            pageTarget={pageTarget}
+            wordCount={wordCount}
+            saved={saved}
+            saveError={saveError}
+            locked={pageLock != null}
+            lockRevision={pageLock?.revision}
+          />
+        }
       >
-        <ScreenplayToolbar
-          editor={editor}
-          currentElement={currentElement}
-          prefs={prefs}
-          mod={mod}
-          onExport={handleExport}
-          onImport={(format, file) => void handleImport(format, file)}
-          onScenesClick={() => setShowScenes((v) => !v)}
-          onFindClick={handleFindClick}
-          onCastClick={() => setShowCast((v) => !v)}
-          onReportsClick={() => setShowReports((v) => !v)}
-          onNotesClick={() => setShowNotes((v) => !v)}
-          onBreakdownClick={() => setShowBreakdown((v) => !v)}
-          onTitlePageClick={() => setShowTitlePage(true)}
-          onToggleSpell={() => onPrefsChange({ spellCheck: !prefs.spellCheck })}
-          onToggleSceneNumbers={() => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers })}
-          onToggleRevisions={() => onPrefsChange({ revisionMode: !prefs.revisionMode })}
-          onClearRevisions={clearRevisions}
-          onToggleContd={() => onPrefsChange({ autoContd: !prefs.autoContd })}
-          onToggleDual={toggleDual}
-          dualActive={dualActive}
-          sceneNumbersOn={prefs.sceneNumbers}
-          revisionModeOn={prefs.revisionMode}
-          contdOn={prefs.autoContd}
-          scenesOpen={showScenes}
-          findOpen={showFind}
-          castOpen={showCast}
-          reportsOpen={showReports}
-          notesOpen={showNotes}
-          breakdownOpen={showBreakdown}
-        />
-      </EditorChrome>
-
-      <div className="page-scroll">
-        <div className="page-wrap">
-          <div
-            className="page-host page-host-sp"
-            style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
-          >
-            <PageBackdrop pages={pages} />
-            <EditorContent editor={editor} className="sp-editor" />
+        <div className="page-scroll">
+          <div className="page-wrap">
+            <div
+              className="page-host page-host-sp"
+              style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
+            >
+              <PageBackdrop pages={pages} />
+              <EditorContent editor={editor} className="sp-editor" />
+            </div>
           </div>
         </div>
-      </div>
+        <HintCard modLabel={mod} />
+      </EditorShell>
 
-      <StatusBar
-        pageCount={pages}
-        pageTarget={pageTarget}
-        wordCount={wordCount}
-        currentElement={currentElement}
-        saved={saved}
-        saveError={saveError}
-        locked={pageLock != null}
-        lockRevision={pageLock?.revision}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept={IMPORT_ACCEPT}
+        className="tb-file-input"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void handleImport(f);
+          e.target.value = "";
+        }}
       />
 
-      {prefs.focusMode && (
-        <FocusExitPill onExit={() => onPrefsChange({ focusMode: false })} />
-      )}
-
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
-
-      {showHistory && (
-        <HistoryPanel
-          getVersions={getVersions}
-          onRestore={(content, tp) => {
-            // Replacing the live document is destructive; confirm first. A
-            // snapshot of the current doc is taken inside restoreVersion so this
-            // is recoverable either way.
-            setConfirmRestore({ content, titlePage: tp });
-          }}
-          onClose={() => setShowHistory(false)}
-        />
-      )}
 
       {confirmRestore && (
         <Modal
@@ -879,7 +1065,7 @@ export function ScreenplayBody({
               onClick: () => {
                 restoreVersion(confirmRestore.content, confirmRestore.titlePage ?? undefined);
                 setConfirmRestore(null);
-                setShowHistory(false);
+                setActivePanel(null);
               },
             },
           ]}
@@ -943,79 +1129,50 @@ export function ScreenplayBody({
         </Modal>
       )}
 
-      {showScenes && (
-        <SceneNavigatorPanel
-          scenes={outline.scenes}
-          currentSceneNumber={currentSceneNumber}
-          onJump={jumpToScene}
-          onClose={() => setShowScenes(false)}
-        />
+      {showPageTarget && (
+        <Modal
+          title="Page target"
+          onClose={() => setShowPageTarget(false)}
+          actions={[
+            { label: "Cancel", onClick: () => setShowPageTarget(false) },
+            {
+              label: "Set target",
+              variant: "solid",
+              onClick: () => {
+                const n = parseInt(pageTargetDraft, 10);
+                const next = Number.isFinite(n) && n > 0 ? n : undefined;
+                patchProjectMeta(projectId, { pageTarget: next });
+                setPageTarget(next);
+                setShowPageTarget(false);
+              },
+            },
+          ]}
+        >
+          <p>Aim for about this many pages. Leave it empty to clear the target.</p>
+          <label className="field">
+            <span>Pages</span>
+            <input
+              type="number"
+              min={1}
+              max={999}
+              value={pageTargetDraft}
+              onChange={(e) => setPageTargetDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const n = parseInt(pageTargetDraft, 10);
+                  const next = Number.isFinite(n) && n > 0 ? n : undefined;
+                  patchProjectMeta(projectId, { pageTarget: next });
+                  setPageTarget(next);
+                  setShowPageTarget(false);
+                }
+              }}
+            />
+          </label>
+        </Modal>
       )}
 
-      {showCast && (
-        <CastListPanel
-          cast={outline.cast}
-          locations={outline.locations}
-          onJump={jumpToScene}
-          onRenameCharacter={onRenameCharacter}
-          onRenameLocation={onRenameLocation}
-          onClose={() => setShowCast(false)}
-        />
-      )}
-
-      {showReports && (
-        <ReportsPanel
-          outline={outline}
-          pageCount={pages}
-          wordCount={wordCount}
-          title={title}
-          onJump={jumpToScene}
-          onClose={() => setShowReports(false)}
-        />
-      )}
-
-      {showNotes && (
-        <NotesPanel
-          notes={outline.notes}
-          onJump={jumpToScene}
-          onAddToCurrent={addNoteToCurrent}
-          onRemove={removeNote}
-          onClose={() => setShowNotes(false)}
-        />
-      )}
-
-      {showBreakdown && (
-        <BreakdownPanel
-          result={breakdownResult}
-          items={breakdownItems}
-          highlightOn={prefs.breakdownHighlight}
-          hasSelection={hasSelection}
-          onAdd={addBreakdownItem}
-          onTagSelection={tagSelection}
-          onRemove={removeBreakdownItem}
-          onToggleHighlight={() => onPrefsChange({ breakdownHighlight: !prefs.breakdownHighlight })}
-          onJumpScene={jumpToSceneNumber}
-          onExport={exportBreakdown}
-          onClose={() => setShowBreakdown(false)}
-        />
-      )}
-
-      {showFind && (
-        <FindReplacePanel
-          findState={findState}
-          setFindState={setFindPatch}
-          matchCount={findMeta.matchCount}
-          activeIndex={findMeta.activeIndex}
-          cast={outline.cast}
-          onPrev={onFindPrev}
-          onNext={onFindNext}
-          onReplaceOne={onReplaceOne}
-          onReplaceAll={onReplaceAll}
-          onRename={onRenameChar}
-          getPreview={getRenamePreview}
-          onClose={() => setShowFind(false)}
-        />
-      )}
+      {showShortcuts && <ShortcutsModal mod={mod} onClose={() => setShowShortcuts(false)} />}
 
       {showTitlePage && (
         <TitlePageModal
@@ -1046,6 +1203,6 @@ export function ScreenplayBody({
       {showPalette && (
         <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />
       )}
-    </div>
+    </>
   );
 }

@@ -2,12 +2,13 @@
 
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
-import type { PlainExportFormat } from "@/lib/export/plainExport";
 
 /**
- * Google-Docs-style formatting toolbar for plain documents: marks, text color
- * and highlight, headings, lists and checklists, alignment, links, and clear
- * formatting. None of this exists in the strict screenplay editor.
+ * The plain document's formatting controls: marks, text color and highlight,
+ * lists and checklists, alignment, links, and clear formatting. Rendered as
+ * the slim second row of the editor shell (Superaudit 2, task 10): formatting
+ * acts on a selection, so these stay always visible rather than living in the
+ * dock. Export moved to the shell's top bar.
  */
 
 const TEXT_COLORS: { label: string; value: string | null }[] = [
@@ -53,15 +54,9 @@ function AlignIcon({ kind }: { kind: "left" | "center" | "right" | "justify" }) 
   );
 }
 
-export function PlainToolbar({
-  editor,
-  onExport,
-}: {
-  editor: Editor | null;
-  onExport: (format: PlainExportFormat) => void;
-}) {
+export function PlainToolbar({ editor }: { editor: Editor | null }) {
   const [, force] = useReducer((x: number) => x + 1, 0);
-  const [menu, setMenu] = useState<null | "export" | "color" | "highlight" | "link">(null);
+  const [menu, setMenu] = useState<null | "color" | "highlight" | "link">(null);
   const [linkDraft, setLinkDraft] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -252,29 +247,6 @@ export function PlainToolbar({
         </div>
         {Btn("Divider", false, () => chain().setHorizontalRule().run(), "Horizontal rule")}
         {Btn("Clear", false, () => chain().unsetAllMarks().run(), "Clear formatting")}
-      </div>
-
-      <div className="toolbar-group">
-        <div className="tb-menu" ref={menu === "export" ? menuRef : undefined}>
-          <button
-            type="button"
-            className={"tb-btn" + (menu === "export" ? " tb-btn-active" : "")}
-            onClick={() => setMenu((m) => (m === "export" ? null : "export"))}
-            title="Export this document"
-          >
-            Export
-          </button>
-          {menu === "export" && (
-            <div className="tb-menu-list">
-              <button type="button" className="tb-menu-item" onClick={() => { onExport("markdown"); setMenu(null); }}>
-                Markdown
-              </button>
-              <button type="button" className="tb-menu-item" onClick={() => { onExport("txt"); setMenu(null); }}>
-                Plain text
-              </button>
-            </div>
-          )}
-        </div>
       </div>
     </>
   );

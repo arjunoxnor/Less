@@ -15,6 +15,7 @@ import { buildAutocomplete, type AcState } from "./autocomplete";
 import { FindReplace } from "./findPlugin";
 import { buildSpellcheck, type SpellState } from "./spellcheck";
 import { buildRevisionTracker } from "./revisions";
+import { buildGhostHint } from "./ghostHint";
 import { EMPTY_OUTLINE } from "./outline";
 import type { ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
@@ -73,6 +74,8 @@ export function buildExtensions(opts?: {
   getBreakdownItems?: () => BreakdownItem[];
   /** Live read of the user's breakdown-highlight toggle. */
   isBreakdownEnabled?: () => boolean;
+  /** Show the onboarding ghost line on a brand-new empty screenplay (2D.3). */
+  showGhostHint?: boolean;
 }) {
   const getOutline = opts?.getOutline ?? (() => EMPTY_OUTLINE);
   const extensions = [
@@ -123,6 +126,10 @@ export function buildExtensions(opts?: {
     extensions.push(
       buildBreakdownMarks(opts.getBreakdownItems, opts.isBreakdownEnabled ?? (() => true))
     );
+  }
+  // Onboarding ghost line for a new empty screenplay (widget decoration).
+  if (opts?.showGhostHint) {
+    extensions.push(buildGhostHint(true));
   }
   return extensions;
 }

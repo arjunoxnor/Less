@@ -37,6 +37,8 @@ export function EditorHost({
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
+  /** The top bar's sync indicator carries the expired-session state (2B.1). */
+  sessionExpired?: boolean;
   /** Screenplay-only: "Add as a new project" in the editor's import choice. */
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
 }) {

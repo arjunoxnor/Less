@@ -19,12 +19,17 @@ export function TitlePageModal({
 }) {
   const [tp, setTp] = useState<TitlePage>(value);
 
+  // Capture phase with stopPropagation, matching ui/Modal: the shell's
+  // window-level Escape handler (dock, focus mode) must never see an Esc
+  // that dismissed this modal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   const field = (key: keyof TitlePage) => (e: { target: { value: string } }) =>

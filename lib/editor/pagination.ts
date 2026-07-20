@@ -133,6 +133,18 @@ function compute(view: EditorView): { decos: DecorationSet; pages: number; sig: 
   };
 }
 
+/**
+ * Which visual page a document position sits on (1-based), read from the same
+ * decoration set that draws the sheets, so the status bar's "Page 3 of 92"
+ * always agrees with what is on screen. Each page-gap widget before the
+ * position means one page boundary crossed.
+ */
+export function pageAtPos(state: EditorState, pos: number): number {
+  const s = key.getState(state);
+  if (!s) return 1;
+  return 1 + s.decos.find(0, pos).length;
+}
+
 export interface PaginationOptions {
   onPages?: (pages: number) => void;
 }

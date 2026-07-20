@@ -232,6 +232,16 @@ function computeTransition(
       pool.push({ text: tr.text, hint: "", freq: tr.count, recency: tr.lastIndex });
     }
   }
+  // A finished transition stays finished: when the typed text already equals
+  // a known transition, the fuzzy fallback would otherwise reopen the menu
+  // (CUT TO: is a subsequence of JUMP CUT TO:) and Enter would rewrite the
+  // line instead of advancing the flow. Close the menu so Enter falls through
+  // to the keymap.
+  const typedUpper = typed.toUpperCase();
+  if (pool.some((p) => p.text.toUpperCase() === typedUpper)) {
+    return closed(lineStart);
+  }
+
   const items = rankCandidates(typed, pool, { fuzzy: true });
   if (items.length === 0) return closed(lineStart);
   return open(items, lineStart + lead, lineStart + caretOffset, lineStart);

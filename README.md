@@ -67,9 +67,16 @@ Function and D1 binding are present.
 | `Enter` | New line; type follows the flow (after a Character cue, drop into Dialogue) |
 | `Tab` / `Shift+Tab` | Cycle the current line's element type forward / back |
 | `Mod+1` .. `Mod+6` | Scene heading, action, character, dialogue, parenthetical, transition |
+| `Mod+E` | Open the line-type menu from the status bar |
 | `Mod+D` | Toggle dual (side-by-side) dialogue |
-| `Mod+F` | Find and replace |
-| `Esc` | Exit focus mode |
+| `Mod+F` | Find and replace (opens in the dock) |
+| `Mod+K` | Command palette |
+| `?` | Keyboard shortcuts overlay (outside text fields) |
+| `Esc` | Close the open dock panel, then exit focus mode |
+
+Focus mode extras: mouse to the top edge to peek the top bar; the
+"Focus: typewriter" toggle (overflow menu or palette) keeps the caret
+line vertically centered while you write.
 
 ## Audits
 
