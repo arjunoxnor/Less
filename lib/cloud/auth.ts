@@ -6,6 +6,7 @@ import {
   getStoredUser,
   setSession,
   clearSession,
+  isSessionExpired,
   onAuthChange,
   api,
 } from "./client";
@@ -91,14 +92,29 @@ export async function claimSyncCode(code: string): Promise<boolean> {
 export function useAuth() {
   const [user, setUser] = useState<CloudUser | null>(null);
   const [loading, setLoading] = useState(true);
+  // True while the stored session is dead (an API call answered 401). The user
+  // stays non-null on purpose: expiry is NOT a sign-out, and local copies of
+  // cloud projects must survive it. Cleared by a successful sign-in (setSession
+  // calls clearExpired and notifies).
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
     setUser(getStoredUser());
+    setSessionExpired(isSessionExpired());
     setLoading(false);
-    return onAuthChange(() => setUser(getStoredUser()));
+    const offAuth = onAuthChange(() => {
+      setUser(getStoredUser());
+      setSessionExpired(isSessionExpired());
+    });
+    const onExpired = () => setSessionExpired(true);
+    window.addEventListener("less:sessionexpired", onExpired);
+    return () => {
+      offAuth();
+      window.removeEventListener("less:sessionexpired", onExpired);
+    };
   }, []);
 
-  return { user, loading };
+  return { user, loading, sessionExpired };
 }
 
 /** Exchange a Google ID token for a session (used when Google login is on). */

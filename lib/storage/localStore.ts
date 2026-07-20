@@ -37,6 +37,8 @@ export interface Prefs {
   docFontSize: number;
   theme: ThemeChoice;
   focusMode: boolean;
+  /** Typewriter scrolling: keep the caret line vertically centered (2F). */
+  focusTypewriter: boolean;
   spellCheck: boolean;
   sceneNumbers: boolean;
   revisionMode: boolean;
@@ -50,10 +52,15 @@ export const DEFAULT_PREFS: Prefs = {
   docFontSize: 16,
   theme: "light",
   focusMode: false,
+  focusTypewriter: false,
   spellCheck: true,
   sceneNumbers: false,
   revisionMode: false,
-  autoContd: false,
+  // ON for new installs (Superaudit 2, 2G). Existing installs that saved prefs
+  // before this field existed keep the old default: loadPrefs pins autoContd
+  // to false when a stored prefs object is missing the key, so flipping this
+  // default never silently changes a working setup.
+  autoContd: true,
   breakdownHighlight: true,
 };
 
@@ -105,7 +112,14 @@ export function loadPrefs(): Prefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
-    return raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : DEFAULT_PREFS;
+    if (!raw) return DEFAULT_PREFS;
+    const parsed = JSON.parse(raw) as Partial<Prefs>;
+    // A stored prefs object that predates the autoContd key means an existing
+    // install from the era when the default was OFF. Preserve that behavior:
+    // the flipped default (ON) applies only where no prefs were ever saved,
+    // i.e. genuinely new installs. Documented choice per Superaudit 2 task 12.
+    if (parsed.autoContd === undefined) parsed.autoContd = false;
+    return { ...DEFAULT_PREFS, ...parsed };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -118,35 +132,6 @@ export function savePrefs(prefs: Prefs): void {
   } catch {
     /* ignore */
   }
-}
-
-/* --- Projects-home view (device-local: sort order + collapsed sections) --- */
-
-export type HomeSort = "updated" | "title" | "created";
-
-export interface HomeView {
-  sort: HomeSort;
-  /** Keyed by status section id; true means the section is folded. */
-  collapsed: Record<string, boolean>;
-}
-
-export const DEFAULT_HOME_VIEW: HomeView = { sort: "updated", collapsed: {} };
-
-const HOME_VIEW_KEY = "less:homeView";
-
-export function loadHomeView(): HomeView {
-  const raw = get(HOME_VIEW_KEY);
-  if (!raw) return DEFAULT_HOME_VIEW;
-  try {
-    const v = JSON.parse(raw) as HomeView;
-    return { sort: v.sort ?? "updated", collapsed: v.collapsed ?? {} };
-  } catch {
-    return DEFAULT_HOME_VIEW;
-  }
-}
-
-export function saveHomeView(v: HomeView): void {
-  set(HOME_VIEW_KEY, JSON.stringify(v));
 }
 
 /* --- Cloud-sync bookkeeping ------------------------------------------------

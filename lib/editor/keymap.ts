@@ -43,14 +43,49 @@ export function currentElementType(state: EditorState): ElementType {
 }
 
 /**
- * The Enter behavior: split the current line and set the new line's element by
- * the flow map (e.g. CHARACTER -> DIALOGUE). Exported so the autocomplete menu
- * can reuse it: accepting a character suggestion with Enter both accepts the
- * name and drops into dialogue, in a single keystroke.
+ * The Enter behavior. On a line with text: split it and set the new line's
+ * element by the flow map (e.g. CHARACTER -> DIALOGUE). On an EMPTY line
+ * (except action): do not split; retype the line in place to the next element,
+ * so the natural double-Enter way of exiting a speech never deposits empty
+ * dialogue lines in the document. Empty ACTION lines still split, because a
+ * blank action line is a legitimate spacing idiom in prose-heavy pages.
  */
 export function runEnterFlow(editor: Editor): boolean {
   const fromType = currentElementType(editor.state);
   const nextType = ENTER_FLOW[fromType];
+
+  // Empty-line conversion (in place, one normal undoable step, caret stays).
+  // Only for a caret: a range selection must fall through to the split path,
+  // which deletes the selected content first (the universal Enter contract).
+  const emptyLine = lineAt(editor.state.selection.$from);
+  if (
+    editor.state.selection.empty &&
+    emptyLine &&
+    fromType !== "action" &&
+    emptyLine.node.textContent.trim() === ""
+  ) {
+    // An abandoned empty cue means "never mind the speech", so it becomes
+    // action rather than the dialogue the flow map would give. Every other
+    // element follows the flow map (dialogue -> action, parenthetical ->
+    // dialogue, scene_heading -> action, transition -> scene_heading).
+    const target = fromType === "character" ? "action" : nextType;
+    return editor.commands.command(({ tr, dispatch }) => {
+      const a = emptyLine.node.attrs;
+      // Leaving the dialogue cluster drops the dual flag (same rule as
+      // setElement); the line's note stays, it is still the same line.
+      const keepDual =
+        !!a.dual &&
+        (target === "dialogue" || target === "parenthetical" || target === "character");
+      if (dispatch) {
+        tr.setNodeMarkup(emptyLine.pos, undefined, {
+          ...a,
+          element: target,
+          dual: keepDual,
+        });
+      }
+      return true;
+    });
+  }
 
   return editor
     .chain()

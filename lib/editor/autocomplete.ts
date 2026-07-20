@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { lineAt, runEnterFlow } from "./keymap";
+import { lineAt } from "./keymap";
 import { cueBaseName, TIME_OF_DAY } from "./outline";
 import {
   CHARACTER_EXTENSIONS,
@@ -11,7 +11,7 @@ import {
   SHOTS,
   TRANSITIONS,
 } from "./smarttype-catalogs";
-import type { ElementType } from "./elements";
+import { ENTER_FLOW, type ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
 
 /**
@@ -216,7 +216,9 @@ function computeTransition(
   const typed = upToCaret.trimStart();
   const lead = upToCaret.length - typed.length;
 
-  // Seed the common transitions the moment you land on an empty transition line.
+  // Seed the common transitions when a doc-changing action (the Enter flow or
+  // a retype) leaves the caret on an empty transition line. A mere caret visit
+  // never reaches here: the plugin only recomputes on document changes.
   if (!typed) {
     const items = TRANSITION_SEED.map((t) => ({ text: t, hint: "" }));
     return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
@@ -232,6 +234,16 @@ function computeTransition(
       pool.push({ text: tr.text, hint: "", freq: tr.count, recency: tr.lastIndex });
     }
   }
+  // A finished transition stays finished: when the typed text already equals
+  // a known transition, the fuzzy fallback would otherwise reopen the menu
+  // (CUT TO: is a subsequence of JUMP CUT TO:) and Enter would rewrite the
+  // line instead of advancing the flow. Close the menu so Enter falls through
+  // to the keymap.
+  const typedUpper = typed.toUpperCase();
+  if (pool.some((p) => p.text.toUpperCase() === typedUpper)) {
+    return closed(lineStart);
+  }
+
   const items = rankCandidates(typed, pool, { fuzzy: true });
   if (items.length === 0) return closed(lineStart);
   return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
@@ -388,17 +400,29 @@ function compute(state: EditorState, getOutline: () => Outline): AcPluginState {
   }
 }
 
-/** Accept the suggestion at `index`, replacing the relevant text segment. */
-export function acceptAutocomplete(view: EditorView, index: number): boolean {
+/**
+ * Accept the suggestion at `index`, replacing the relevant text segment.
+ * With `enterFlow`, the SAME transaction also splits the line and types the
+ * new line per the flow map (a character cue's Enter-accept drops straight
+ * into dialogue). One dispatch means history records one step, so a single
+ * undo removes the whole accept; the old two-dispatch version (accept, then a
+ * separate Enter) left history with steps it could compose into states that
+ * never existed (B1).
+ */
+export function acceptAutocomplete(
+  view: EditorView,
+  index: number,
+  opts?: { enterFlow?: boolean }
+): boolean {
   const st = autocompleteKey.getState(view.state);
   if (!st || !st.open || index < 0 || index >= st.items.length) return false;
   const item = st.items[index];
+  const nodePos = st.lineStart - 1;
   const tr = view.state.tr.insertText(item.text, st.replaceFrom, st.replaceTo);
 
   // Promote the line's element in the SAME transaction (one undo step) when the
   // chosen item asks for it, e.g. accepting a transition typed on an action line.
   if (item.retypeTo) {
-    const nodePos = st.lineStart - 1;
     const node = view.state.doc.nodeAt(nodePos);
     if (node && node.type.name === "screenplayLine") {
       tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, element: item.retypeTo });
@@ -407,6 +431,35 @@ export function acceptAutocomplete(view: EditorView, index: number): boolean {
 
   const caret = st.replaceFrom + item.text.length;
   tr.setSelection(TextSelection.create(tr.doc, caret));
+
+  if (opts?.enterFlow) {
+    const line = tr.doc.nodeAt(nodePos);
+    if (line && line.type.name === "screenplayLine") {
+      const nextType = ENTER_FLOW[line.attrs.element as ElementType];
+      // Split at the caret; the selection maps into the fresh line.
+      tr.split(caret);
+      // The new line inherited the cue's attrs. Normalize exactly the way
+      // runEnterFlow does: the flow element, never carry a script note, keep
+      // dual only while staying inside a dialogue cluster.
+      const $from = tr.selection.$from;
+      if ($from.depth >= 1) {
+        const newLinePos = $from.before(1);
+        const newLine = tr.doc.nodeAt(newLinePos);
+        if (newLine && newLine.type.name === "screenplayLine") {
+          const a = newLine.attrs;
+          const keepDual =
+            !!a.dual && (nextType === "dialogue" || nextType === "parenthetical");
+          tr.setNodeMarkup(newLinePos, undefined, {
+            ...a,
+            element: nextType,
+            dual: keepDual,
+            note: "",
+          });
+        }
+      }
+    }
+  }
+
   tr.setMeta(autocompleteKey, { open: false, items: [] });
   view.dispatch(tr);
   view.focus();
@@ -426,7 +479,11 @@ export function buildAutocomplete(
     name: "screenplayAutocomplete",
     priority: 200,
     addProseMirrorPlugins() {
-      const editor = this.editor;
+      // Whether the dropdown is actually on screen (set by push(), below).
+      // Key handling follows the RENDERED menu, not the plugin state alone:
+      // when coordsAtPos fails, React gets null and no menu is visible, and an
+      // invisible menu must never consume arrow keys.
+      let rendered = false;
       return [
         new Plugin<AcPluginState>({
           key: autocompleteKey,
@@ -435,13 +492,23 @@ export function buildAutocomplete(
             apply(tr, prev, _old, newState) {
               const meta = tr.getMeta(autocompleteKey) as Partial<AcPluginState> | undefined;
               if (meta) return { ...prev, ...meta };
-              return compute(newState, getOutline);
+              // Typing gate: only a transaction that changed the document may
+              // open or refresh the menu. A caret that merely lands somewhere
+              // (a click, arrow travel over a heading's time token) must never
+              // open it, or ArrowUp/ArrowDown get consumed cycling a menu the
+              // writer never asked for; a pure selection move dismisses an
+              // open menu instead. Transactions that touch neither the doc nor
+              // the selection (decoration passes from other plugins) leave the
+              // state alone.
+              if (tr.docChanged) return compute(newState, getOutline);
+              if (tr.selectionSet) return CLOSED;
+              return prev;
             },
           },
           props: {
             handleKeyDown(view, event) {
               const st = autocompleteKey.getState(view.state);
-              if (!st || !st.open || st.items.length === 0) return false;
+              if (!st || !st.open || st.items.length === 0 || !rendered) return false;
               const n = st.items.length;
               // Stop the key from bubbling to the window-level Escape handlers
               // (focus mode, find panel) once the menu has consumed it.
@@ -475,13 +542,13 @@ export function buildAutocomplete(
                   consume();
                   // On a CHARACTER cue, Enter should accept the name AND drop
                   // into dialogue in one press (the whole point of a cue is the
-                  // line beneath it). For other elements, accept and stay so the
-                  // writer can keep building the line (e.g. add a scene-heading
-                  // time, or a (V.O.) extension).
+                  // line beneath it), as ONE dispatched transaction so undo
+                  // sees a single step. For other elements, accept and stay so
+                  // the writer can keep building the line (e.g. add a
+                  // scene-heading time, or a (V.O.) extension).
                   const line = lineAt(view.state.selection.$from);
                   const isCharacter = line?.node.attrs.element === "character";
-                  const accepted = acceptAutocomplete(view, st.active);
-                  if (accepted && isCharacter && editor) runEnterFlow(editor);
+                  acceptAutocomplete(view, st.active, { enterFlow: isCharacter });
                   return true;
                 }
                 case "Escape":
@@ -521,6 +588,7 @@ export function buildAutocomplete(
                   next = null;
                 }
               }
+              rendered = next != null;
               const sig = next ? JSON.stringify(next) : "null";
               if (sig === last) return;
               last = sig;
@@ -539,6 +607,7 @@ export function buildAutocomplete(
             return {
               update: () => push(),
               destroy: () => {
+                rendered = false;
                 scroller.removeEventListener("scroll", reposition);
                 window.removeEventListener("resize", reposition);
                 if (last !== "null") onState?.(null);

@@ -1,30 +1,43 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth, signOut } from "@/lib/cloud/auth";
 import { isCloudConfigured } from "@/lib/cloud/client";
 import {
   DEFAULT_PREFS,
   loadPrefs,
   savePrefs,
+  lsGet,
+  lsSet,
   type Prefs,
 } from "@/lib/storage/localStore";
 import { useProjects } from "@/lib/storage/useProjects";
 import {
   getLastOpenedId,
   getProjectMeta,
+  listProjects,
   setLastOpenedId,
   evictSyncedBodies,
   type ProjectType,
   type ProjectStatus,
 } from "@/lib/storage/projects";
+import { SAMPLE_SCRIPT } from "@/lib/editor/sampleScript";
 import { ProjectsHome } from "./ProjectsHome";
 import { EditorHost } from "./EditorHost";
 import { AuthModal } from "./AuthModal";
+import { SessionExpiredBanner } from "./SessionExpiredBanner";
 import { importFile } from "@/lib/export";
 import type { Stage } from "@/lib/storage/folders";
 
-type View = { kind: "home" } | { kind: "editor"; id: string };
+type View =
+  | { kind: "home" }
+  | {
+      kind: "editor";
+      id: string;
+      /** Instant-create hint (2C): focus-select the title on this open. Lives
+       *  only in this in-memory view state, never persisted. */
+      focusTitle?: boolean;
+    };
 
 /**
  * Optional sidecar that tells a bulk import how to lay the files out: which
@@ -49,7 +62,7 @@ function parseHash(): string | null {
  * theme/font/focus prefs, and the project lifecycle via useProjects.
  */
 export function AppShell() {
-  const { user } = useAuth();
+  const { user, sessionExpired } = useAuth();
   const {
     projects,
     folders,
@@ -60,12 +73,9 @@ export function AppShell() {
     rename,
     setStatus,
     setFolder,
-    reorder,
     createFolder,
     updateFolder,
     deleteFolder,
-    reorderFolders,
-    toggleFolder,
   } = useProjects(user);
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [view, setView] = useState<View>({ kind: "home" });
@@ -76,7 +86,11 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    savePrefs(prefs);
+    // Never write the compile-time defaults over stored prefs. Until loadPrefs
+    // lands, `prefs` IS the DEFAULT_PREFS object; saving it here would clobber
+    // the stored theme before the load effect's state update applies (React
+    // StrictMode's double-run made that a reliable reset on every reload).
+    if (prefs !== DEFAULT_PREFS) savePrefs(prefs);
     if (typeof document === "undefined") return;
     const apply = () => {
       const resolved =
@@ -100,15 +114,8 @@ export function AppShell() {
     []
   );
 
-  // Escape leaves focus mode (app-wide).
-  useEffect(() => {
-    if (!prefs.focusMode) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPrefs((p) => ({ ...p, focusMode: false }));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [prefs.focusMode]);
+  // Escape handling for focus mode now lives in the editor shell, which owns
+  // the single ordered handler (dock closes first, then focus exits).
 
   // Resolve the opening view from the hash once on mount (migration has run in
   // useProjects). hashchange does not fire on initial load, so do it explicitly.
@@ -139,23 +146,31 @@ export function AppShell() {
     return () => window.removeEventListener("less:storagefull", onFull);
   }, []);
 
-  // Drive the view from the hash so browser back/forward works.
+  // Drive the view from the hash so browser back/forward works. When the hash
+  // event confirms the view we already set (openProject sets both), keep the
+  // existing view object so an in-memory focusTitle hint survives the echo.
   useEffect(() => {
     const onHash = () => {
       const id = parseHash();
-      if (id && getProjectMeta(id)) setView({ kind: "editor", id });
-      else setView({ kind: "home" });
+      if (id && getProjectMeta(id)) {
+        setView((v) => (v.kind === "editor" && v.id === id ? v : { kind: "editor", id }));
+      } else {
+        // Landing on the dashboard via browser back must re-read the index
+        // (same-tab writes do not broadcast), or times and page counts go stale.
+        refresh();
+        setView({ kind: "home" });
+      }
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+  }, [refresh]);
 
-  const openProject = useCallback((id: string) => {
+  const openProject = useCallback((id: string, opts?: { focusTitle?: boolean }) => {
     setLastOpenedId(id);
     if (typeof window !== "undefined") {
       window.location.hash = "#/p/" + encodeURIComponent(id);
     }
-    setView({ kind: "editor", id });
+    setView({ kind: "editor", id, focusTitle: opts?.focusTitle });
   }, []);
 
   const goHome = useCallback(() => {
@@ -164,6 +179,31 @@ export function AppShell() {
     setView({ kind: "home" });
   }, [refresh]);
 
+  // Cold visit (2D.1): no project index at all means a first-ever open. Skip
+  // the dashboard: create an "Untitled screenplay" seeded with the six-line
+  // sample scene and open it directly. The one-time marker key stops this from
+  // re-running for a writer who later deletes every project on purpose.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
+    if (parseHash()) return;
+    if (lsGet("less:seeded:v1")) return;
+    if (listProjects().length > 0) {
+      // An existing install: never seed, and never again check.
+      lsSet("less:seeded:v1", "1");
+      return;
+    }
+    lsSet("less:seeded:v1", "1");
+    const meta = create("screenplay", "Untitled screenplay", {
+      content: SAMPLE_SCRIPT,
+    });
+    openProject(meta.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Create WITHOUT opening: the dashboard decides whether to open (New script
+  // opens immediately with the title focus hint; Duplicate stays on the desk).
   const onCreate = useCallback(
     (
       type: ProjectType,
@@ -171,15 +211,10 @@ export function AppShell() {
       opts?: {
         content?: import("@tiptap/core").JSONContent;
         titlePage?: import("@/lib/export/titlePage").TitlePage | null;
-        pageTarget?: number;
         folderId?: string | null;
       }
-    ) => {
-      const meta = create(type, title || undefined, opts);
-      if (opts?.folderId) setFolder(meta.id, opts.folderId);
-      openProject(meta.id);
-    },
-    [create, setFolder, openProject]
+    ) => create(type, title || undefined, opts),
+    [create]
   );
 
   // Bulk-import screenplays (Final Draft .fdx / Fountain) into the account,
@@ -273,20 +308,35 @@ export function AppShell() {
   }, [view, projects, goHome]);
 
   if (view.kind === "editor" && current) {
+    // The instant-create title focus (2C): only for a project that still has
+    // its placeholder name and was created moments ago, so a hint that somehow
+    // outlives its moment (or a reopened old project) never steals focus.
+    const autoFocusTitle =
+      view.focusTitle === true &&
+      (current.title === "Untitled screenplay" || current.title === "Untitled") &&
+      Date.now() - new Date(current.createdAt).getTime() < 10_000;
     return (
-      <EditorHost
-        key={current.id}
-        projectId={current.id}
-        type={current.type}
-        title={current.title}
-        onRename={(t) => rename(current.id, t)}
-        status={current.status}
-        onStatusChange={(s) => setStatus(current.id, s)}
-        onBack={goHome}
-        prefs={prefs}
-        onPrefsChange={onPrefsChange}
-        user={user}
-      />
+      <>
+        <EditorHost
+          key={current.id}
+          projectId={current.id}
+          type={current.type}
+          title={current.title}
+          onRename={(t) => rename(current.id, t)}
+          status={current.status}
+          onStatusChange={(s) => setStatus(current.id, s)}
+          onBack={goHome}
+          prefs={prefs}
+          onPrefsChange={onPrefsChange}
+          user={user}
+          sessionExpired={sessionExpired}
+          onImportAsNew={(file) => importScreenplays([file])}
+          autoFocusTitle={autoFocusTitle}
+        />
+        {/* Inside the editor the top bar's sync indicator carries the expired
+            state (2B.1); the banner stays for the dashboard only. */}
+        {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      </>
     );
   }
 
@@ -303,20 +353,20 @@ export function AppShell() {
         onCreate={onCreate}
         onDelete={remove}
         onRename={rename}
-        onStatusChange={setStatus}
+        onSetStatus={setStatus}
         onSetFolder={setFolder}
-        onReorder={reorder}
         folders={folders}
         onCreateFolder={createFolder}
         onUpdateFolder={updateFolder}
         onDeleteFolder={deleteFolder}
-        onReorderFolders={reorderFolders}
-        onToggleFolder={toggleFolder}
         onImportScreenplays={importScreenplays}
         onSyncNow={syncNow}
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOut()}
       />
+      {sessionExpired && (
+        <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />
+      )}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </>
   );

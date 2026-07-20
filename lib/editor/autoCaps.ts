@@ -11,8 +11,10 @@ import { UPPERCASE_ELEMENTS, type ElementType } from "./elements";
  * Fountain/FDX exporters would all have to re-normalize. Instead we uppercase
  * the actual text as it's typed, so the document's source of truth is correct.
  *
- * Uppercasing is length-preserving, so cursor positions never shift — the
- * caret stays exactly where the writer left it.
+ * Uppercasing is usually length-preserving, so cursor positions do not shift.
+ * The rare exceptions (the German eszett, ligatures) grow when uppercased and
+ * would corrupt positions, so those text runs are left alone: the stored text
+ * keeps its typed form and the element's CSS displays it uppercased anyway.
  */
 
 const autoCapsKey = new PluginKey("screenplayAutoCaps");
@@ -48,6 +50,10 @@ export const AutoCaps = Extension.create({
             node.descendants((child, offset) => {
               if (!child.isText || !child.text) return;
               const upper = child.text.toUpperCase();
+              // Skip any run whose uppercase form changes length (eszett,
+              // ligatures): rewriting it would shift every later position in
+              // the document. The CSS uppercase display covers those on screen.
+              if (upper.length !== child.text.length) return;
               if (upper !== child.text) {
                 // +1 steps inside the line node to its content.
                 const start = pos + 1 + offset;
@@ -57,12 +63,11 @@ export const AutoCaps = Extension.create({
             });
           });
 
-          // Fold the casing fix into the same undo step as the keystroke that
-          // triggered it, so one Ctrl/Cmd+Z undoes both cleanly.
-          if (modified) {
-            tr.setMeta("addToHistory", false);
-            return tr;
-          }
+          // Left visible to history on purpose: ProseMirror composes an
+          // appendTransaction result into the same undo event as the keystroke
+          // that triggered it, so one Ctrl/Cmd+Z undoes both cleanly. Hiding it
+          // (addToHistory false) made undo produce states that never existed.
+          if (modified) return tr;
           return null;
         },
       }),

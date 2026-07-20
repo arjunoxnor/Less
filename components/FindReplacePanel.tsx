@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CastEntry } from "@/types/screenplay";
 import type { RenamePlan } from "@/lib/editor/renameCharacter";
 import { ELEMENT_CYCLE, ELEMENT_LABELS } from "@/lib/editor/elements";
@@ -31,8 +31,6 @@ export function FindReplacePanel({
   onReplaceAll,
   onRename,
   getPreview,
-  initialRenameFrom,
-  renameTick,
   onClose,
 }: {
   findState: FindInputs;
@@ -46,34 +44,18 @@ export function FindReplacePanel({
   onReplaceAll: () => number;
   onRename: (from: string, to: string, includeMentions: boolean) => RenamePlan;
   getPreview: (from: string, to: string, includeMentions: boolean) => RenamePlan;
-  initialRenameFrom: string | null;
-  /** Bumped on each cast "Rename" click so re-requesting the same name re-fires. */
-  renameTick: number;
   onClose: () => void;
 }) {
-  const [mode, setMode] = useState<"find" | "rename">(
-    initialRenameFrom ? "rename" : "find"
-  );
-  const [fromName, setFromName] = useState(initialRenameFrom ?? "");
+  // The panel always opens in Find mode with blank rename fields; the planned
+  // cast-panel handoff that pre-filled a name was never wired and its plumbing
+  // is gone (superaudit 2 B10).
+  const [mode, setMode] = useState<"find" | "rename">("find");
+  const [fromName, setFromName] = useState("");
   const [toName, setToName] = useState("");
   const [includeMentions, setIncludeMentions] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [replaceMsg, setReplaceMsg] = useState("");
   const [renameMsg, setRenameMsg] = useState("");
-
-  // When the cast panel asks to rename a specific character, jump into rename
-  // mode pre-filled with that name. Keyed on renameTick (not the name) so that
-  // re-requesting the SAME character after switching to Find re-fires.
-  useEffect(() => {
-    if (initialRenameFrom) {
-      setMode("rename");
-      setFromName(initialRenameFrom);
-      setToName("");
-      setConfirming(false);
-      setRenameMsg("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renameTick]);
 
   const canReplace = findState.query !== "" && matchCount > 0;
   const counter =

@@ -1,31 +1,17 @@
 import { lsGet, lsSet } from "./localStore";
-import { broadcast } from "./broadcast";
-import type { ProjectStatus } from "./projects";
 
 /**
  * Folders: the organizing layer over projects. A folder collects all the
  * materials for one creative project (a screenplay plus its notes, research,
- * etc.), and carries a color and a development stage. Folders are device-local
- * for now (the documents themselves still sync to the cloud); the folder
- * arrangement is view organization, not the work itself, so it lives in
- * localStorage and can gain cross-device sync later.
+ * etc.) and carries a color. Folders sync to the cloud alongside scripts.
+ *
+ * The `stage` field survives in the data and sync shapes for compatibility
+ * (rows and manifests carry it), but nothing renders it anymore: Superaudit 2
+ * Part 2C retired folder stages from display in favor of the per-script
+ * status (Idea / Writing / Done).
  */
 
 export type Stage = "idea" | "in_progress" | "completed";
-
-export const STAGE_LABEL: Record<Stage, string> = {
-  idea: "Idea",
-  in_progress: "In progress",
-  completed: "Completed",
-};
-
-/** Natural progression order, used for the stage picker. */
-export const STAGE_ORDER: Stage[] = ["idea", "in_progress", "completed"];
-
-/** A folder stage maps to the same three buckets the document status uses. */
-export function stageOfStatus(s: ProjectStatus): Stage {
-  return s === "done" ? "completed" : s === "writing" ? "in_progress" : "idea";
-}
 
 /** Folder accent colors, deliberately distinct from the stage chip colors. */
 // A curated palette ordered around the colour wheel so the swatches read as a

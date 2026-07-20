@@ -26,6 +26,19 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  // Esc dismisses the modal. Capture phase with stopPropagation, matching
+  // ui/Modal, so the shell's window-level Escape handler (dock, focus mode)
+  // never acts behind a still-open dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCloseRef.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
   // Render the Google Identity Services button.
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID || created) return;

@@ -92,6 +92,24 @@ export function sanitize(text: string): string {
   return out;
 }
 
+/**
+ * Minimal cleanup for the embedded-font path (Courier Prime with subsetting):
+ * the subsetter handles glyph coverage, so text passes through untouched apart
+ * from tab expansion and stripping control characters. The CP1252 sanitize()
+ * above remains the rule for the built-in Courier fallback, and the renderer
+ * still falls back to sanitize() per line if a glyph is missing at draw time.
+ */
+export function sanitizeLoose(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (c === 9) out += "    "; // tab -> 4 spaces
+    else if (c < 0x20 || c === 0x7f) continue; // control chars
+    else out += ch;
+  }
+  return out;
+}
+
 /** Greedy word wrap to a monospaced column of `maxChars`. */
 export function wrap(text: string, maxChars: number): string[] {
   const words = text.split(/\s+/).filter((w) => w.length > 0);

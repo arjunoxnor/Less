@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
-import type { CloudUser as User } from "@/lib/cloud/client";
+import { isSessionExpired, type CloudUser as User } from "@/lib/cloud/client";
 
 import {
   createScript,
@@ -140,6 +140,12 @@ export function useCloudSync(
     const u = userRef.current;
     const ed = editor;
     if (!u || !ed) return;
+    // An expired session would just 401 on every push: go quiet instead of
+    // hammering the API. The doc stays dirty locally and pushes after re-auth.
+    if (isSessionExpired()) {
+      setStatus("error");
+      return;
+    }
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       setStatus("offline");
       return;
@@ -190,10 +196,33 @@ export function useCloudSync(
     debouncedPush.current = debounce(() => void pushNow(), PUSH_DEBOUNCE_MS);
   }, [pushNow]);
 
+  // --- Resume after re-auth from an expired session -------------------------
+  // Expiry keeps user non-null on purpose, so signing back in as the same
+  // account changes neither user.id nor the reconcile key: without this,
+  // reconciledFor would still match, the effect below would return early, and
+  // sync would silently stay paused (status stuck on error, dirty doc
+  // unpushed) until the next edit. setSession announces the restoration;
+  // reset the key and bump a tick so the full reconcile re-runs.
+  const [restoredTick, setRestoredTick] = useState(0);
+  useEffect(() => {
+    const onRestored = () => {
+      reconciledFor.current = null;
+      setRestoredTick((t) => t + 1);
+    };
+    window.addEventListener("less:sessionrestored", onRestored);
+    return () => window.removeEventListener("less:sessionrestored", onRestored);
+  }, []);
+
   // --- Reconcile this project once when a signed-in user + editor are ready ---
   useEffect(() => {
     if (!editor || !user) {
       if (!user) setStatus("local");
+      return;
+    }
+    // Expired session: skip the reconcile entirely (every call would 401).
+    // reconciledFor stays unset so a re-sign-in re-runs it for this project.
+    if (isSessionExpired()) {
+      setStatus("error");
       return;
     }
     const key = `${user.id}:${projectId}`;
@@ -271,7 +300,7 @@ export function useCloudSync(
         setStatus("error");
       }
     })();
-  }, [editor, user, projectId, pullInto]);
+  }, [editor, user, projectId, pullInto, restoredTick]);
 
   // --- Cross-tab: adopt a sibling tab's newer save of THIS project ---------
   // Another tab on this device just wrote a fresher body to localStorage. If we
@@ -416,6 +445,7 @@ export function useCloudSync(
     const ed = editor;
     const o = optsRef.current;
     if (!u || !ed || !o.isDirty()) return;
+    if (isSessionExpired()) return; // would only 401; local save already ran
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     const doc = ed.getJSON();
     const tp = titlePageRef.current;

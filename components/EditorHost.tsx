@@ -24,6 +24,7 @@ import { PlainBody } from "./PlainBody";
  */
 export function EditorHost({
   type,
+  onImportAsNew,
   ...rest
 }: {
   projectId: string;
@@ -36,6 +37,12 @@ export function EditorHost({
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
+  /** The top bar's sync indicator carries the expired-session state (2B.1). */
+  sessionExpired?: boolean;
+  /** Screenplay-only: "Add as a new project" in the editor's import choice. */
+  onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
+  /** Focus and select the title on mount (instant-create flow, 2C). */
+  autoFocusTitle?: boolean;
 }) {
   const { projectId, onBack } = rest;
   const [hydration, setHydration] = useState<"checking" | "ready" | "failed">(() =>
@@ -90,5 +97,9 @@ export function EditorHost({
     );
   }
 
-  return type === "plain" ? <PlainBody {...rest} /> : <ScreenplayBody {...rest} />;
+  return type === "plain" ? (
+    <PlainBody {...rest} />
+  ) : (
+    <ScreenplayBody {...rest} onImportAsNew={onImportAsNew} />
+  );
 }
