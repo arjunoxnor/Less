@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 export interface PaletteCommand {
   id: string;
@@ -25,9 +25,17 @@ export function CommandPalette({
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
 
+  // Focus the input on mount and restore focus to whatever was focused when the
+  // palette opened (usually the editor) once it closes, mirroring Modal.tsx so a
+  // keystroke after Escape never falls into document.body.
   useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
+    return () => {
+      opener?.focus?.();
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -66,6 +74,12 @@ export function CommandPalette({
           ref={inputRef}
           className="cmd-input"
           placeholder="Type a command or search scenes..."
+          role="combobox"
+          aria-expanded={filtered.length > 0}
+          aria-controls={listId}
+          aria-activedescendant={
+            filtered.length > 0 ? `${listId}-opt-${active}` : undefined
+          }
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -82,18 +96,25 @@ export function CommandPalette({
               e.preventDefault();
               e.stopPropagation();
               onClose();
+            } else if (e.key === "Tab") {
+              // The input is the only tab stop (options are reached with the
+              // arrows), so keep Tab from leaking focus to the chrome behind
+              // the still-open palette.
+              e.preventDefault();
             }
           }}
         />
-        <div className="cmd-list" ref={listRef}>
+        <div className="cmd-list" ref={listRef} id={listId} role="listbox">
           {filtered.length === 0 ? (
             <div className="cmd-empty">No matches</div>
           ) : (
             filtered.map((c, i) => (
               <button
                 key={c.id}
+                id={`${listId}-opt-${i}`}
                 type="button"
                 role="option"
+                tabIndex={-1}
                 aria-selected={i === active}
                 className={"cmd-item" + (i === active ? " cmd-item-active" : "")}
                 onMouseEnter={() => setActive(i)}
