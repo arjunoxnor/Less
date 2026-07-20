@@ -36,6 +36,7 @@ export function TopBar({
   exportItems,
   overflowItems,
   onToggleRail,
+  autoFocusTitle,
 }: {
   title: string;
   onRename: (title: string) => void;
@@ -50,12 +51,26 @@ export function TopBar({
   exportItems: MenuItem[];
   overflowItems: MenuItem[];
   onToggleRail: () => void;
+  /** Instant-create flow (2C): focus and select the title on first open so a
+   *  brand-new "Untitled screenplay" can be named by just typing. */
+  autoFocusTitle?: boolean;
 }) {
   const [draft, setDraft] = useState(title);
   useEffect(() => setDraft(title), [title]);
   const [menu, setMenu] = useState<null | "export" | "overflow">(null);
   const exportRef = useRef<HTMLButtonElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  // Consume the hint once, on mount only; later prop flips must not re-focus.
+  const focusOnce = useRef(autoFocusTitle);
+  useEffect(() => {
+    if (focusOnce.current) {
+      focusOnce.current = false;
+      titleRef.current?.focus();
+      titleRef.current?.select();
+    }
+  }, []);
 
   const commit = () => {
     const next = draft.trim();
@@ -76,6 +91,7 @@ export function TopBar({
       </button>
 
       <input
+        ref={titleRef}
         className="topbar-title"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

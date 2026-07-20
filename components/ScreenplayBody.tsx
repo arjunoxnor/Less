@@ -109,6 +109,7 @@ export function ScreenplayBody({
   user,
   sessionExpired,
   onImportAsNew,
+  autoFocusTitle,
 }: {
   projectId: string;
   title: string;
@@ -121,6 +122,8 @@ export function ScreenplayBody({
   user: User | null;
   sessionExpired?: boolean;
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
+  /** Focus and select the title on mount (instant-create flow, 2C). */
+  autoFocusTitle?: boolean;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_SCREENPLAY,
@@ -192,7 +195,15 @@ export function ScreenplayBody({
         (doc: JSONContent) => {
           const ok = saveProjectDoc(projectId, doc);
           setSaveError(!ok);
-          if (ok) setSaved(true);
+          if (ok) {
+            setSaved(true);
+            // Cache the visual page count on the index (additive, optional
+            // field) so the dashboard can show "12 pp" without parsing bodies.
+            const cached = getProjectMeta(projectId)?.pageCount;
+            if (cached !== pagesRef.current) {
+              patchProjectMeta(projectId, { pageCount: pagesRef.current });
+            }
+          }
         },
         600,
         // Flush at least every 2.5s during continuous typing, so a crash mid-burst
@@ -212,6 +223,9 @@ export function ScreenplayBody({
   // paginator on every keystroke: it duplicated work and could disagree with the
   // pages actually on screen (F17/F37).
   const [pages, setPages] = useState(1);
+  // Ref mirror for the debounced save (memoized on projectId only).
+  const pagesRef = useRef(1);
+  pagesRef.current = pages;
   const extensions = useMemo(
     () => [
       ...buildExtensions({
@@ -986,6 +1000,7 @@ export function ScreenplayBody({
         focusMode={prefs.focusMode}
         onExitFocus={() => onPrefsChange({ focusMode: false })}
         onEnterFocus={() => onPrefsChange({ focusMode: true })}
+        autoFocusTitle={autoFocusTitle}
         title={title}
         onRename={onRename}
         onBack={onBack}

@@ -1,5 +1,5 @@
 /* ============================================================================
-   LESS — global styles
+   LESS: global styles
    Two parts: (1) the app chrome (toolbar, status bar, theme), and (2) the
    screenplay "page" itself, whose margins follow standard US spec format.
    ========================================================================== */
@@ -103,14 +103,6 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-}
-
-.toolbar-brand {
-  font-weight: 700;
-  letter-spacing: 2px;
-  font-size: var(--text-lg);
-  color: var(--accent);
-  user-select: none;
 }
 
 .toolbar-group {
@@ -462,17 +454,6 @@ body {
    ACCOUNT / SYNC / MODAL / HISTORY
    ========================================================================== */
 
-.toolbar-account {
-  gap: 8px;
-}
-.account-email {
-  font-size: var(--text-sm);
-  color: var(--muted);
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .sync-label {
   font-size: var(--text-sm);
   color: var(--muted);
@@ -621,20 +602,6 @@ body {
   height: 1px;
   background: var(--border);
 }
-.modal-switch {
-  margin-top: 14px;
-  font-size: var(--text-md);
-  color: var(--muted);
-  text-align: center;
-}
-.modal-switch button {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: var(--text-md);
-  padding: 0;
-}
 .modal-close {
   display: block;
   margin: 16px auto 0;
@@ -689,19 +656,6 @@ body {
   font-size: var(--text-sm);
   color: var(--accent);
   font-weight: 600;
-}
-.account-code-input {
-  width: 150px;
-  padding: 5px 8px;
-  font-size: var(--text-sm);
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
-  border-radius: var(--r-sm);
-  background: var(--surface, transparent);
-  color: inherit;
-}
-.account-code-msg {
-  font-size: var(--text-xs);
-  color: var(--muted);
 }
 .history-tp-tag {
   display: inline-block;
@@ -1055,152 +1009,586 @@ body {
   background: rgba(224, 83, 59, 0.12);
 }
 
-.modal-text {
-  margin: 0 0 18px;
-  font-size: var(--text-md);
-  color: var(--toolbar-fg);
-  line-height: 1.5;
-}
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
-}
+/* ============================================================================
+   DASHBOARD (Superaudit 2, Part 2C): top bar, folder sidebar, Continue card,
+   script rows. Replaces the chip-grid and folder-card generations wholesale.
+   ========================================================================== */
 
-/* ---- Status segmented control (shared by chrome + cards + new modal) ----- */
-
-.status-seg {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  overflow: hidden;
+/* View swap (2E): the incoming view fades in with a 4px rise; no exit. */
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
-.status-seg .seg {
-  border: none;
-  border-radius: 0;
-  border-right: 1px solid var(--border);
-  padding: 5px 10px;
-  font-size: var(--text-sm);
-  background: var(--btn-bg);
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
+.home,
+.editor-shell {
+  animation: view-in var(--dur-2) var(--ease);
 }
-.status-seg .seg:last-child {
-  border-right: none;
-}
-.status-seg .seg-active {
-  background: var(--btn-active-bg);
-  color: var(--btn-active-fg);
-}
-
-/* ---- Projects home ------------------------------------------------------- */
 
 .home {
   min-height: 100vh;
-  background: var(--bg);
-  color: var(--toolbar-fg);
+  display: flex;
+  flex-direction: column;
+  background: var(--desk);
+  color: var(--ink);
 }
-.home-bar {
+
+/* ---- Top bar (48px, --surface, hairline bottom) -------------------------- */
+
+.home-topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 18px;
-  background: var(--toolbar-bg);
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-2);
+  height: 48px;
+  flex: 0 0 auto;
+  padding: 0 var(--space-3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
   position: sticky;
   top: 0;
   z-index: var(--z-bars);
-  flex-wrap: wrap;
 }
-.home-new {
-  font-weight: 600;
+.home-brand {
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-size: var(--text-lg);
+  color: var(--ink);
+  user-select: none;
+  margin-right: var(--space-2);
 }
-.home-body {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 28px 18px 80px;
-}
-.home-empty {
-  text-align: center;
-  padding: 80px 20px;
-  color: var(--muted);
-}
-.home-empty h2 {
-  font-size: var(--text-xl);
-  color: var(--toolbar-fg);
-  margin: 0 0 10px;
-}
-.home-empty p {
-  font-size: var(--text-md);
-  line-height: 1.6;
-  max-width: 420px;
-  margin: 0 auto 22px;
-}
-.home-hints {
-  list-style: none;
-  padding: 0;
-  margin: 30px auto 0;
-  max-width: 460px;
-  text-align: left;
-  font-size: var(--text-md);
-  line-height: 1.5;
-  color: var(--muted);
-}
-.home-hints li {
-  padding: 6px 0;
-  border-top: 1px solid var(--border);
-}
-.home-hints kbd {
-  font-family: var(--font-courier-prime), monospace;
-  font-size: var(--text-sm);
-  padding: 1px 6px;
-  margin-right: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--toolbar-bg);
-  color: var(--toolbar-fg);
-}
-
-/* ---- Folders (the organizing layer over projects) ---------------------- */
-.folder-count {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 0 7px;
-  line-height: 16px;
-}
-.stage-chip {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 1px 9px;
-  border-radius: var(--r-lg);
-}
-.stage-idea {
-  background: rgba(186, 117, 23, 0.16);
-  color: #bd7d1e;
-}
-.stage-in_progress {
-  background: rgba(47, 109, 246, 0.16);
-  color: #3f7bf0;
-}
-.stage-completed {
-  background: rgba(31, 143, 78, 0.16);
-  color: #2f9e57;
-}
-.folder-name-input {
-  flex: 1 1 160px;
-  min-width: 140px;
-  padding: 6px 9px;
+.home-search {
+  flex: 0 1 280px;
+  min-width: 90px;
+  height: 30px;
+  padding: 0 10px;
   font: inherit;
   font-size: var(--text-md);
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--r-sm);
-  background: var(--btn-bg);
-  color: var(--toolbar-fg);
+  background: var(--surface-2);
+  color: var(--ink);
 }
+.home-search::placeholder {
+  color: var(--muted);
+}
+
+/* Account avatar: initial-letter circle inside a standard tb-icon button. */
+.home-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+
+/* The one solid-ink action: the split New button. */
+.home-split {
+  display: inline-flex;
+}
+.home-split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.home-split-caret {
+  display: inline-flex;
+  align-items: center;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding: 6px 7px;
+  border-left: 1px solid var(--surface); /* seam between the two halves */
+}
+
+/* ---- Two-column body: 220px folder sidebar, content column --------------- */
+
+.home-layout {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: stretch;
+}
+.home-sidebar {
+  flex: 0 0 220px;
+  width: 220px;
+  padding: var(--space-4) var(--space-2);
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+/* Folder wrappers (a folder row plus its indented subtree) melt away so every
+   row is a direct flex item, in the column sidebar and the mobile strip both. */
+.snav-group {
+  display: contents;
+}
+.snav-sep {
+  height: 1px;
+  flex: 0 0 auto;
+  background: var(--hairline);
+  margin: var(--space-2);
+}
+.snav-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 2px 6px 2px calc(8px + var(--indent, 0px));
+  border-radius: var(--r-sm);
+  font-size: var(--text-md);
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease);
+}
+.snav-row:hover {
+  background: var(--surface-2);
+}
+.snav-active {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+/* Drag-over (2E): recessed fill plus a hairline-weight ring, never dashed. */
+.snav-drop {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--muted);
+}
+.snav-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.snav-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.snav-count {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.snav-kebab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.snav-row:hover .snav-kebab,
+.snav-row:focus-within .snav-kebab,
+.snav-kebab:focus-visible {
+  opacity: 1;
+}
+.snav-kebab:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+.snav-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  font: inherit;
+  font-size: var(--text-md);
+  padding: 2px 6px;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.home-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4) 80px;
+}
+
+/* ---- Continue card (B10: the desk remembers where you were) -------------- */
+
+.cont-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  text-align: left;
+  font: inherit;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--e1);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease);
+}
+.cont-card:hover {
+  border-color: var(--muted);
+}
+.cont-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.cont-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.cont-meta {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+/* The live specimen: the script's own 12pt Courier, one line. */
+.cont-specimen {
+  margin-top: var(--space-3);
+  font-family: var(--font-courier-prime), "Courier New", monospace;
+  font-size: 16px; /* 12pt at 96dpi, the page's own size */
+  line-height: 1.2;
+  color: var(--ink);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cont-specimen-scene {
+  text-transform: uppercase;
+}
+
+/* ---- List header and the 52px script rows -------------------------------- */
+
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+.list-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--ink);
+}
+.list-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.list-sort:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.srow-list {
+  display: flex;
+  flex-direction: column;
+}
+.srow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 52px;
+  padding: 0 var(--space-3);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.srow:hover {
+  background: var(--surface);
+}
+/* Hairline between rows, drawn outside so it never fights the hover radius. */
+.srow + .srow {
+  box-shadow: 0 -1px 0 var(--hairline);
+}
+.srow-icon {
+  flex: 0 0 auto;
+}
+.srow-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srow-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 600;
+  padding: 4px 7px;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+}
+/* Status: a dot and a word, click to cycle Idea, Writing, Done (2I). */
+.srow-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 68px;
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.srow-status:hover {
+  background: var(--surface-2);
+}
+.srow-statusdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.srow-status.st-not_started {
+  color: var(--muted);
+}
+.srow-status.st-writing {
+  color: var(--ink);
+}
+.srow-status.st-done {
+  color: var(--ok);
+}
+.srow-pp,
+.srow-time {
+  flex: 0 0 auto;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.srow-time {
+  min-width: 84px;
+  text-align: right;
+}
+.srow-kebab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.srow:hover .srow-kebab,
+.srow:focus-within .srow-kebab,
+.srow-kebab:focus-visible {
+  opacity: 1;
+}
+.srow-kebab:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+/* Touch has no hover: the kebabs stay visible. */
+@media (hover: none) {
+  .snav-kebab,
+  .srow-kebab {
+    opacity: 1;
+  }
+}
+
+.list-empty {
+  margin: 0;
+  padding: var(--space-6) var(--space-2);
+  font-size: var(--text-md);
+  color: var(--muted);
+}
+
+/* ---- Dashboard modals: templates, move-to, sync code --------------------- */
+
+.tpl-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.tpl-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease);
+}
+.tpl-item:hover {
+  border-color: var(--ink);
+}
+.tpl-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.tpl-desc {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+/* 12pt Courier preview: the template's own first lines, on paper. */
+.tpl-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding: var(--space-3);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  font-family: var(--font-courier-prime), "Courier New", monospace;
+  font-size: 16px; /* 12pt at 96dpi */
+  line-height: 1.25;
+  color: var(--ink);
+  min-width: 0;
+}
+.tpl-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
+  overflow: auto;
+}
+.move-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.move-item:hover {
+  background: var(--surface-2);
+}
+.move-current {
+  font-weight: 600;
+  background: var(--surface-2);
+}
+
+.code-input {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--text-md);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  margin-top: var(--space-2);
+}
+.code-input:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+/* ---- Below 1024px: the sidebar becomes a horizontal chip strip ----------- */
+
+@media (max-width: 1023px) {
+  .home-layout {
+    flex-direction: column;
+  }
+  .home-sidebar {
+    flex: 0 0 auto;
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: var(--space-2) var(--space-3);
+    border-right: none;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .home-sidebar::-webkit-scrollbar {
+    display: none;
+  }
+  .snav-sep {
+    display: none;
+  }
+  .snav-row {
+    flex: 0 0 auto;
+    padding: 4px 12px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: var(--surface);
+  }
+  .snav-kebab {
+    display: none;
+  }
+  .home-content {
+    padding: var(--space-4) var(--space-3) 64px;
+  }
+  .srow-pp {
+    display: none;
+  }
+  .srow-time {
+    min-width: 0;
+  }
+}
+
+/* ---- Folder color swatches (shared by the folder color modal) ------------ */
 .folder-swatches {
   display: grid;
   grid-template-columns: repeat(9, 1fr);
@@ -1252,232 +1640,8 @@ body {
   padding: 0;
   cursor: pointer;
 }
-.folder-stage-select {
-  font: inherit;
-  font-size: var(--text-sm);
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--btn-bg);
-  color: var(--toolbar-fg);
-  cursor: pointer;
-}
-/* ---- Chip-grid home (draggable project chips + folder tiles) ----------- */
-.home-sec-label {
-  font-size: var(--text-md);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--muted);
-  font-weight: 700;
-  margin: 22px 0 10px;
-}
-.home-import-msg {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 14px;
-  padding: 9px 13px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--toolbar-bg);
-  font-size: var(--text-md);
-  color: var(--toolbar-fg);
-}
-.chip-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
-  border-radius: var(--r-lg);
-  min-height: 64px;
-}
-.chip {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 104px;
-  padding: 12px 13px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--toolbar-bg);
-  cursor: grab;
-  transition: border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
-}
-.chip:hover {
-  border-color: var(--accent);
-}
-.chip:active {
-  cursor: grabbing;
-}
-.chip.chip-drop {
-  border-left: 3px solid var(--accent);
-}
-.chip-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.chip-icon {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-.chip-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-weight: 600;
-  color: var(--toolbar-fg);
-  line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.chip-rename {
-  flex: 1 1 auto;
-  min-width: 0;
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: 600;
-  padding: 4px 7px;
-  border: 1px solid var(--accent);
-  border-radius: var(--r-sm);
-  background: var(--page-bg);
-  color: var(--page-fg);
-}
-.chip-foot {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-.chip-time {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-.chip-actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-}
-.chip:hover .chip-actions,
-.chip:focus-within .chip-actions,
-.chip-actions:has(:focus-visible) {
-  opacity: 1;
-}
-.chip-act {
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--btn-bg);
-  color: var(--muted);
-  cursor: pointer;
-}
-.chip-act-danger:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-/* ---- Blocky folder cards (expand in place, many open at once) ---------- */
-.home-body.root-drop {
-  outline: 2px dashed var(--accent);
-  outline-offset: -8px;
-  border-radius: var(--r-lg);
-}
-/* A grid of folder boxes; an opened folder spans the full row to show its
-   contents, so it reads as boxes rather than a flat list. */
-.fnode-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
-  align-items: start;
-}
-.fcard {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--border); /* color comes from inline style */
-  border-radius: var(--r-lg);
-  background: var(--toolbar-bg);
-  overflow: hidden;
-}
-/* Open folders grow in place (taller) instead of jumping to full width, so
-   opening or closing one barely disturbs the rest of the grid. A soft lift
-   marks the open state. */
-.fcard.fcard-open {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-}
-.fcard.fcard-drop {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-}
-.fcard.fcard-before {
-  box-shadow: -4px 0 0 0 var(--accent);
-}
-.fcard-head {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  cursor: pointer; /* click anywhere to open/close; still draggable to move */
-}
-.fcard-head:active {
-  cursor: grabbing;
-}
-.fcard-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.fcard-icon {
-  flex: 0 0 auto;
-}
-.fcard-acts {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-}
-.fcard-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-}
-.fcard-btn svg {
-  width: 16px;
-  height: 16px;
-}
-.fcard-btn:hover {
-  background: var(--btn-bg);
-  color: var(--toolbar-fg);
-}
-.fcard-btn-danger:hover {
-  background: rgba(224, 83, 59, 0.12);
-  color: var(--danger);
-}
-.fcard-name {
-  display: block;
-  font-weight: 600;
-  font-size: var(--text-lg);
-  color: var(--toolbar-fg);
-  line-height: 1.3;
-  /* Name gets its own full-width line and wraps; it is never truncated. */
-  word-break: break-word;
-}
-.fcard-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-/* Press-and-hold to confirm a delete: the bar fills over ~2s. */
+/* Press-and-hold to confirm a delete: the bar fills over ~2s. Reused by the
+   sidebar folder kebab's Delete. */
 .hold-del {
   display: inline-flex;
   align-items: center;
@@ -1527,66 +1691,6 @@ body {
 .hold-cancel:hover {
   color: var(--toolbar-fg);
 }
-.fnode-menu-wrap {
-  position: relative;
-  flex: 0 0 auto;
-}
-.fnode-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: var(--z-menus);
-  min-width: 150px;
-  background: var(--toolbar-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  box-shadow: var(--e2);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-}
-.fnode-menu button {
-  border: none;
-  background: none;
-  color: var(--toolbar-fg);
-  font: inherit;
-  font-size: var(--text-md);
-  text-align: left;
-  padding: 7px 10px;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.fnode-menu button:hover {
-  background: var(--btn-bg);
-}
-.fnode-menu .fnode-menu-danger {
-  color: var(--danger);
-}
-.fcard-edit {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-}
-/* The body is recessed and holds nested folder cards (which keep the lighter
-   card background), so folders-inside-folders read clearly. */
-.fcard-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-}
-.fnode-empty {
-  font-size: var(--text-md);
-  color: var(--muted);
-  padding: 4px 4px 6px;
-}
-
 /* ---- Plain document surface --------------------------------------------- */
 
 .pl-doc {
@@ -2272,9 +2376,6 @@ body {
     padding: 8px 10px; /* comfortable touch target */
     white-space: nowrap;
   }
-  .account-email {
-    display: none; /* long emails blow up the strip; the sync dot remains */
-  }
   .topbar-kbd {
     display: none; /* a keyboard hint chip is noise on touch screens */
   }
@@ -2327,21 +2428,6 @@ body {
     padding: 0 10px;
   }
 
-  /* Home: tighter grid and a swipeable top bar. */
-  .home-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    gap: 8px;
-  }
-  .home-bar::-webkit-scrollbar {
-    display: none;
-  }
-  .chip-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px;
-  }
 }
 
 /* ============================================================================

@@ -48,6 +48,10 @@ export interface ProjectMeta {
   /** The local body was evicted to free storage (the cloud copy is the truth).
    *  The editor host re-fetches it from the cloud before mounting. */
   bodyEvicted?: boolean;
+  /** Cached page count from the editor's visual pagination, written on the
+   *  debounced save so the dashboard can show "12 pp" without parsing bodies.
+   *  Optional and additive (Superaudit 2, Part 5); local-only, no migration. */
+  pageCount?: number;
 }
 
 /** A full project: metadata plus its body. */

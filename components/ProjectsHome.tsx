@@ -1,59 +1,62 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CloudUser as User } from "@/lib/cloud/client";
 import type { JSONContent } from "@tiptap/core";
-import type { Prefs } from "@/lib/storage/localStore";
-import type {
-  ProjectMeta,
-  ProjectType,
-} from "@/lib/storage/projects";
+import { lsGet, lsSet, type Prefs } from "@/lib/storage/localStore";
 import {
-  FOLDER_COLORS,
-  STAGE_LABEL,
-  STAGE_ORDER,
-  type Folder,
-  type Stage,
-} from "@/lib/storage/folders";
+  loadPageLock,
+  loadProjectDoc,
+  loadProjectTitlePage,
+  type ProjectMeta,
+  type ProjectStatus,
+  type ProjectType,
+} from "@/lib/storage/projects";
+import { FOLDER_COLORS, type Folder } from "@/lib/storage/folders";
 import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
-import { hasTitlePage, type TitlePage } from "@/lib/export/titlePage";
-import { IMPORT_ACCEPT } from "@/lib/export";
+import { docText } from "@/lib/editor/docUtils";
+import type { TitlePage } from "@/lib/export/titlePage";
+import { IMPORT_ACCEPT, exportDoc, type ExportFormat } from "@/lib/export";
 import { claimSyncCode } from "@/lib/cloud/auth";
+import { Menu, type MenuItem } from "./ui/Menu";
 import { Modal } from "./ui/Modal";
 import { showToast } from "./ui/Toast";
+import { DotsIcon, PersonIcon } from "./chrome/icons";
 
 /**
- * Folder-name field that buffers keystrokes locally and only commits on blur or
- * Enter. The folder rename pushes to the cloud, so committing per keystroke fired
- * a network write for every letter typed; this commits once when editing ends.
+ * The dashboard (Superaudit 2, Part 2C): a writer's desk, not a filing cabinet.
+ * One 48px top bar (wordmark, search, overflow, account avatar, split New
+ * button), a 220px
+ * folder sidebar on the left, and a content column with the Continue card and
+ * 52px script rows. Folder stages are retired from display entirely.
  */
-function FolderNameInput({
-  initial,
-  onCommit,
-  onDone,
-}: {
-  initial: string;
-  onCommit: (name: string) => void;
-  onDone: () => void;
-}) {
-  const [val, setVal] = useState(initial);
-  const commit = () => onCommit(val.trim() || "Untitled folder");
-  return (
-    <input
-      className="folder-name-input"
-      value={val}
-      autoFocus
-      onChange={(e) => setVal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          commit();
-          onDone(); // Enter commits AND closes the editor (restores prior behavior)
-        }
-      }}
-      aria-label="Folder name"
-    />
-  );
+
+/* ---- Small shared pieces ------------------------------------------------- */
+
+const STATUS_LABEL: Record<ProjectStatus, string> = {
+  not_started: "Idea",
+  writing: "Writing",
+  done: "Done",
+};
+
+const NEXT_STATUS: Record<ProjectStatus, ProjectStatus> = {
+  not_started: "writing",
+  writing: "done",
+  done: "not_started",
+};
+
+type SortKey = "recent" | "title" | "created";
+const SORT_LABEL: Record<SortKey, string> = {
+  recent: "Recent",
+  title: "Title",
+  created: "Created",
+};
+/** NEW additive key (never the deleted HomeView shape). */
+const SORT_KEY = "less:homeSort";
+
+function loadSort(): SortKey {
+  const raw = lsGet(SORT_KEY);
+  return raw === "title" || raw === "created" ? raw : "recent";
 }
 
 function relativeTime(iso: string): string {
@@ -78,7 +81,7 @@ function typeLabel(type: ProjectType): string {
 function TypeIcon({ type, color }: { type: ProjectType; color: string }) {
   return (
     <svg
-      className="chip-icon"
+      className="srow-icon"
       width="18"
       height="18"
       viewBox="0 0 24 24"
@@ -110,6 +113,22 @@ function TypeIcon({ type, color }: { type: ProjectType; color: string }) {
     </svg>
   );
 }
+
+const ChevronDown = () => (
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
 
 /**
  * Press-and-hold to confirm a destructive action. The bar fills over ~2s; let
@@ -155,660 +174,707 @@ function HoldDelete({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: 
   );
 }
 
+/**
+ * Name field that buffers keystrokes locally and commits on blur or Enter, so
+ * a cloud-synced rename fires one write instead of one per letter.
+ */
+function NameInput({
+  initial,
+  className,
+  ariaLabel,
+  onCommit,
+  onDone,
+}: {
+  initial: string;
+  className: string;
+  ariaLabel: string;
+  onCommit: (name: string) => void;
+  onDone: () => void;
+}) {
+  const [val, setVal] = useState(initial);
+  const commit = () => onCommit(val.trim());
+  const ref = useRef<HTMLInputElement>(null);
+  // Focus on the next tick, not via autoFocus: the Menu that triggered this
+  // rename restores focus to its opener when it closes, and that restore runs
+  // after this input mounts. The timeout wins the race, so typing lands here.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      ref.current?.focus();
+      ref.current?.select();
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <input
+      ref={ref}
+      className={className}
+      value={val}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={() => {
+        commit();
+        onDone();
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          commit();
+          onDone();
+        } else if (e.key === "Escape") {
+          onDone();
+        }
+      }}
+      aria-label={ariaLabel}
+    />
+  );
+}
+
+/** First non-empty line of a stored doc: the Continue card's live specimen. */
+function firstLine(meta: ProjectMeta): { text: string; isScene: boolean } | null {
+  const doc = loadProjectDoc(meta.id);
+  if (!doc?.content) return null;
+  if (meta.type === "screenplay") {
+    const scene = doc.content.find(
+      (l) => l.attrs?.element === "scene_heading" && docText(l)
+    );
+    if (scene) return { text: docText(scene), isScene: true };
+  }
+  const any = doc.content.find((l) => docText(l));
+  return any ? { text: docText(any), isScene: false } : null;
+}
+
+/** First few lines of a template, formatted for the 12pt Courier preview. */
+function templatePreview(id: string): string[] {
+  const doc = buildTemplate(id);
+  if (!doc?.content) return [];
+  const upper = new Set(["scene_heading", "transition", "character"]);
+  return doc.content
+    .map((l) => {
+      const text = docText(l);
+      if (!text) return "";
+      const el = typeof l.attrs?.element === "string" ? l.attrs.element : "";
+      return upper.has(el) ? text.toUpperCase() : text;
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+/* ---- The dashboard ------------------------------------------------------- */
+
+type Selection = "all" | "unfiled" | { folderId: string };
+
 export function ProjectsHome({
   projects,
+  folders,
   user,
   cloudConfigured,
   prefs,
   onPrefsChange,
+  lastOpenedId,
   onOpen,
   onCreate,
   onDelete,
   onRename,
+  onSetStatus,
   onSetFolder,
-  onReorder,
-  folders,
   onCreateFolder,
   onUpdateFolder,
   onDeleteFolder,
-  onReorderFolders,
-  onToggleFolder,
   onImportScreenplays,
   onSyncNow,
   onSignIn,
   onSignOut,
 }: {
   projects: ProjectMeta[];
+  folders: Folder[];
   user: User | null;
   cloudConfigured: boolean;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   lastOpenedId: string | null;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, opts?: { focusTitle?: boolean }) => void;
+  /** Creates without opening; the dashboard decides whether to open. */
   onCreate: (
     type: ProjectType,
     title: string,
     opts?: {
       content?: JSONContent;
       titlePage?: TitlePage | null;
-      pageTarget?: number;
       folderId?: string | null;
     }
-  ) => void;
+  ) => ProjectMeta;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
+  onSetStatus: (id: string, status: ProjectStatus) => void;
   onSetFolder: (id: string, folderId: string | null) => void;
-  onReorder: (orderedIds: string[]) => void;
-  folders: Folder[];
   onCreateFolder: (parentId?: string) => Folder;
   onUpdateFolder: (
     id: string,
-    patch: { name?: string; color?: string; stage?: Stage; collapsed?: boolean; parentId?: string | null }
+    patch: { name?: string; color?: string; parentId?: string | null }
   ) => void;
   onDeleteFolder: (id: string) => void;
-  onReorderFolders: (orderedIds: string[]) => void;
-  onToggleFolder: (id: string) => void;
   onImportScreenplays: (files: File[]) => Promise<{ imported: number; failed: string[] }>;
   onSyncNow: () => Promise<boolean>;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
-  const [showNew, setShowNew] = useState(false);
-  const [newType, setNewType] = useState<ProjectType>("screenplay");
-  const [newName, setNewName] = useState("");
-  const [newTemplate, setNewTemplate] = useState("blank");
-  const [newWrittenBy, setNewWrittenBy] = useState("");
-  const [newPageTarget, setNewPageTarget] = useState("");
+  /* ---- View state ---- */
+  const [sel, setSel] = useState<Selection>("all");
+  const [query, setQuery] = useState("");
+  const [sort, setSortState] = useState<SortKey>(loadSort);
+  const setSort = (s: SortKey) => {
+    setSortState(s);
+    lsSet(SORT_KEY, s);
+  };
+
+  // Anchored menus: which one is open and where it hangs.
+  const [menu, setMenu] = useState<
+    | null
+    | { kind: "overflow" | "account" | "new" | "sort"; anchor: DOMRect }
+    | { kind: "row" | "folder"; id: string; anchor: DOMRect }
+  >(null);
+  const openMenu = (
+    e: React.MouseEvent,
+    m:
+      | { kind: "overflow" | "account" | "new" | "sort" }
+      | { kind: "row" | "folder"; id: string }
+  ) => {
+    e.stopPropagation();
+    setMenu({ ...m, anchor: e.currentTarget.getBoundingClientRect() });
+  };
+
+  // Modals.
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<ProjectMeta | null>(null);
+  const [colorTarget, setColorTarget] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null);
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
-  const renameRef = useRef<HTMLInputElement>(null);
+  const [showCodeImport, setShowCodeImport] = useState(false);
 
-  // Editing a folder (name/color/stage) is off by default and opened only from
-  // the pencil button, then closed with Done. `deleting` is the folder whose
-  // hold-to-confirm delete is currently armed.
-  const [editing, setEditing] = useState<Set<string>>(new Set());
-  const openEdit = (id: string) => setEditing((p) => new Set(p).add(id));
-  const closeEdit = (id: string) =>
-    setEditing((p) => {
-      const n = new Set(p);
-      n.delete(id);
-      return n;
-    });
-  const [deleting, setDeleting] = useState<string | null>(null);
+  // Inline renames and the armed folder delete.
+  const [renamingRow, setRenamingRow] = useState<string | null>(null);
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
 
-  // Manual "Sync now".
-  const [syncState, setSyncState] = useState<"idle" | "syncing" | "done">("idle");
-  const runSync = async () => {
-    if (syncState === "syncing") return;
-    setSyncState("syncing");
+  // Relative times refresh once a minute while the dashboard is on screen.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // "/" focuses the search field when not already typing somewhere.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /* ---- Data shaping ---- */
+
+  // Orphan-safe: a folderId/parentId pointing at a folder we do not have is
+  // treated as top level, so nothing vanishes.
+  const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
+  const effFolderId = (p: ProjectMeta) =>
+    p.folderId && folderById.has(p.folderId) ? p.folderId : null;
+  const effParentId = (f: Folder) =>
+    f.parentId && folderById.has(f.parentId) ? f.parentId : null;
+
+  const subfolders = (parentId: string | null) =>
+    folders
+      .filter((f) => effParentId(f) === parentId)
+      .sort((a, b) => a.order - b.order || (a.createdAt < b.createdAt ? -1 : 1));
+
+  const countIn = useMemo(() => {
+    const m = new Map<string | null, number>();
+    for (const p of projects) {
+      const k = effFolderId(p);
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, folders]);
+
+  const sorters: Record<SortKey, (a: ProjectMeta, b: ProjectMeta) => number> = {
+    recent: (a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0),
+    title: (a, b) => a.title.localeCompare(b.title),
+    created: (a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0),
+  };
+
+  const q = query.trim().toLowerCase();
+  const visible = useMemo(() => {
+    const base = q
+      ? projects.filter((p) => p.title.toLowerCase().includes(q))
+      : sel === "all"
+        ? projects
+        : projects.filter(
+            (p) => effFolderId(p) === (sel === "unfiled" ? null : sel.folderId)
+          );
+    return base.slice().sort(sorters[sort]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, folders, q, sel, sort]);
+
+  const listTitle = q
+    ? "Search results"
+    : sel === "all"
+      ? "All scripts"
+      : sel === "unfiled"
+        ? "Unfiled"
+        : folderById.get(sel.folderId)?.name || "Untitled folder";
+
+  // The Continue card (B10: lastOpenedId lives again). Shown on the plain
+  // "All scripts" desk only; hidden while searching or browsing a folder.
+  const contMeta =
+    !q && sel === "all" && lastOpenedId
+      ? projects.find((p) => p.id === lastOpenedId) ?? null
+      : null;
+  const contLine = useMemo(
+    () => (contMeta ? firstLine(contMeta) : null),
+    // Re-read only when the project or its content clock changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contMeta?.id, contMeta?.updatedAt]
+  );
+
+  /* ---- Drag: rows onto sidebar folders ---- */
+  const dragId = useRef<string | null>(null);
+  const [dropHi, setDropHi] = useState<string | null>(null); // "unfiled" | folderId
+  const clearDrag = () => {
+    dragId.current = null;
+    setDropHi(null);
+  };
+  const dropProps = (key: string, folderId: string | null) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (dragId.current) {
+        e.preventDefault();
+        setDropHi(key);
+      }
+    },
+    onDragLeave: () => setDropHi((h) => (h === key ? null : h)),
+    onDrop: (e: React.DragEvent) => {
+      if (dragId.current) {
+        e.preventDefault();
+        const cur = projects.find((p) => p.id === dragId.current);
+        if (cur && effFolderId(cur) !== folderId) onSetFolder(cur.id, folderId);
+      }
+      clearDrag();
+    },
+  });
+
+  /* ---- Flows ---- */
+
+  const createAndOpen = (
+    type: ProjectType,
+    title: string,
+    opts?: { content?: JSONContent }
+  ) => {
     try {
-      const ok = await onSyncNow();
-      setSyncState(ok ? "done" : "idle");
-      if (ok) setTimeout(() => setSyncState("idle"), 2200);
-    } catch {
-      setSyncState("idle");
+      const folderId = !q && sel !== "all" && sel !== "unfiled" ? sel.folderId : undefined;
+      const meta = onCreate(type, title, { ...opts, folderId });
+      onOpen(meta.id, { focusTitle: true });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not create the project.", {
+        variant: "danger",
+      });
     }
   };
 
-  // Bulk screenplay import (file picker + transient result line).
+  const duplicate = (p: ProjectMeta) => {
+    const content = loadProjectDoc(p.id);
+    if (!content) {
+      showToast("This script is not stored on this device. Open it once first.", {
+        variant: "danger",
+      });
+      return;
+    }
+    try {
+      onCreate(p.type, `${p.title} copy`, {
+        content,
+        titlePage: loadProjectTitlePage(p.id),
+        folderId: effFolderId(p),
+      });
+      showToast("Duplicated.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not duplicate the project.", {
+        variant: "danger",
+      });
+    }
+  };
+
+  const exportRow = (p: ProjectMeta, format: ExportFormat) => {
+    const doc = loadProjectDoc(p.id);
+    if (!doc) {
+      showToast("This script is not stored on this device. Open it once first.", {
+        variant: "danger",
+      });
+      return;
+    }
+    void exportDoc(doc, format, loadProjectTitlePage(p.id) ?? undefined, {
+      sceneNumbers: prefs.sceneNumbers,
+      autoContd: prefs.autoContd,
+      lock: loadPageLock(p.id),
+    }).catch(() => showToast("Export failed.", { variant: "danger" }));
+  };
+
+  const addFolder = (parentId?: string) => {
+    const f = onCreateFolder(parentId);
+    setRenamingFolder(f.id);
+  };
+
+  const removeFolder = (f: Folder) => {
+    // Reparent children (subfolders and scripts) up a level, then delete.
+    folders
+      .filter((sf) => sf.parentId === f.id)
+      .forEach((sf) => onUpdateFolder(sf.id, { parentId: f.parentId ?? null }));
+    projects
+      .filter((p) => p.folderId === f.id)
+      .forEach((p) => onSetFolder(p.id, f.parentId ?? null));
+    onDeleteFolder(f.id);
+    setDeletingFolder(null);
+    setSel((s) => (s !== "all" && s !== "unfiled" && s.folderId === f.id ? "all" : s));
+  };
+
+  // Bulk import behind the split menu; results land as a toast.
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
-  const [importMsg, setImportMsg] = useState<string | null>(null);
   const runImport = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     setImporting(true);
-    setImportMsg(null);
     try {
       const { imported, failed } = await onImportScreenplays(Array.from(fileList));
-      setImportMsg(
+      showToast(
         `Imported ${imported} script${imported === 1 ? "" : "s"}` +
-          (failed.length ? `, ${failed.length} could not be read` : "") +
-          "."
+          (failed.length ? `, ${failed.length} could not be read.` : ".")
       );
     } catch {
-      setImportMsg("Import failed.");
+      showToast("Import failed.", { variant: "danger" });
     } finally {
       setImporting(false);
       if (importInputRef.current) importInputRef.current.value = "";
     }
   };
 
-  // Pull another sync code's data into the already signed-in account.
-  const [showCodeImport, setShowCodeImport] = useState(false);
-  const [codeEntry, setCodeEntry] = useState("");
-  const [codeMsg, setCodeMsg] = useState<string | null>(null);
-  const [codeBusy, setCodeBusy] = useState(false);
-  const importCode = async () => {
-    setCodeBusy(true);
-    setCodeMsg(null);
+  const runSync = async () => {
+    showToast("Syncing.");
     try {
-      const ok = await claimSyncCode(codeEntry);
-      if (!ok) {
-        setCodeMsg("That code did not work. Paste the full code from your other device.");
-        return;
-      }
-      await onSyncNow();
-      setCodeEntry("");
-      setShowCodeImport(false);
-      setCodeMsg("Imported. Your other work is now in this account.");
+      const ok = await onSyncNow();
+      showToast(ok ? "Synced." : "Sync did not finish. Check your connection.");
     } catch {
-      setCodeMsg("Could not import that code.");
-    } finally {
-      setCodeBusy(false);
+      showToast("Sync did not finish. Check your connection.", { variant: "danger" });
     }
   };
 
-  const dragKind = useRef<null | "project" | "folder">(null);
-  const dragId = useRef<string | null>(null);
-  const [dropHi, setDropHi] = useState<string | null>(null);
-  const clearDrag = () => {
-    dragKind.current = null;
-    dragId.current = null;
-    setDropHi(null);
-  };
+  /* ---- Menu item builders ---- */
 
-  useEffect(() => {
-    if (renaming) renameRef.current?.focus();
-  }, [renaming]);
+  const overflowItems: MenuItem[] = [
+    {
+      kind: "radio",
+      group: "theme",
+      label: "Light",
+      checked: prefs.theme === "light",
+      onSelect: () => onPrefsChange({ theme: "light" }),
+    },
+    {
+      kind: "radio",
+      group: "theme",
+      label: "Dark",
+      checked: prefs.theme === "dark",
+      onSelect: () => onPrefsChange({ theme: "dark" }),
+    },
+    {
+      kind: "radio",
+      group: "theme",
+      label: "System",
+      checked: prefs.theme === "system",
+      onSelect: () => onPrefsChange({ theme: "system" }),
+    },
+  ];
 
-  const byOrder = (a: ProjectMeta, b: ProjectMeta) =>
-    (a.order ?? Infinity) - (b.order ?? Infinity) ||
-    (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0);
+  // Account lives behind its own avatar button (2C), not the overflow.
+  const accountItems: MenuItem[] = user
+    ? [
+        { label: user.email ?? "Signed in", onSelect: () => {}, disabled: true },
+        { label: "Sync now", onSelect: () => void runSync() },
+        { label: "Import a code", onSelect: () => setShowCodeImport(true) },
+        { kind: "divider" },
+        { label: "Sign out", onSelect: onSignOut },
+      ]
+    : [{ label: "Sign in", onSelect: onSignIn }];
 
-  // Orphan-safe: a folderId/parentId pointing at a folder we do not have is
-  // treated as top level, so nothing vanishes.
-  const folderExists = (id?: string) => !!id && folders.some((f) => f.id === id);
-  const effFolderId = (p: ProjectMeta) => (folderExists(p.folderId) ? p.folderId! : null);
-  const effParentId = (f: Folder) => (folderExists(f.parentId) ? f.parentId! : null);
+  const newItems: MenuItem[] = [
+    { label: "New document", onSelect: () => createAndOpen("plain", "") },
+    { label: "From template…", onSelect: () => setShowTemplates(true) },
+    {
+      label: importing ? "Importing…" : "Import files…",
+      onSelect: () => importInputRef.current?.click(),
+      disabled: importing,
+    },
+    { kind: "divider" },
+    { label: "New folder", onSelect: () => addFolder() },
+  ];
 
-  const chipsIn = (folderId: string | null) =>
-    projects.filter((p) => effFolderId(p) === folderId).sort(byOrder);
-  const subfolders = (parentId: string | null) =>
-    folders.filter((f) => effParentId(f) === parentId).sort((a, b) => a.order - b.order);
+  const sortItems: MenuItem[] = (["recent", "title", "created"] as SortKey[]).map((s) => ({
+    kind: "radio",
+    group: "sort",
+    label: SORT_LABEL[s],
+    checked: sort === s,
+    onSelect: () => setSort(s),
+  }));
 
-  const isAncestor = (ancestorId: string, nodeId: string): boolean => {
-    const seen = new Set<string>();
-    let c: Folder | undefined = folders.find((f) => f.id === nodeId);
-    while (c && !seen.has(c.id)) {
-      if (c.id === ancestorId) return true;
-      seen.add(c.id);
-      c = c.parentId ? folders.find((f) => f.id === c!.parentId) : undefined;
-    }
-    return false;
-  };
+  const rowItems = (p: ProjectMeta): MenuItem[] => [
+    {
+      label: "Rename",
+      onSelect: () => setRenamingRow(p.id),
+    },
+    { label: "Move to…", onSelect: () => setMoveTarget(p) },
+    { label: "Duplicate", onSelect: () => duplicate(p) },
+    ...(p.type === "screenplay"
+      ? ([
+          { kind: "divider" },
+          { label: "Export PDF", onSelect: () => exportRow(p, "pdf") },
+          { label: "Export Fountain", onSelect: () => exportRow(p, "fountain") },
+          { label: "Export FDX", onSelect: () => exportRow(p, "fdx") },
+        ] as MenuItem[])
+      : []),
+    { kind: "divider" },
+    { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
+  ];
 
-  const fileInto = (id: string, folderId: string | null) => {
-    const cur = projects.find((p) => p.id === id);
-    if ((cur?.folderId ?? null) === folderId) return;
-    const ids = chipsIn(folderId)
-      .map((p) => p.id)
-      .filter((x) => x !== id);
-    ids.push(id);
-    onSetFolder(id, folderId);
-    onReorder(ids);
-  };
+  const folderItems = (f: Folder): MenuItem[] => [
+    { label: "Rename", onSelect: () => setRenamingFolder(f.id) },
+    { label: "Color", onSelect: () => setColorTarget(f.id) },
+    { label: "New subfolder", onSelect: () => addFolder(f.id) },
+    { kind: "divider" },
+    { label: "Delete", danger: true, onSelect: () => setDeletingFolder(f.id) },
+  ];
 
-  const moveBefore = (id: string, target: ProjectMeta) => {
-    if (id === target.id) return;
-    const container = target.folderId ?? null;
-    const ids = chipsIn(container)
-      .map((p) => p.id)
-      .filter((x) => x !== id);
-    const at = ids.indexOf(target.id);
-    ids.splice(at < 0 ? ids.length : at, 0, id);
-    const cur = projects.find((p) => p.id === id);
-    if ((cur?.folderId ?? null) !== container) onSetFolder(id, container);
-    onReorder(ids);
-  };
+  /* ---- Renders ---- */
 
-  const nestFolder = (id: string, parentId: string | null) => {
-    if (id === parentId) return;
-    if (parentId && isAncestor(id, parentId)) return;
-    onUpdateFolder(id, { parentId });
-  };
-
-  // Drop folder `id` just before `target`, as a sibling (re-parenting if needed).
-  const moveFolderBefore = (id: string, target: Folder) => {
-    if (id === target.id) return;
-    const parent = effParentId(target);
-    if (parent && isAncestor(id, parent)) return; // would nest a folder under itself
-    const dragged = folders.find((f) => f.id === id);
-    if ((dragged?.parentId ?? null) !== parent) onUpdateFolder(id, { parentId: parent });
-    const ids = subfolders(parent)
-      .map((f) => f.id)
-      .filter((x) => x !== id);
-    const at = ids.indexOf(target.id);
-    ids.splice(at < 0 ? ids.length : at, 0, id);
-    onReorderFolders(ids);
-  };
-
-  const create = () => {
-    const content =
-      newType === "screenplay" && newTemplate !== "blank"
-        ? buildTemplate(newTemplate) ?? undefined
-        : undefined;
-    let titlePage: TitlePage | undefined;
-    let pageTarget: number | undefined;
-    if (newType === "screenplay") {
-      const name = newName.trim();
-      const wb = newWrittenBy.trim();
-      const tp: TitlePage = {
-        title: name || undefined,
-        credit: wb ? "Written by" : undefined,
-        author: wb || undefined,
-      };
-      if (hasTitlePage(tp)) titlePage = tp;
-      const pt = parseInt(newPageTarget, 10);
-      if (!Number.isNaN(pt) && pt > 0) pageTarget = pt;
-    }
-    try {
-      onCreate(newType, newName.trim(), { content, titlePage, pageTarget });
-    } catch (e) {
-      // A template's body can fail to persist when storage is full; surface it
-      // instead of leaving the dialog stuck with no feedback.
-      showToast(e instanceof Error ? e.message : "Could not create the project.", {
-        variant: "danger",
-      });
-      return;
-    }
-    setShowNew(false);
-    setNewName("");
-    setNewType("screenplay");
-    setNewTemplate("blank");
-    setNewWrittenBy("");
-    setNewPageTarget("");
-  };
-
-  const commitRename = (id: string) => {
-    const next = renameDraft.trim();
-    const cur = projects.find((p) => p.id === id);
-    if (next && cur && next !== cur.title) onRename(id, next);
-    setRenaming(null);
-  };
-
-  const addFolder = (parentId?: string) => {
-    const f = onCreateFolder(parentId);
-    // Make sure the parent is open so the new sub-folder is visible.
-    if (parentId && folders.find((x) => x.id === parentId)?.collapsed !== false) {
-      onToggleFolder(parentId);
-    }
-    openEdit(f.id); // open edit once so it can be named, with a Done to close
-  };
-
-  const removeFolder = (f: Folder) => {
-    folders.filter((sf) => sf.parentId === f.id).forEach((sf) =>
-      onUpdateFolder(sf.id, { parentId: f.parentId ?? null })
+  const folderRow = (f: Folder, depth: number): React.ReactNode => {
+    const selected = sel !== "all" && sel !== "unfiled" && sel.folderId === f.id;
+    return (
+      <div key={f.id} className="snav-group">
+        <div
+          className={
+            "snav-row" +
+            (selected ? " snav-active" : "") +
+            (dropHi === f.id ? " snav-drop" : "")
+          }
+          style={{ "--indent": depth * 14 + "px" } as React.CSSProperties}
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setQuery("");
+            setSel({ folderId: f.id });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setQuery("");
+              setSel({ folderId: f.id });
+            }
+          }}
+          {...dropProps(f.id, f.id)}
+        >
+          <span className="snav-dot" style={{ background: f.color }} aria-hidden="true" />
+          {deletingFolder === f.id ? (
+            <HoldDelete
+              onConfirm={() => removeFolder(f)}
+              onCancel={() => setDeletingFolder(null)}
+            />
+          ) : renamingFolder === f.id ? (
+            <NameInput
+              initial={f.name}
+              className="snav-rename"
+              ariaLabel="Folder name"
+              onCommit={(name) => onUpdateFolder(f.id, { name: name || "Untitled folder" })}
+              onDone={() => setRenamingFolder(null)}
+            />
+          ) : (
+            <>
+              <span className="snav-label">{f.name || "Untitled folder"}</span>
+              <span className="snav-count">{countIn.get(f.id) ?? 0}</span>
+              <button
+                type="button"
+                className="snav-kebab"
+                aria-label={`Folder actions for ${f.name || "Untitled folder"}`}
+                onClick={(e) => openMenu(e, { kind: "folder", id: f.id })}
+                aria-haspopup="menu"
+              >
+                <DotsIcon />
+              </button>
+            </>
+          )}
+        </div>
+        {subfolders(f.id).map((sf) => folderRow(sf, depth + 1))}
+      </div>
     );
-    projects.filter((p) => p.folderId === f.id).forEach((p) =>
-      onSetFolder(p.id, f.parentId ?? null)
-    );
-    onDeleteFolder(f.id);
-    setDeleting(null);
   };
 
-  const projectChip = (p: ProjectMeta) => {
-    // The type glyph is tinted with the colour of the folder the project lives
-    // in (a neutral tone when it is loose at the top level).
+  const scriptRow = (p: ProjectMeta) => {
     const fid = effFolderId(p);
-    const iconColor =
-      (fid ? folders.find((f) => f.id === fid)?.color : null) ?? "var(--muted)";
+    const iconColor = (fid ? folderById.get(fid)?.color : null) ?? "var(--muted)";
     return (
       <div
         key={p.id}
-        className={"chip" + (dropHi === "chip:" + p.id ? " chip-drop" : "")}
-        draggable={renaming !== p.id}
+        className="srow"
+        role="button"
+        tabIndex={0}
+        draggable={renamingRow !== p.id}
         onDragStart={(e) => {
-          dragKind.current = "project";
           dragId.current = p.id;
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", p.id);
         }}
         onDragEnd={clearDrag}
-        onDragOver={(e) => {
-          if (dragKind.current === "project" && dragId.current !== p.id) {
-            e.preventDefault();
-            e.stopPropagation();
-            setDropHi("chip:" + p.id);
-          }
-        }}
-        onDrop={(e) => {
-          if (dragKind.current === "project" && dragId.current) {
-            e.preventDefault();
-            e.stopPropagation();
-            moveBefore(dragId.current, p);
-          }
-          clearDrag();
-        }}
         onClick={() => {
-          if (renaming !== p.id) onOpen(p.id);
+          if (renamingRow !== p.id) onOpen(p.id);
         }}
-        role="button"
-        tabIndex={0}
         onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && renaming !== p.id) {
+          if ((e.key === "Enter" || e.key === " ") && renamingRow !== p.id) {
             e.preventDefault();
             onOpen(p.id);
           }
         }}
       >
-        <div className="chip-head">
-          <TypeIcon type={p.type} color={iconColor} />
-          {renaming === p.id ? (
-            <input
-              ref={renameRef}
-              className="chip-rename"
-              value={renameDraft}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setRenameDraft(e.target.value)}
-              onBlur={() => commitRename(p.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitRename(p.id);
-                } else if (e.key === "Escape") {
-                  setRenaming(null);
-                }
-              }}
-            />
-          ) : (
-            <div className="chip-title">{p.title}</div>
-          )}
-        </div>
-        <div className="chip-foot">
-          <span className="chip-time">{relativeTime(p.updatedAt)}</span>
-          <span className="chip-actions" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="chip-act"
-              onClick={() => {
-                setRenameDraft(p.title);
-                setRenaming(p.id);
-              }}
-            >
-              Rename
-            </button>
-            <button type="button" className="chip-act chip-act-danger" onClick={() => setConfirmDelete(p)}>
-              Delete
-            </button>
-          </span>
-        </div>
-      </div>
-    );
-  };
-
-  const folderNode = (f: Folder) => {
-    const expanded = f.collapsed === false; // collapsed by default, so the home is a grid of boxes
-    const subs = subfolders(f.id);
-    const chips = chipsIn(f.id);
-    const count = subs.length + chips.length;
-    const isEditing = editing.has(f.id);
-    return (
-      <div
-        key={f.id}
-        className={
-          "fcard" +
-          (expanded || isEditing ? " fcard-open" : "") +
-          (dropHi === "folder:" + f.id || dropHi === "into:" + f.id ? " fcard-drop" : "") +
-          (dropHi === "before:" + f.id ? " fcard-before" : "")
-        }
-        style={{ borderLeftColor: f.color }}
-        onDragOver={(e) => {
-          // The whole card is a drop target. A dragged PROJECT files into it. A
-          // dragged FOLDER reorders (when over the box) or nests (when dropped
-          // inside the open body). Nested cards/chips stopPropagation.
-          const k = dragKind.current;
-          if (k === "project") {
-            e.preventDefault();
+        <TypeIcon type={p.type} color={iconColor} />
+        {renamingRow === p.id ? (
+          <NameInput
+            initial={p.title}
+            className="srow-rename"
+            ariaLabel="Script title"
+            onCommit={(name) => {
+              if (name && name !== p.title) onRename(p.id, name);
+            }}
+            onDone={() => setRenamingRow(null)}
+          />
+        ) : (
+          <span className="srow-title">{p.title}</span>
+        )}
+        <button
+          type="button"
+          className={"srow-status st-" + p.status}
+          title="Click to change the status"
+          onClick={(e) => {
             e.stopPropagation();
-            setDropHi("folder:" + f.id);
-          } else if (k === "folder" && dragId.current && dragId.current !== f.id && !isAncestor(dragId.current, f.id)) {
-            e.preventDefault();
-            e.stopPropagation();
-            const inBody = !!(e.target as HTMLElement).closest(".fcard-body");
-            setDropHi((inBody ? "into:" : "before:") + f.id);
-          }
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (dragKind.current === "project" && dragId.current) {
-            fileInto(dragId.current, f.id);
-          } else if (dragKind.current === "folder" && dragId.current && dragId.current !== f.id) {
-            const inBody = !!(e.target as HTMLElement).closest(".fcard-body");
-            if (inBody) nestFolder(dragId.current, f.id);
-            else moveFolderBefore(dragId.current, f);
-          }
-          clearDrag();
-        }}
-      >
-        <div
-          className="fcard-head"
-          draggable
-          title="Click to open or close. Drag to move."
-          onClick={() => onToggleFolder(f.id)}
-          onDragStart={(e) => {
-            dragKind.current = "folder";
-            dragId.current = f.id;
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", f.id);
+            onSetStatus(p.id, NEXT_STATUS[p.status]);
           }}
-          onDragEnd={clearDrag}
         >
-          <div className="fcard-top">
-            <svg className="fcard-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill={f.color} d="M3 6a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            </svg>
-            <div className="fcard-acts" onClick={(e) => e.stopPropagation()}>
-              {deleting === f.id ? (
-                <HoldDelete onConfirm={() => removeFolder(f)} onCancel={() => setDeleting(null)} />
-              ) : (
-                <>
-                  <button type="button" className="fcard-btn" title="Rename / recolor" onClick={() => openEdit(f.id)}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 20h9" />
-                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-                    </svg>
-                  </button>
-                  <button type="button" className="fcard-btn" title="Add sub-folder" onClick={() => addFolder(f.id)}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                      <line x1="12" y1="11" x2="12" y2="17" />
-                      <line x1="9" y1="14" x2="15" y2="14" />
-                    </svg>
-                  </button>
-                  <button type="button" className="fcard-btn fcard-btn-danger" title="Delete folder" onClick={() => setDeleting(f.id)}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                      <path d="M10 11v6M14 11v6" />
-                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                    </svg>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          <span className="fcard-name">{f.name || "Untitled folder"}</span>
-          <div className="fcard-meta">
-            <span className={"stage-chip stage-" + f.stage}>{STAGE_LABEL[f.stage]}</span>
-            <span className="folder-count">
-              {count} {count === 1 ? "item" : "items"}
-            </span>
-          </div>
-        </div>
-
-        {isEditing && (
-          <div className="fcard-edit">
-            <FolderNameInput
-              initial={f.name}
-              onCommit={(name) => onUpdateFolder(f.id, { name })}
-              onDone={() => closeEdit(f.id)}
-            />
-            <div className="folder-swatches" role="group" aria-label="Folder color">
-              {FOLDER_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className={"swatch" + (f.color === c ? " swatch-on" : "")}
-                  style={{ background: c }}
-                  onClick={() => onUpdateFolder(f.id, { color: c })}
-                  aria-label={"Color " + c}
-                />
-              ))}
-              {(() => {
-                const custom = !FOLDER_COLORS.includes(f.color);
-                return (
-                  <label
-                    className={"swatch swatch-custom" + (custom ? " swatch-on" : "")}
-                    style={custom ? { background: f.color } : undefined}
-                    title="Custom color"
-                  >
-                    <input
-                      type="color"
-                      className="swatch-custom-input"
-                      value={f.color}
-                      onChange={(e) => onUpdateFolder(f.id, { color: e.target.value })}
-                      aria-label="Pick a custom folder color"
-                    />
-                  </label>
-                );
-              })()}
-            </div>
-            <select
-              className="folder-stage-select"
-              value={f.stage}
-              onChange={(e) => onUpdateFolder(f.id, { stage: e.target.value as Stage })}
-              aria-label="Folder stage"
-            >
-              {STAGE_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {STAGE_LABEL[s]}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="tb-btn tb-btn-active"
-              onClick={() => closeEdit(f.id)}
-            >
-              Done
-            </button>
-          </div>
+          <span className="srow-statusdot" aria-hidden="true" />
+          {STATUS_LABEL[p.status]}
+        </button>
+        {p.type === "screenplay" && p.pageCount != null && (
+          <span className="srow-pp">{p.pageCount} pp</span>
         )}
-
-        {expanded && (
-          <div className="fcard-body">
-            {subs.length > 0 && <div className="fnode-list">{subs.map((s) => folderNode(s))}</div>}
-            {chips.length > 0 && <div className="chip-grid">{chips.map(projectChip)}</div>}
-            {count === 0 && (
-              <div className="fnode-empty">Empty. Drag a project or folder here to add it.</div>
-            )}
-          </div>
-        )}
+        <span className="srow-time">{relativeTime(p.updatedAt)}</span>
+        <button
+          type="button"
+          className="srow-kebab"
+          aria-label={`Actions for ${p.title}`}
+          aria-haspopup="menu"
+          onClick={(e) => openMenu(e, { kind: "row", id: p.id })}
+        >
+          <DotsIcon />
+        </button>
       </div>
     );
   };
 
-  const topFolders = subfolders(null);
-  const loose = chipsIn(null);
+  // The Move to… picker lists every folder, indented by depth.
+  const flatFolders = useMemo(() => {
+    const out: { folder: Folder; depth: number }[] = [];
+    const walk = (parentId: string | null, depth: number) => {
+      for (const f of subfolders(parentId)) {
+        out.push({ folder: f, depth });
+        walk(f.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folders]);
+
+  const menuTargetRow = menu?.kind === "row" ? projects.find((p) => p.id === menu.id) : null;
+  const menuTargetFolder =
+    menu?.kind === "folder" ? folderById.get(menu.id) ?? null : null;
+  const colorFolder = colorTarget ? folderById.get(colorTarget) ?? null : null;
 
   return (
     <div className="home">
-      <div className="home-bar">
-        <div className="toolbar-brand" title="Last Ever Screenwriting Software">
+      <header className="home-topbar">
+        <div className="home-brand" title="Last Ever Screenwriting Software">
           LESS
         </div>
+        <input
+          ref={searchRef}
+          type="search"
+          className="home-search"
+          placeholder="Search scripts"
+          aria-label="Search scripts"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setQuery("");
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+        />
         <div className="toolbar-spacer" />
-        {cloudConfigured &&
-          (user ? (
-            <div className="toolbar-group toolbar-account">
-              <button
-                type="button"
-                className={"tb-btn" + (syncState === "done" ? " tb-btn-active" : "")}
-                onClick={runSync}
-                disabled={syncState === "syncing"}
-                title="Pull and push everything now"
-              >
-                {syncState === "syncing" ? "Syncing" : syncState === "done" ? "Synced" : "Sync"}
-              </button>
-              <span className="account-email" title={user.email ?? ""}>
-                {user.email}
-              </span>
-              {showCodeImport ? (
-                <>
-                  <input
-                    type="text"
-                    className="account-code-input"
-                    value={codeEntry}
-                    onChange={(e) => setCodeEntry(e.target.value)}
-                    placeholder="Paste a sync code"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <button
-                    type="button"
-                    className="tb-btn"
-                    onClick={() => void importCode()}
-                    disabled={codeBusy}
-                  >
-                    {codeBusy ? "Importing" : "Apply"}
-                  </button>
-                  <button
-                    type="button"
-                    className="tb-btn"
-                    onClick={() => {
-                      setShowCodeImport(false);
-                      setCodeMsg(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="tb-btn"
-                  onClick={() => setShowCodeImport(true)}
-                  title="Pull in work saved under a sync code"
-                >
-                  Import a code
-                </button>
-              )}
-              {user.email?.toLowerCase() === "arjunguptebhai@gmail.com" && (
-                <a
-                  className="tb-btn"
-                  href="https://screenwriter.oxnorhub.com/practice.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Your Storyteller practice log and growth dashboard"
-                >
-                  Storyteller
-                </a>
-              )}
-              <button type="button" className="tb-btn" onClick={onSignOut}>
-                Sign out
-              </button>
-              {codeMsg && <span className="account-code-msg">{codeMsg}</span>}
-            </div>
-          ) : (
-            <button type="button" className="tb-btn" onClick={onSignIn} title="Sync across devices">
-              Sign in to save
-            </button>
-          ))}
-        <div className="toolbar-group">
+        <button
+          type="button"
+          className="tb-icon"
+          aria-label="More"
+          title="More"
+          aria-haspopup="menu"
+          onClick={(e) => openMenu(e, { kind: "overflow" })}
+        >
+          <DotsIcon />
+        </button>
+        {cloudConfigured && (
           <button
             type="button"
-            className="tb-btn"
-            onClick={() =>
-              onPrefsChange({
-                theme:
-                  prefs.theme === "light" ? "dark" : prefs.theme === "dark" ? "system" : "light",
-              })
-            }
-            title="Theme: light, dark, or system. Click to cycle."
+            className="tb-icon"
+            aria-label="Account"
+            title={user ? user.email ?? "Account" : "Account"}
+            aria-haspopup="menu"
+            onClick={(e) => openMenu(e, { kind: "account" })}
           >
-            {prefs.theme === "system" ? "System" : prefs.theme === "dark" ? "Dark" : "Light"}
+            {user ? (
+              <span className="home-avatar" aria-hidden="true">
+                {(user.email ?? "?").slice(0, 1).toUpperCase()}
+              </span>
+            ) : (
+              <PersonIcon />
+            )}
+          </button>
+        )}
+        <div className="home-split">
+          <button
+            type="button"
+            className="ui-btn ui-btn-solid home-split-main"
+            onClick={() => createAndOpen("screenplay", "Untitled screenplay")}
+          >
+            New script
+          </button>
+          <button
+            type="button"
+            className="ui-btn ui-btn-solid home-split-caret"
+            aria-label="More ways to create"
+            aria-haspopup="menu"
+            onClick={(e) => openMenu(e, { kind: "new" })}
+          >
+            <ChevronDown />
           </button>
         </div>
         <input
@@ -817,170 +883,277 @@ export function ProjectsHome({
           multiple
           accept={`${IMPORT_ACCEPT},.json`}
           style={{ display: "none" }}
-          onChange={(e) => runImport(e.target.files)}
+          onChange={(e) => void runImport(e.target.files)}
         />
-        <button
-          type="button"
-          className="tb-btn"
-          onClick={() => importInputRef.current?.click()}
-          disabled={importing}
-          title="Import Word, Final Draft, Fountain, RTF or OpenDocument scripts"
-        >
-          {importing ? "Importing" : "Import"}
-        </button>
-        <button type="button" className="tb-btn" onClick={() => addFolder()} title="Create a folder">
-          New folder
-        </button>
-        <button type="button" className="tb-btn tb-btn-active home-new" onClick={() => setShowNew(true)}>
-          New project
-        </button>
-      </div>
-      {importMsg && (
-        <div className="home-import-msg">
-          <span>{importMsg}</span>
-          <button type="button" className="chip-act" onClick={() => setImportMsg(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
+      </header>
 
-      <div
-        className={"home-body" + (dropHi === "root" ? " root-drop" : "")}
-        onDragOver={(e) => {
-          if (dragKind.current === "project" || dragKind.current === "folder") {
-            e.preventDefault();
-            setDropHi("root");
-          }
-        }}
-        onDrop={(e) => {
-          if (dragKind.current === "project" && dragId.current) {
-            e.preventDefault();
-            fileInto(dragId.current, null);
-          } else if (dragKind.current === "folder" && dragId.current) {
-            e.preventDefault();
-            nestFolder(dragId.current, null);
-          }
-          clearDrag();
-        }}
-      >
-        {projects.length === 0 && folders.length === 0 ? (
-          <div className="home-empty">
-            <h2>Write a screenplay</h2>
-            <p>
-              A fast, free screenwriting editor that formats as you type and never
-              locks up your work. Start a script or a plain document. Everything
-              saves on this device instantly, and syncs across devices when you
-              sign in.
-            </p>
-            <button type="button" className="tb-btn tb-btn-active" onClick={() => setShowNew(true)}>
-              New project
+      <div className="home-layout">
+        <nav className="home-sidebar" aria-label="Folders">
+          <div
+            className={
+              "snav-row" + (sel === "all" && !q ? " snav-active" : "")
+            }
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setQuery("");
+              setSel("all");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setQuery("");
+                setSel("all");
+              }
+            }}
+          >
+            <span className="snav-label">All scripts</span>
+            <span className="snav-count">{projects.length}</span>
+          </div>
+          <div
+            className={
+              "snav-row" +
+              (sel === "unfiled" && !q ? " snav-active" : "") +
+              (dropHi === "unfiled" ? " snav-drop" : "")
+            }
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setQuery("");
+              setSel("unfiled");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setQuery("");
+                setSel("unfiled");
+              }
+            }}
+            {...dropProps("unfiled", null)}
+          >
+            <span className="snav-label">Unfiled</span>
+            <span className="snav-count">{countIn.get(null) ?? 0}</span>
+          </div>
+          {folders.length > 0 && <div className="snav-sep" aria-hidden="true" />}
+          {subfolders(null).map((f) => folderRow(f, 0))}
+        </nav>
+
+        <main className="home-content">
+          {contMeta && (
+            <button
+              type="button"
+              className="cont-card"
+              onClick={() => onOpen(contMeta.id)}
+            >
+              <span className="cont-label">Continue</span>
+              <span className="cont-title">{contMeta.title}</span>
+              <span className="cont-meta">
+                {contMeta.type === "screenplay" && contMeta.pageCount != null
+                  ? `Page ${contMeta.pageCount} · `
+                  : ""}
+                edited {relativeTime(contMeta.updatedAt)}
+              </span>
+              {contLine && (
+                <span
+                  className={
+                    "cont-specimen" + (contLine.isScene ? " cont-specimen-scene" : "")
+                  }
+                >
+                  {contLine.text}
+                </span>
+              )}
             </button>
-            <ul className="home-hints">
-              <li><kbd>Tab</kbd> cycles the line between scene, action, character, and dialogue</li>
-              <li><kbd>Enter</kbd> moves to the next element automatically (a cue drops into dialogue)</li>
-              <li>Formatting, page count, and margins are handled for you</li>
-            </ul>
-          </div>
-        ) : (
-          <>
-            {loose.length > 0 && (
-              <>
-                <div className="home-sec-label">Loose projects</div>
-                <div className="chip-grid">{loose.map(projectChip)}</div>
-              </>
-            )}
+          )}
 
-            {topFolders.length > 0 && (
-              <>
-                <div className="home-sec-label">Folders</div>
-                <div className="fnode-list">{topFolders.map((f) => folderNode(f))}</div>
-              </>
-            )}
-          </>
-        )}
+          <div className="list-head">
+            <h2 className="list-title">{listTitle}</h2>
+            <button
+              type="button"
+              className="list-sort"
+              aria-haspopup="menu"
+              title="Sort"
+              onClick={(e) => openMenu(e, { kind: "sort" })}
+            >
+              {SORT_LABEL[sort]}
+              <ChevronDown />
+            </button>
+          </div>
+
+          {visible.length > 0 ? (
+            <div className="srow-list">{visible.map(scriptRow)}</div>
+          ) : (
+            <p className="list-empty">
+              {q
+                ? "Nothing matches that search."
+                : sel === "all"
+                  ? "Nothing here yet. Press New to start."
+                  : "Nothing here yet. Drag a script in, or press New."}
+            </p>
+          )}
+        </main>
       </div>
 
-      {showNew && (
-        <div className="modal-backdrop" onClick={() => setShowNew(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">New project</h2>
-            <label className="field">
-              <span>Name</span>
-              <input
-                placeholder="Untitled"
-                value={newName}
-                autoFocus
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") create();
-                }}
-              />
-            </label>
-            <div className="field">
-              <span>Type</span>
-              <div className="status-seg" role="group" aria-label="Project type">
-                <button
-                  type="button"
-                  className={"seg" + (newType === "screenplay" ? " seg-active" : "")}
-                  onClick={() => setNewType("screenplay")}
-                >
-                  Screenplay
-                </button>
-                <button
-                  type="button"
-                  className={"seg" + (newType === "plain" ? " seg-active" : "")}
-                  onClick={() => setNewType("plain")}
-                >
-                  Document
-                </button>
-              </div>
-            </div>
-            {newType === "screenplay" && (
-              <label className="field">
-                <span>Template</span>
-                <select value={newTemplate} onChange={(e) => setNewTemplate(e.target.value)}>
-                  {SCREENPLAY_TEMPLATES.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}: {t.description}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {newType === "screenplay" && (
-              <>
-                <label className="field">
-                  <span>Written by (optional)</span>
-                  <input
-                    placeholder="Your name"
-                    value={newWrittenBy}
-                    onChange={(e) => setNewWrittenBy(e.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Page target (optional)</span>
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="e.g. 110"
-                    value={newPageTarget}
-                    onChange={(e) => setNewPageTarget(e.target.value)}
-                  />
-                </label>
-              </>
-            )}
-            <div className="modal-actions">
-              <button type="button" className="tb-btn" onClick={() => setShowNew(false)}>
-                Cancel
-              </button>
-              <button type="button" className="tb-btn modal-primary" onClick={create}>
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* ---- Anchored menus ---- */}
+      {menu?.kind === "overflow" && (
+        <Menu anchor={menu.anchor} items={overflowItems} onClose={() => setMenu(null)} ariaLabel="More" />
+      )}
+      {menu?.kind === "account" && (
+        <Menu
+          anchor={menu.anchor}
+          items={accountItems}
+          onClose={() => setMenu(null)}
+          ariaLabel="Account"
+        />
+      )}
+      {menu?.kind === "new" && (
+        <Menu anchor={menu.anchor} items={newItems} onClose={() => setMenu(null)} ariaLabel="Create" />
+      )}
+      {menu?.kind === "sort" && (
+        <Menu anchor={menu.anchor} items={sortItems} onClose={() => setMenu(null)} ariaLabel="Sort" />
+      )}
+      {menuTargetRow && menu?.kind === "row" && (
+        <Menu
+          anchor={menu.anchor}
+          items={rowItems(menuTargetRow)}
+          onClose={() => setMenu(null)}
+          ariaLabel="Script actions"
+        />
+      )}
+      {menuTargetFolder && menu?.kind === "folder" && (
+        <Menu
+          anchor={menu.anchor}
+          items={folderItems(menuTargetFolder)}
+          onClose={() => setMenu(null)}
+          ariaLabel="Folder actions"
+        />
       )}
 
+      {/* ---- Template picker ---- */}
+      {showTemplates && (
+        <Modal title="From template" onClose={() => setShowTemplates(false)}>
+          <div className="tpl-list">
+            {SCREENPLAY_TEMPLATES.map((t) => {
+              const preview = templatePreview(t.id);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="tpl-item"
+                  onClick={() => {
+                    setShowTemplates(false);
+                    createAndOpen(
+                      "screenplay",
+                      "Untitled screenplay",
+                      t.id === "blank" ? undefined : { content: buildTemplate(t.id) ?? undefined }
+                    );
+                  }}
+                >
+                  <span className="tpl-name">{t.label}</span>
+                  <span className="tpl-desc">{t.description}</span>
+                  {preview.length > 0 && (
+                    <span className="tpl-preview">
+                      {preview.map((line, i) => (
+                        <span key={i}>{line}</span>
+                      ))}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+
+      {/* ---- Move to… (the keyboard path for filing) ---- */}
+      {moveTarget && (
+        <Modal title={`Move "${moveTarget.title}"`} onClose={() => setMoveTarget(null)}>
+          <div className="move-list">
+            <button
+              type="button"
+              className={
+                "move-item" + (effFolderId(moveTarget) === null ? " move-current" : "")
+              }
+              onClick={() => {
+                onSetFolder(moveTarget.id, null);
+                setMoveTarget(null);
+              }}
+            >
+              Unfiled
+            </button>
+            {flatFolders.map(({ folder, depth }) => (
+              <button
+                key={folder.id}
+                type="button"
+                className={
+                  "move-item" +
+                  (effFolderId(moveTarget) === folder.id ? " move-current" : "")
+                }
+                style={{ paddingLeft: 12 + depth * 16 }}
+                onClick={() => {
+                  onSetFolder(moveTarget.id, folder.id);
+                  setMoveTarget(null);
+                }}
+              >
+                <span
+                  className="snav-dot"
+                  style={{ background: folder.color }}
+                  aria-hidden="true"
+                />
+                {folder.name || "Untitled folder"}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* ---- Folder color ---- */}
+      {colorFolder && (
+        <Modal title="Folder color" onClose={() => setColorTarget(null)}>
+          <div className="folder-swatches" role="group" aria-label="Folder color">
+            {FOLDER_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={"swatch" + (colorFolder.color === c ? " swatch-on" : "")}
+                style={{ background: c }}
+                onClick={() => {
+                  onUpdateFolder(colorFolder.id, { color: c });
+                  setColorTarget(null);
+                }}
+                aria-label={"Color " + c}
+              />
+            ))}
+            {(() => {
+              const custom = !FOLDER_COLORS.includes(colorFolder.color);
+              return (
+                <label
+                  className={"swatch swatch-custom" + (custom ? " swatch-on" : "")}
+                  style={custom ? { background: colorFolder.color } : undefined}
+                  title="Custom color"
+                >
+                  <input
+                    type="color"
+                    className="swatch-custom-input"
+                    value={colorFolder.color}
+                    onChange={(e) => onUpdateFolder(colorFolder.id, { color: e.target.value })}
+                    aria-label="Pick a custom folder color"
+                  />
+                </label>
+              );
+            })()}
+          </div>
+        </Modal>
+      )}
+
+      {/* ---- Import a code ---- */}
+      {showCodeImport && (
+        <CodeImportModal
+          onClose={() => setShowCodeImport(false)}
+          onSyncNow={onSyncNow}
+        />
+      )}
+
+      {/* ---- Delete a project ---- */}
       {confirmDelete && (
         <Modal
           title="Delete project"
@@ -1001,5 +1174,67 @@ export function ProjectsHome({
         </Modal>
       )}
     </div>
+  );
+}
+
+/** "Import a code": pull another sync code's work into this account. */
+function CodeImportModal({
+  onClose,
+  onSyncNow,
+}: {
+  onClose: () => void;
+  onSyncNow: () => Promise<boolean>;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const apply = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const ok = await claimSyncCode(code);
+      if (!ok) {
+        setError("That code did not work. Paste the full code from your other device.");
+        return;
+      }
+      await onSyncNow();
+      onClose();
+      showToast("Imported. Your other work is now in this account.");
+    } catch {
+      setError("Could not import that code.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title="Import a code"
+      onClose={onClose}
+      actions={[
+        { label: "Cancel", onClick: onClose },
+        {
+          label: busy ? "Importing…" : "Apply",
+          variant: "solid",
+          onClick: () => void apply(),
+          disabled: busy || !code.trim(),
+        },
+      ]}
+    >
+      <p>Pull in work saved under a sync code from another device.</p>
+      <input
+        type="text"
+        className="code-input"
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        placeholder="Paste a sync code"
+        autoComplete="off"
+        spellCheck={false}
+        aria-label="Sync code"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && code.trim() && !busy) void apply();
+        }}
+      />
+      {error && <p className="ui-modal-note">{error}</p>}
+    </Modal>
   );
 }

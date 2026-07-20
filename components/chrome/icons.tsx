@@ -25,6 +25,13 @@ function Svg({ children }: { children: React.ReactNode }) {
   );
 }
 
+export const PersonIcon = () => (
+  <Svg>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </Svg>
+);
+
 export const ChevronLeftIcon = () => (
   <Svg>
     <polyline points="15 18 9 12 15 6" />

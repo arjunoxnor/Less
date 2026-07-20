@@ -41,6 +41,8 @@ export function EditorHost({
   sessionExpired?: boolean;
   /** Screenplay-only: "Add as a new project" in the editor's import choice. */
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
+  /** Focus and select the title on mount (instant-create flow, 2C). */
+  autoFocusTitle?: boolean;
 }) {
   const { projectId, onBack } = rest;
   const [hydration, setHydration] = useState<"checking" | "ready" | "failed">(() =>

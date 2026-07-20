@@ -48,6 +48,7 @@ export function PlainBody({
   onPrefsChange,
   user,
   sessionExpired,
+  autoFocusTitle,
 }: {
   projectId: string;
   title: string;
@@ -59,6 +60,8 @@ export function PlainBody({
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
   sessionExpired?: boolean;
+  /** Focus and select the title on mount (instant-create flow, 2C). */
+  autoFocusTitle?: boolean;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_PLAIN_DOC,
@@ -280,6 +283,7 @@ export function PlainBody({
         focusMode={prefs.focusMode}
         onExitFocus={() => onPrefsChange({ focusMode: false })}
         onEnterFocus={() => onPrefsChange({ focusMode: true })}
+        autoFocusTitle={autoFocusTitle}
         title={title}
         onRename={onRename}
         onBack={onBack}

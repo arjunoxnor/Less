@@ -52,6 +52,7 @@ export function EditorShell({
   dockPanel,
   secondRow,
   statusBar,
+  autoFocusTitle,
   children,
 }: {
   /** Extra classes for the shell root (font choice, scene numbers, etc). */
@@ -79,6 +80,8 @@ export function EditorShell({
   /** Optional slim second row under the top bar (plain formatting controls). */
   secondRow?: ReactNode;
   statusBar?: ReactNode;
+  /** Focus and select the title input on mount (instant-create flow, 2C). */
+  autoFocusTitle?: boolean;
   children: ReactNode;
 }) {
   const [railOpen, setRailOpen] = useState(false);
@@ -171,6 +174,7 @@ export function EditorShell({
           exportItems={exportItems}
           overflowItems={overflowItems}
           onToggleRail={() => setRailOpen((v) => !v)}
+          autoFocusTitle={autoFocusTitle}
         />
       </div>
 
