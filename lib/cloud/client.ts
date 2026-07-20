@@ -51,6 +51,8 @@ export function setSession(token: string, user: CloudUser): boolean {
   } catch {
     ok = false;
   }
+  // A fresh session is live again by definition.
+  clearExpired();
   notifyAuth();
   return ok;
 }
@@ -62,7 +64,40 @@ export function clearSession(): void {
   } catch {
     /* ignore */
   }
+  // Signed out is not "expired": a fresh sign-out clears the stale banner too.
+  sessionExpired = false;
   notifyAuth();
+}
+
+/* --- Session expiry -------------------------------------------------------
+   When the 30-day session dies, the API answers 401. We must NOT treat that as
+   a sign-out: clearing the session flips the user to null, and the sign-out
+   path wipes the local copies of cloud-backed projects. Instead a module flag
+   marks the session as expired, sync paths go quiet, and a banner asks the
+   writer to sign in again. Local work stays untouched. */
+
+let sessionExpired = false;
+
+/** True after any API call has come back 401 (the stored session is dead). */
+export function isSessionExpired(): boolean {
+  return sessionExpired;
+}
+
+/** Reset the expiry flag (called by a successful sign-in). */
+export function clearExpired(): void {
+  if (!sessionExpired) return;
+  sessionExpired = false;
+  // Announce the restoration. Re-signing in as the SAME account keeps user.id
+  // unchanged, so neither useCloudSync's reconcile key nor useProjects'
+  // identity effect would notice on their own; both listen for this event and
+  // re-run their reconcile so pending (dirty) work pushes without further
+  // edits. Explicit sign-out (clearSession) resets the flag directly and
+  // deliberately does NOT fire this.
+  try {
+    window.dispatchEvent(new CustomEvent("less:sessionrestored"));
+  } catch {
+    /* ignore */
+  }
 }
 
 /* Tiny pub/sub so useAuth re-renders on sign-in / sign-out. */
@@ -98,7 +133,17 @@ export async function api<T>(
     keepalive: opts.keepalive,
   });
   if (res.status === 401) {
-    clearSession();
+    // The session expired. Do NOT clear it (that would look like a sign-out
+    // and trigger the local wipe of cloud-backed copies). Flag it, tell the
+    // UI once, and degrade to local-only exactly like a signed-out call.
+    if (!sessionExpired) {
+      sessionExpired = true;
+      try {
+        window.dispatchEvent(new CustomEvent("less:sessionexpired"));
+      } catch {
+        /* ignore */
+      }
+    }
     return null;
   }
   if (!res.ok) {

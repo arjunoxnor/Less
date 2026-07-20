@@ -74,6 +74,7 @@ import {
   type ImportFormat,
 } from "@/lib/export";
 import { EditorChrome } from "./EditorChrome";
+import { FocusExitPill } from "./FocusExitPill";
 import { PageBackdrop } from "./PageBackdrop";
 import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
 import { ScreenplayToolbar } from "./ScreenplayToolbar";
@@ -144,8 +145,6 @@ export function ScreenplayBody({
   const [findMeta, setFindMeta] = useState({ matchCount: 0, activeIndex: 0 });
   const [acState, setAcState] = useState<AcState | null>(null);
   const [spellState, setSpellState] = useState<SpellState | null>(null);
-  const [renameFrom, setRenameFrom] = useState<string | null>(null);
-  const [renameTick, setRenameTick] = useState(0);
   const [dualActive, setDualActive] = useState(false);
   const [pageLock, setPageLock] = useState<PageLock | null>(() => loadPageLock(projectId));
   const [breakdownItems, setBreakdownItems] = useState<BreakdownItem[]>(() => loadBreakdown(projectId));
@@ -568,7 +567,6 @@ export function ScreenplayBody({
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        setRenameFrom(null);
         setShowFind(true);
       } else if (e.key === "Escape" && showFind) {
         setShowFind(false);
@@ -610,7 +608,6 @@ export function ScreenplayBody({
   );
 
   const handleFindClick = useCallback(() => {
-    setRenameFrom(null);
     setShowFind((v) => !v);
   }, []);
 
@@ -679,10 +676,7 @@ export function ScreenplayBody({
       id: "find",
       group: "Panel",
       label: "Find and replace",
-      run: () => {
-        setRenameFrom(null);
-        setShowFind(true);
-      },
+      run: () => setShowFind(true),
     });
     cmds.push({ id: "cast", group: "Panel", label: "Cast and Locations", run: () => setShowCast(true) });
     cmds.push({ id: "reports", group: "Panel", label: "Reports", run: () => setShowReports(true) });
@@ -815,9 +809,7 @@ export function ScreenplayBody({
       />
 
       {prefs.focusMode && (
-        <button type="button" className="focus-exit" onClick={() => onPrefsChange({ focusMode: false })}>
-          Exit focus (Esc)
-        </button>
+        <FocusExitPill onExit={() => onPrefsChange({ focusMode: false })} />
       )}
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
@@ -913,8 +905,6 @@ export function ScreenplayBody({
           onReplaceAll={onReplaceAll}
           onRename={onRenameChar}
           getPreview={getRenamePreview}
-          initialRenameFrom={renameFrom}
-          renameTick={renameTick}
           onClose={() => setShowFind(false)}
         />
       )}

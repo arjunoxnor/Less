@@ -116,10 +116,19 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
           // character cues, which is what writers expect.
           state.doc.nodesBetween(from, to, (node, pos) => {
             if (node.type.name === this.name) {
-              if (node.attrs.element !== type) {
+              // Retyping a line out of a dialogue cluster drops the dual
+              // (side-by-side) flag: an action line half-indented to the right
+              // column is never what the writer meant, and the flag exports.
+              const keepDual =
+                !!node.attrs.dual &&
+                (type === "dialogue" ||
+                  type === "parenthetical" ||
+                  type === "character");
+              if (node.attrs.element !== type || node.attrs.dual !== keepDual) {
                 tr.setNodeMarkup(pos, undefined, {
                   ...node.attrs,
                   element: type,
+                  dual: keepDual,
                 });
                 changed = true;
               }

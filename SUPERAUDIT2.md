@@ -776,6 +776,12 @@ green, plus the named E2E where present.
 3. B3: empty-line Enter converts in place; unit tests.
 4. B5: `setElement` clears `dual` off non-dialogue targets; test.
 5. B4: session-expiry flag + banner; stop wiping on 401; E2E.
+   [Executor note, 2026-07-19: the runtime fix shipped in Phase 0 with unit
+   coverage of the expiry flag in `lib/cloud/client.test.ts` (401 flags but
+   never clears the session; sign-in clears the flag and fires
+   `less:sessionrestored`; sign-out stays silent). The Playwright harness
+   does not exist yet, so the named 3.2 session-expiry E2E is deliberately
+   deferred to Phase 5 task 16, where the `e2e/` suite lands.]
 6. B6 banner colors; B7 length guard; B8 mapping fix; B9 popover clamp +
    scroll-into-view; B10 dead code deletions (keep `lastOpenedId`: Phase 2
    uses it).

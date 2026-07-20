@@ -52,9 +52,18 @@ export const AutoElement = Extension.create({
 
           // Respect a manual revert: only convert when the line did not already
           // match in the previous state (so it just became a slug/transition).
-          const index = $from.index(0);
+          // Map the line's position back through the inverse of every
+          // transaction in this batch, so an edit that added or removed lines
+          // above the caret cannot make us read the wrong old line. A line
+          // that did not exist in the old document counts as empty.
+          let oldPos = pos;
+          for (let i = trs.length - 1; i >= 0; i--) {
+            oldPos = trs[i].mapping.invert().map(oldPos);
+          }
           const oldNode =
-            index < oldState.doc.childCount ? oldState.doc.child(index) : null;
+            oldPos >= 0 && oldPos < oldState.doc.content.size
+              ? oldState.doc.nodeAt(oldPos)
+              : null;
           const oldText =
             oldNode && oldNode.type.name === "screenplayLine" ? oldNode.textContent : "";
           const oldMatched =
@@ -67,7 +76,10 @@ export const AutoElement = Extension.create({
           });
           tr.setMeta(autoElementKey, true);
           tr.setMeta(SKIP_REVISION_META, true);
-          tr.setMeta("addToHistory", false);
+          // Deliberately NOT hidden from history: ProseMirror composes an
+          // appendTransaction result into the same undo event as the keystroke
+          // that triggered it, so one undo reverts both. Hiding it instead made
+          // undo's inverse steps apply against a drifted document (B1).
           return tr;
         },
       }),

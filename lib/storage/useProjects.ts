@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CloudUser as User } from "@/lib/cloud/client";
+import { isSessionExpired, type CloudUser as User } from "@/lib/cloud/client";
 import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
 
@@ -336,6 +336,10 @@ export function useProjects(user: User | null) {
   // cloud-only projects into the local index, and flushes delete tombstones.
   const reconcile = useCallback(
     async (u: User): Promise<boolean> => {
+      // An expired session would 401 every one of the calls below: go quiet
+      // and report failure instead of hammering the API. Nothing local is
+      // touched; a fresh sign-in re-runs the reconcile.
+      if (isSessionExpired()) return false;
       // Count anything that did not go through, so a manual "Sync" never reports
       // success when pushes silently failed (e.g. an expired session 401s).
       let failures = 0;
@@ -616,7 +620,11 @@ export function useProjects(user: User | null) {
     [refresh, refreshFolders]
   );
 
-  // Run reconcile on a real sign-in; reset cloud-derived state on a real sign-out.
+  // Run reconcile on a real sign-in; reset cloud-derived state on a real
+  // sign-out. This wipe keys off the user becoming null, which only the
+  // explicit sign-out path (clearSession) causes: a session EXPIRY leaves the
+  // stored user in place and only flags the session (see lib/cloud/client.ts),
+  // so dropCloudProjects can never run because a token silently aged out.
   const prevUser = useRef<string | null>(null);
   useEffect(() => {
     const had = prevUser.current;
@@ -639,6 +647,19 @@ export function useProjects(user: User | null) {
     const onOnline = () => void reconcile(user);
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
+  }, [user, reconcile]);
+
+  // And when an expired session signs back in. That path keeps the same
+  // user.id (expiry never nulls the user), so the identity effect above stays
+  // quiet; the old sign-out/sign-in cycle only re-ran reconcile because user
+  // passed through null. setSession fires this event after storing the fresh
+  // token, so tombstone flushes, dirty title/status pushes, and cloud-only
+  // pulls all resume without a reload.
+  useEffect(() => {
+    if (!user) return;
+    const onRestored = () => void reconcile(user);
+    window.addEventListener("less:sessionrestored", onRestored);
+    return () => window.removeEventListener("less:sessionrestored", onRestored);
   }, [user, reconcile]);
 
   // Manual "Sync now": run the same reconcile (pull + push + heal) on demand,

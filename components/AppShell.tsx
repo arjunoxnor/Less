@@ -21,6 +21,7 @@ import {
 import { ProjectsHome } from "./ProjectsHome";
 import { EditorHost } from "./EditorHost";
 import { AuthModal } from "./AuthModal";
+import { SessionExpiredBanner } from "./SessionExpiredBanner";
 import { importFile } from "@/lib/export";
 import type { Stage } from "@/lib/storage/folders";
 
@@ -49,7 +50,7 @@ function parseHash(): string | null {
  * theme/font/focus prefs, and the project lifecycle via useProjects.
  */
 export function AppShell() {
-  const { user } = useAuth();
+  const { user, sessionExpired } = useAuth();
   const {
     projects,
     folders,
@@ -274,19 +275,25 @@ export function AppShell() {
 
   if (view.kind === "editor" && current) {
     return (
-      <EditorHost
-        key={current.id}
-        projectId={current.id}
-        type={current.type}
-        title={current.title}
-        onRename={(t) => rename(current.id, t)}
-        status={current.status}
-        onStatusChange={(s) => setStatus(current.id, s)}
-        onBack={goHome}
-        prefs={prefs}
-        onPrefsChange={onPrefsChange}
-        user={user}
-      />
+      <>
+        <EditorHost
+          key={current.id}
+          projectId={current.id}
+          type={current.type}
+          title={current.title}
+          onRename={(t) => rename(current.id, t)}
+          status={current.status}
+          onStatusChange={(s) => setStatus(current.id, s)}
+          onBack={goHome}
+          prefs={prefs}
+          onPrefsChange={onPrefsChange}
+          user={user}
+        />
+        {sessionExpired && (
+          <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />
+        )}
+        {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      </>
     );
   }
 
@@ -303,7 +310,6 @@ export function AppShell() {
         onCreate={onCreate}
         onDelete={remove}
         onRename={rename}
-        onStatusChange={setStatus}
         onSetFolder={setFolder}
         onReorder={reorder}
         folders={folders}
@@ -317,6 +323,9 @@ export function AppShell() {
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOut()}
       />
+      {sessionExpired && (
+        <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />
+      )}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </>
   );

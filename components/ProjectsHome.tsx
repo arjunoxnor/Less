@@ -6,7 +6,6 @@ import type { JSONContent } from "@tiptap/core";
 import type { Prefs } from "@/lib/storage/localStore";
 import type {
   ProjectMeta,
-  ProjectStatus,
   ProjectType,
 } from "@/lib/storage/projects";
 import {
@@ -196,7 +195,6 @@ export function ProjectsHome({
   ) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
-  onStatusChange: (id: string, status: ProjectStatus) => void;
   onSetFolder: (id: string, folderId: string | null) => void;
   onReorder: (orderedIds: string[]) => void;
   folders: Folder[];

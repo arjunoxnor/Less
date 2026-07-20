@@ -336,10 +336,14 @@ body {
 
 /* ---- Focus (distraction-free) mode ------------------------------------- */
 
+.focus-mode .chrome-bar,
 .focus-mode .toolbar,
 .focus-mode .status-bar {
   display: none;
 }
+/* The exit pill behaves like a toast: shown briefly on entering focus mode,
+   then faded out (see FocusExitPill), and brought back only while the pointer
+   is near the bottom-right corner. */
 .focus-exit {
   position: fixed;
   bottom: 16px;
@@ -351,11 +355,15 @@ body {
   background: var(--toolbar-bg);
   color: var(--muted);
   cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 0.15s;
+  opacity: 0.9;
+  transition: opacity 180ms ease-out;
 }
 .focus-exit:hover {
   opacity: 1;
+}
+.focus-exit-hidden {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ============================================================================
@@ -2677,7 +2685,9 @@ body {
   font-weight: 700;
 }
 
-/* Sticky notice when local storage is full (see components/StorageBanner). */
+/* Sticky notice when local storage is full (see components/StorageBanner).
+   Inverted-surface toast colors, explicit per theme: the old var(--fg) was
+   defined nowhere, so dark mode rendered near-black on near-black. */
 .storage-banner {
   position: fixed;
   left: 50%;
@@ -2687,11 +2697,55 @@ body {
   max-width: min(560px, calc(100vw - 32px));
   padding: 10px 14px;
   border-radius: 8px;
-  background: var(--fg, #1a1a1e);
-  color: var(--bg, #fff);
+  background: #17171a;
+  color: #f4f4f2;
   font-size: 13px;
   line-height: 1.4;
   box-shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="dark"] .storage-banner {
+  background: #e9e9ed;
+  color: #17171a;
+}
+
+/* Persistent notice when the stored session has expired (a 401 came back).
+   Same inverted-toast treatment as .storage-banner; nothing local is wiped
+   (see components/SessionExpiredBanner). */
+.session-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #17171a;
+  color: #f4f4f2;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px -8px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="dark"] .session-banner {
+  background: #e9e9ed;
+  color: #17171a;
+}
+.session-banner-btn {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.session-banner-btn:hover {
+  background: rgba(128, 128, 128, 0.18);
 }
 
 /* Shown while an evicted (cloud-only) body is re-fetched before the editor mounts. */

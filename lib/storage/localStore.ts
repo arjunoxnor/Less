@@ -120,35 +120,6 @@ export function savePrefs(prefs: Prefs): void {
   }
 }
 
-/* --- Projects-home view (device-local: sort order + collapsed sections) --- */
-
-export type HomeSort = "updated" | "title" | "created";
-
-export interface HomeView {
-  sort: HomeSort;
-  /** Keyed by status section id; true means the section is folded. */
-  collapsed: Record<string, boolean>;
-}
-
-export const DEFAULT_HOME_VIEW: HomeView = { sort: "updated", collapsed: {} };
-
-const HOME_VIEW_KEY = "less:homeView";
-
-export function loadHomeView(): HomeView {
-  const raw = get(HOME_VIEW_KEY);
-  if (!raw) return DEFAULT_HOME_VIEW;
-  try {
-    const v = JSON.parse(raw) as HomeView;
-    return { sort: v.sort ?? "updated", collapsed: v.collapsed ?? {} };
-  } catch {
-    return DEFAULT_HOME_VIEW;
-  }
-}
-
-export function saveHomeView(v: HomeView): void {
-  set(HOME_VIEW_KEY, JSON.stringify(v));
-}
-
 /* --- Cloud-sync bookkeeping ------------------------------------------------
    Which cloud script this device is editing, when it was last pushed, and
    whether there are local edits not yet synced. These let us reconcile safely

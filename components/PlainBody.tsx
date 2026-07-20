@@ -28,6 +28,7 @@ import { signOut } from "@/lib/cloud/auth";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { EditorChrome } from "./EditorChrome";
+import { FocusExitPill } from "./FocusExitPill";
 import { PlainToolbar } from "./PlainToolbar";
 import { PageBackdrop } from "./PageBackdrop";
 import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
@@ -273,9 +274,7 @@ export function PlainBody({
       </div>
 
       {prefs.focusMode && (
-        <button type="button" className="focus-exit" onClick={() => onPrefsChange({ focusMode: false })}>
-          Exit focus (Esc)
-        </button>
+        <FocusExitPill onExit={() => onPrefsChange({ focusMode: false })} />
       )}
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
