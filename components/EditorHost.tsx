@@ -24,6 +24,7 @@ import { PlainBody } from "./PlainBody";
  */
 export function EditorHost({
   type,
+  onImportAsNew,
   ...rest
 }: {
   projectId: string;
@@ -36,6 +37,8 @@ export function EditorHost({
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
+  /** Screenplay-only: "Add as a new project" in the editor's import choice. */
+  onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
 }) {
   const { projectId, onBack } = rest;
   const [hydration, setHydration] = useState<"checking" | "ready" | "failed">(() =>
@@ -90,5 +93,9 @@ export function EditorHost({
     );
   }
 
-  return type === "plain" ? <PlainBody {...rest} /> : <ScreenplayBody {...rest} />;
+  return type === "plain" ? (
+    <PlainBody {...rest} />
+  ) : (
+    <ScreenplayBody {...rest} onImportAsNew={onImportAsNew} />
+  );
 }

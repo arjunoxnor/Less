@@ -61,7 +61,8 @@ export function PlainToolbar({
   onExport: (format: PlainExportFormat) => void;
 }) {
   const [, force] = useReducer((x: number) => x + 1, 0);
-  const [menu, setMenu] = useState<null | "export" | "color" | "highlight">(null);
+  const [menu, setMenu] = useState<null | "export" | "color" | "highlight" | "link">(null);
+  const [linkDraft, setLinkDraft] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,12 +97,23 @@ export function PlainToolbar({
     </button>
   );
 
-  const setLink = () => {
-    const prev = (editor.getAttributes("link").href as string) || "";
-    const url = window.prompt("Link URL (leave empty to remove)", prev);
-    if (url === null) return;
-    if (url.trim() === "") chain().extendMarkRange("link").unsetLink().run();
-    else chain().extendMarkRange("link").setLink({ href: url.trim() }).run();
+  // Link editing lives in a small anchored popover (D9: no window.prompt).
+  const openLinkPopover = () => {
+    setMenu((m) => {
+      if (m === "link") return null;
+      setLinkDraft((editor.getAttributes("link").href as string) || "");
+      return "link";
+    });
+  };
+  const applyLink = () => {
+    const url = linkDraft.trim();
+    if (url === "") chain().extendMarkRange("link").unsetLink().run();
+    else chain().extendMarkRange("link").setLink({ href: url }).run();
+    setMenu(null);
+  };
+  const removeLink = () => {
+    chain().extendMarkRange("link").unsetLink().run();
+    setMenu(null);
   };
 
   return (
@@ -201,7 +213,43 @@ export function PlainToolbar({
       </div>
 
       <div className="toolbar-group">
-        {Btn("Link", editor.isActive("link"), setLink, "Insert or edit link")}
+        <div className="tb-menu" ref={menu === "link" ? menuRef : undefined}>
+          {Btn(
+            "Link",
+            editor.isActive("link") || menu === "link",
+            openLinkPopover,
+            "Insert or edit link"
+          )}
+          {menu === "link" && (
+            <div className="tb-menu-list pt-link-pop">
+              <input
+                type="url"
+                className="pt-link-input"
+                placeholder="https://"
+                value={linkDraft}
+                autoFocus
+                onChange={(e) => setLinkDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    applyLink();
+                  } else if (e.key === "Escape") {
+                    setMenu(null);
+                  }
+                }}
+                aria-label="Link URL"
+              />
+              <div className="pt-link-row">
+                <button type="button" className="tb-btn" onClick={removeLink}>
+                  Remove
+                </button>
+                <button type="button" className="tb-btn tb-btn-active" onClick={applyLink}>
+                  Set
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         {Btn("Divider", false, () => chain().setHorizontalRule().run(), "Horizontal rule")}
         {Btn("Clear", false, () => chain().unsetAllMarks().run(), "Clear formatting")}
       </div>

@@ -21,7 +21,7 @@ export function StorageBanner() {
   if (!full) return null;
 
   return (
-    <div className="storage-banner" role="status">
+    <div className="storage-banner" role="alert">
       This device is out of local storage, so some changes may not be saving.
       Export anything important, then free up space or sign in to sync.
     </div>

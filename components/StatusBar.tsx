@@ -51,6 +51,8 @@ export function StatusBar({
       </span>
       <span
         className={"status-item status-saved" + (saveError ? " status-save-error" : "")}
+        role="status"
+        aria-live="polite"
         title={
           saveError
             ? "This device's storage is full, so the latest changes could not be saved locally. Sign in to save to the cloud, or free up space."

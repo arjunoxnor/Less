@@ -19,6 +19,8 @@ import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
 import { hasTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
 import { claimSyncCode } from "@/lib/cloud/auth";
+import { Modal } from "./ui/Modal";
+import { showToast } from "./ui/Toast";
 
 /**
  * Folder-name field that buffers keystrokes locally and only commits on blur or
@@ -405,7 +407,9 @@ export function ProjectsHome({
     } catch (e) {
       // A template's body can fail to persist when storage is full; surface it
       // instead of leaving the dialog stuck with no feedback.
-      window.alert(e instanceof Error ? e.message : "Could not create the project.");
+      showToast(e instanceof Error ? e.message : "Could not create the project.", {
+        variant: "danger",
+      });
       return;
     }
     setShowNew(false);
@@ -978,29 +982,23 @@ export function ProjectsHome({
       )}
 
       {confirmDelete && (
-        <div className="modal-backdrop" onClick={() => setConfirmDelete(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">Delete project</h2>
-            <p className="modal-text">
-              Delete &quot;{confirmDelete.title}&quot;? This cannot be undone.
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="tb-btn" onClick={() => setConfirmDelete(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="tb-btn tb-btn-danger"
-                onClick={() => {
-                  onDelete(confirmDelete.id);
-                  setConfirmDelete(null);
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <Modal
+          title="Delete project"
+          onClose={() => setConfirmDelete(null)}
+          actions={[
+            { label: "Cancel", onClick: () => setConfirmDelete(null) },
+            {
+              label: "Delete",
+              variant: "danger",
+              onClick: () => {
+                onDelete(confirmDelete.id);
+                setConfirmDelete(null);
+              },
+            },
+          ]}
+        >
+          <p>Delete &quot;{confirmDelete.title}&quot;? This cannot be undone.</p>
+        </Modal>
       )}
     </div>
   );

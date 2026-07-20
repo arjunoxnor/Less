@@ -91,6 +91,9 @@ import { AutocompleteMenu } from "./AutocompleteMenu";
 import { SpellMenu } from "./SpellMenu";
 import { TitlePageModal } from "./TitlePageModal";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette";
+import { Modal } from "./ui/Modal";
+import { showToast } from "./ui/Toast";
+import type { TitlePage } from "@/lib/export/titlePage";
 
 export function ScreenplayBody({
   projectId,
@@ -102,6 +105,7 @@ export function ScreenplayBody({
   prefs,
   onPrefsChange,
   user,
+  onImportAsNew,
 }: {
   projectId: string;
   title: string;
@@ -112,6 +116,7 @@ export function ScreenplayBody({
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
+  onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_SCREENPLAY,
@@ -149,6 +154,18 @@ export function ScreenplayBody({
   const [pageLock, setPageLock] = useState<PageLock | null>(() => loadPageLock(projectId));
   const [breakdownItems, setBreakdownItems] = useState<BreakdownItem[]>(() => loadBreakdown(projectId));
   const [hasSelection, setHasSelection] = useState(false);
+  // A parsed import waiting on the Replace-or-Add choice (D9), and the chosen
+  // radio; a history restore waiting on its confirm.
+  const [importPending, setImportPending] = useState<{
+    doc: JSONContent;
+    titlePage: TitlePage | null;
+    file: File;
+  } | null>(null);
+  const [importMode, setImportMode] = useState<"replace" | "new">("replace");
+  const [confirmRestore, setConfirmRestore] = useState<{
+    content: JSONContent;
+    titlePage?: TitlePage | null;
+  } | null>(null);
 
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
   const spellEnabledRef = useRef(prefs.spellCheck);
@@ -484,26 +501,49 @@ export function ScreenplayBody({
     async (_format: ImportFormat, file: File) => {
       try {
         const { doc, titlePage: importedTp } = await importFile(file);
-        // Importing replaces the open screenplay. Confirm first if there is
-        // anything to lose; otherwise a misclick wipes the current script.
+        // Importing can replace the open screenplay. If there is anything to
+        // lose, ask Replace-or-Add first; otherwise a misclick wipes the
+        // current script. An empty document just takes the file directly.
         const hasContent = (editor?.getText({ blockSeparator: "\n" }).trim().length ?? 0) > 0;
-        if (
-          hasContent &&
-          !window.confirm(
-            "Import will replace everything in this screenplay with the file's contents. Continue?"
-          )
-        ) {
+        if (hasContent) {
+          setImportMode("replace");
+          setImportPending({ doc, titlePage: importedTp, file });
           return;
         }
         // Pass undefined (not null) when the file has no title block, so an
         // import never wipes an existing title page.
         importContent(doc, importedTp ?? undefined);
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "Could not import that file.");
+        showToast(e instanceof Error ? e.message : "Could not import that file.", {
+          variant: "danger",
+        });
       }
     },
     [editor, importContent]
   );
+
+  const runPendingImport = useCallback(async () => {
+    const pending = importPending;
+    if (!pending) return;
+    setImportPending(null);
+    if (importMode === "replace" || !onImportAsNew) {
+      importContent(pending.doc, pending.titlePage ?? undefined);
+      return;
+    }
+    try {
+      const { imported, failed } = await onImportAsNew(pending.file);
+      if (imported > 0) {
+        showToast("Imported as a new project.");
+      } else {
+        showToast(
+          failed.length ? "Could not import that file." : "Nothing was imported.",
+          { variant: "danger" }
+        );
+      }
+    } catch {
+      showToast("Could not import that file.", { variant: "danger" });
+    }
+  }, [importPending, importMode, importContent, onImportAsNew]);
 
   const jumpToScene = useCallback(
     (pos: number) => {
@@ -821,18 +861,86 @@ export function ScreenplayBody({
             // Replacing the live document is destructive; confirm first. A
             // snapshot of the current doc is taken inside restoreVersion so this
             // is recoverable either way.
-            if (
-              !window.confirm(
-                "Restore this version? It replaces your current text (a snapshot of the current version is saved first so you can undo)."
-              )
-            ) {
-              return;
-            }
-            restoreVersion(content, tp);
-            setShowHistory(false);
+            setConfirmRestore({ content, titlePage: tp });
           }}
           onClose={() => setShowHistory(false)}
         />
+      )}
+
+      {confirmRestore && (
+        <Modal
+          title="Restore this version"
+          onClose={() => setConfirmRestore(null)}
+          actions={[
+            { label: "Cancel", onClick: () => setConfirmRestore(null) },
+            {
+              label: "Restore this version",
+              variant: "solid",
+              onClick: () => {
+                restoreVersion(confirmRestore.content, confirmRestore.titlePage ?? undefined);
+                setConfirmRestore(null);
+                setShowHistory(false);
+              },
+            },
+          ]}
+        >
+          <p>This replaces your current text with the selected version.</p>
+          <p className="ui-modal-note">
+            A snapshot of the current text is kept in History, so you can come back.
+          </p>
+        </Modal>
+      )}
+
+      {importPending && (
+        <Modal
+          title="Import file"
+          onClose={() => setImportPending(null)}
+          actions={[
+            { label: "Cancel", onClick: () => setImportPending(null) },
+            {
+              label: "Import",
+              variant: importMode === "replace" ? "danger" : "solid",
+              onClick: () => void runPendingImport(),
+            },
+          ]}
+        >
+          <p>This screenplay already has text. Where should the file go?</p>
+          <div className="ui-choice" role="radiogroup" aria-label="Import destination">
+            <label>
+              <input
+                type="radio"
+                name="import-mode"
+                checked={importMode === "replace"}
+                onChange={() => setImportMode("replace")}
+              />
+              <span>
+                Replace this script
+                <span className="ui-choice-sub">
+                  The file&apos;s contents take over this screenplay.
+                </span>
+              </span>
+            </label>
+            {onImportAsNew && (
+              <label>
+                <input
+                  type="radio"
+                  name="import-mode"
+                  checked={importMode === "new"}
+                  onChange={() => setImportMode("new")}
+                />
+                <span>
+                  Add as a new project
+                  <span className="ui-choice-sub">
+                    This screenplay stays as it is; the file opens from your projects.
+                  </span>
+                </span>
+              </label>
+            )}
+          </div>
+          <p className="ui-modal-note">
+            A snapshot of the current text is kept in History either way.
+          </p>
+        </Modal>
       )}
 
       {showScenes && (

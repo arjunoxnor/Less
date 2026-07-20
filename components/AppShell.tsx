@@ -288,6 +288,7 @@ export function AppShell() {
           prefs={prefs}
           onPrefsChange={onPrefsChange}
           user={user}
+          onImportAsNew={(file) => importScreenplays([file])}
         />
         {sessionExpired && (
           <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />

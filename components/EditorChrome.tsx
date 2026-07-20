@@ -123,7 +123,9 @@ export function EditorChrome({
             {user ? (
               <>
                 <span className={"sync-dot sync-" + syncStatus} title={SYNC_LABEL[syncStatus]} />
-                <span className="sync-label">{SYNC_LABEL[syncStatus]}</span>
+                <span className="sync-label" role="status" aria-live="polite">
+                  {SYNC_LABEL[syncStatus]}
+                </span>
                 <span className="account-email" title={user.email ?? ""}>
                   {user.email}
                 </span>

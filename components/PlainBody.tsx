@@ -34,6 +34,7 @@ import { PageBackdrop } from "./PageBackdrop";
 import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
 import { AuthModal } from "./AuthModal";
 import { HistoryPanel } from "./HistoryPanel";
+import { Modal } from "./ui/Modal";
 
 export function PlainBody({
   projectId,
@@ -67,6 +68,10 @@ export function PlainBody({
   const [saveError, setSaveError] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // A history restore waiting on its confirm modal (D9: no native dialogs).
+  const [confirmRestore, setConfirmRestore] = useState<{
+    content: JSONContent;
+  } | null>(null);
   const editorRef = useRef<Editor | null>(null);
 
   const debouncedSave = useMemo(
@@ -263,6 +268,8 @@ export function PlainBody({
         <span className="status-item">{chars.toLocaleString()} characters</span>
         <span
           className={"status-item status-saved" + (saveError ? " status-save-error" : "")}
+          role="status"
+          aria-live="polite"
           title={
             saveError
               ? "This device's storage is full, so the latest changes could not be saved locally. Sign in to save to the cloud, or free up space."
@@ -282,19 +289,35 @@ export function PlainBody({
       {showHistory && (
         <HistoryPanel
           getVersions={getVersions}
-          onRestore={(content, tp) => {
-            if (
-              !window.confirm(
-                "Restore this version? It replaces your current text (a snapshot of the current version is saved first so you can undo)."
-              )
-            ) {
-              return;
-            }
-            restoreVersion(content, tp);
-            setShowHistory(false);
+          onRestore={(content) => {
+            setConfirmRestore({ content });
           }}
           onClose={() => setShowHistory(false)}
         />
+      )}
+
+      {confirmRestore && (
+        <Modal
+          title="Restore this version"
+          onClose={() => setConfirmRestore(null)}
+          actions={[
+            { label: "Cancel", onClick: () => setConfirmRestore(null) },
+            {
+              label: "Restore this version",
+              variant: "solid",
+              onClick: () => {
+                restoreVersion(confirmRestore.content);
+                setConfirmRestore(null);
+                setShowHistory(false);
+              },
+            },
+          ]}
+        >
+          <p>This replaces your current text with the selected version.</p>
+          <p className="ui-modal-note">
+            A snapshot of the current text is kept in History, so you can come back.
+          </p>
+        </Modal>
       )}
     </div>
   );

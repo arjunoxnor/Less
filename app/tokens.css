@@ -1,0 +1,112 @@
+/* ============================================================================
+   LESS: design tokens (Superaudit 2, Part 2A)
+   The single source of truth for the app chrome: type scale, color, geometry,
+   elevation, z-order, and motion. Chrome only: the screenplay page keeps its
+   own Courier 12pt/16px typography and spec margins, untouched by anything
+   here. Loaded before globals.css, which maps its legacy variable names onto
+   these tokens.
+   ========================================================================== */
+
+:root {
+  /* ---- Type (UI chrome) ------------------------------------------------- */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --text-xs: 11px; /* micro labels, badges */
+  --text-sm: 12.5px; /* secondary, status bar, menu items */
+  --text-md: 14px; /* default controls, panel body */
+  --text-lg: 16px; /* panel titles, modal titles, doc title */
+  --text-xl: 22px; /* dashboard headings */
+
+  /* ---- Color, light ------------------------------------------------------ */
+  --desk: #ececea; /* warm gray desk behind the page */
+  --paper: #ffffff; /* the script page */
+  --surface: #f6f6f4; /* bars, cards, inputs sit here, not pure white */
+  --surface-2: #efefed; /* hover fill, recessed wells */
+  --ink: #17171a; /* text + active states */
+  --muted: #63636b; /* secondary text; 4.6:1 on --surface */
+  --hairline: #dededa;
+  --selection: rgba(47, 109, 246, 0.25); /* the only blues left, with find */
+  --find-hit: rgba(47, 109, 246, 0.2);
+  --find-hit-active: rgba(47, 109, 246, 0.38);
+  --ok: #2fbf71; /* sync dot */
+  --warn: #e2b53b;
+  --danger: #e0533b; /* destructive actions */
+  --ring: #17171a; /* :focus-visible */
+  /* Inverted surface for toasts and sticky banners (finding B6 colors). */
+  --inverse-surface: #17171a;
+  --inverse-ink: #f4f4f2;
+
+  /* ---- Geometry ---------------------------------------------------------- */
+  --r-sm: 4px; /* controls */
+  --r-md: 8px; /* menus, cards */
+  --r-lg: 12px; /* modals */
+  /* Spacing scale: the only gaps and paddings allowed in chrome. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ---- Elevation ---------------------------------------------------------- */
+  --e1: 0 1px 2px rgba(0, 0, 0, 0.06); /* rails, bars */
+  --e2: 0 4px 16px -4px rgba(0, 0, 0, 0.12); /* menus, popovers */
+  --e3: 0 16px 48px -12px rgba(0, 0, 0, 0.24); /* modals, palette */
+  --sheet-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 8px 32px -16px rgba(0, 0, 0, 0.16);
+
+  /* ---- Z scale ------------------------------------------------------------ */
+  --z-dock: 10;
+  --z-bars: 20;
+  --z-menus: 30;
+  --z-toasts: 40;
+  --z-modal: 50;
+  --z-palette: 60;
+
+  /* ---- Motion ------------------------------------------------------------- */
+  --dur-1: 120ms; /* menus, hovers */
+  --dur-2: 180ms; /* dock, toasts */
+  --dur-3: 240ms; /* modal, view swap */
+  --ease: cubic-bezier(0.2, 0, 0, 1); /* decelerate; the default */
+  --ease-io: cubic-bezier(0.4, 0, 0.2, 1); /* moves that start and end on screen */
+}
+
+:root[data-theme="dark"] {
+  --desk: #131316;
+  --paper: #1e1e22;
+  --surface: #1a1a1e;
+  --surface-2: #232328;
+  --ink: #e9e9ed;
+  --muted: #a0a0a8;
+  --hairline: #2a2a30;
+  --ring: #e9e9ed;
+  --inverse-surface: #e9e9ed;
+  --inverse-ink: #17171a;
+  --sheet-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 8px 32px -16px rgba(0, 0, 0, 0.45);
+  /* Semantic and selection colors are unchanged in dark mode. */
+}
+
+/* ---- Accessibility floor (Part 2H) -------------------------------------- */
+/* One visible keyboard focus ring everywhere. Surfaces that provide their own
+   focus treatment (the editor prose, fields with a border change) may still
+   suppress the default outline locally. No transition: the ring is immediate. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---- Reduced motion ------------------------------------------------------ */
+/* Everything collapses to a quick opacity change; nothing translates or
+   scales. The durations shrink too so var()-driven transitions follow. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 80ms;
+    --dur-2: 80ms;
+    --dur-3: 80ms;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-property: opacity !important;
+    transition-duration: 80ms !important;
+    animation: none !important;
+  }
+}
