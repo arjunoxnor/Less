@@ -10,6 +10,7 @@ import { derivePlainTitle } from "@/lib/editor/plainDocUtils";
 import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
   EMPTY_PLAIN_DOC,
+  listProjects,
   loadProjectDoc,
   saveProjectDoc,
   markCloudCreated,
@@ -33,9 +34,12 @@ import { PlainToolbar } from "./PlainToolbar";
 import { PageBackdrop } from "./PageBackdrop";
 import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
 import { AuthModal } from "./AuthModal";
+import { DocsPanel } from "./DocsPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { Modal } from "./ui/Modal";
 import type { MenuItem } from "./ui/Menu";
+import { listFolders } from "@/lib/storage/folders";
+import { filmForProject } from "@/lib/storage/films";
 
 export function PlainBody({
   projectId,
@@ -44,10 +48,12 @@ export function PlainBody({
   status,
   onStatusChange,
   onBack,
+  backLabel,
   prefs,
   onPrefsChange,
   user,
   sessionExpired,
+  onOpenProject,
   autoFocusTitle,
 }: {
   projectId: string;
@@ -56,10 +62,14 @@ export function PlainBody({
   status: ProjectStatus;
   onStatusChange: (status: ProjectStatus) => void;
   onBack: () => void;
+  /** Names where back goes (the film's page for filed documents). */
+  backLabel?: string;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
   sessionExpired?: boolean;
+  /** Save-and-switch to a sibling project (the Docs panel's jump). */
+  onOpenProject?: (id: string) => void;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
 }) {
@@ -81,13 +91,21 @@ export function PlainBody({
   } | null>(null);
   const editorRef = useRef<Editor | null>(null);
 
+  // True only while an edit is newer than the last successful write, so the
+  // exit flushes below never re-save an untouched document (a save stamps
+  // updatedAt, and the home orders by that clock: reading must not reorder).
+  const unsavedRef = useRef(false);
+
   const debouncedSave = useMemo(
     () =>
       debounce(
         (doc: JSONContent) => {
           const ok = saveProjectDoc(projectId, doc);
           setSaveError(!ok);
-          if (ok) setSaved(true);
+          if (ok) {
+            unsavedRef.current = false;
+            setSaved(true);
+          }
         },
         600,
         2500
@@ -121,6 +139,7 @@ export function PlainBody({
       }
     },
     onUpdate: ({ editor }) => {
+      unsavedRef.current = true;
       setSaved(false);
       debouncedSave(editor.getJSON());
       measure(editor);
@@ -166,7 +185,8 @@ export function PlainBody({
     return () => {
       debouncedSave.cancel();
       const ed = editorRef.current;
-      if (ed) saveProjectDoc(projectId, ed.getJSON());
+      // Only a real pending edit gets written on the way out; see unsavedRef.
+      if (ed && unsavedRef.current) saveProjectDoc(projectId, ed.getJSON());
       flushRef.current();
     };
   }, [projectId, debouncedSave]);
@@ -177,9 +197,10 @@ export function PlainBody({
   useEffect(() => {
     const flushLocal = () => {
       const ed = editorRef.current;
-      if (!ed) return;
+      if (!ed || !unsavedRef.current) return;
       debouncedSave.cancel();
       const ok = saveProjectDoc(projectId, ed.getJSON());
+      if (ok) unsavedRef.current = false;
       setSaveError(!ok);
     };
     const onPageHide = () => {
@@ -257,16 +278,30 @@ export function PlainBody({
           ]
         : [{ label: "Sign in", onSelect: () => setShowAuth(true) } as MenuItem]
       : []),
-    { label: "Back to projects", onSelect: onBack },
+    { label: backLabel ?? "Back to projects", onSelect: onBack },
   ];
 
+  // A filed document belongs to a film, so it gets the Docs panel and can
+  // jump back to the draft. A loose document is an idea: no film, no panel.
+  // Membership is read once per mount; the panel itself re-reads on open.
+  const [inFilm] = useState(
+    () => filmForProject(projectId, listProjects(), listFolders()) !== null
+  );
+
   const railItems: RailItem[] = [
+    ...(inFilm ? ([{ kind: "panel", id: "docs", label: "Docs" }] as RailItem[]) : []),
     { kind: "panel", id: "history", label: "History" },
     { kind: "divider" },
   ];
 
   const dockPanel =
-    activePanel === "history" ? (
+    activePanel === "docs" ? (
+      <DocsPanel
+        projectId={projectId}
+        onOpen={(id) => onOpenProject?.(id)}
+        onClose={() => setActivePanel(null)}
+      />
+    ) : activePanel === "history" ? (
       <HistoryPanel
         getVersions={getVersions}
         onRestore={(content) => {
@@ -287,6 +322,7 @@ export function PlainBody({
         title={title}
         onRename={onRename}
         onBack={onBack}
+        backLabel={backLabel}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}

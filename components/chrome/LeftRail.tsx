@@ -4,6 +4,7 @@ import { Tooltip } from "../ui/Tooltip";
 import {
   BreakdownIcon,
   CastIcon,
+  DocsIcon,
   FindIcon,
   FocusIcon,
   HistoryIcon,
@@ -21,6 +22,7 @@ import {
 
 export type PanelId =
   | "scenes"
+  | "docs"
   | "cast"
   | "notes"
   | "breakdown"
@@ -34,6 +36,7 @@ export type RailItem =
 
 const GLYPHS: Record<PanelId, () => React.ReactNode> = {
   scenes: ScenesIcon,
+  docs: DocsIcon,
   cast: CastIcon,
   notes: NotesIcon,
   breakdown: BreakdownIcon,

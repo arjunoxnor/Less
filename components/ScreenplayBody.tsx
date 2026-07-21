@@ -82,6 +82,7 @@ import { HintCard } from "./chrome/HintCard";
 import { ShortcutsModal } from "./chrome/ShortcutsModal";
 import type { MenuItem } from "./ui/Menu";
 import { AuthModal } from "./AuthModal";
+import { DocsPanel } from "./DocsPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
 import { CastListPanel } from "./CastListPanel";
@@ -104,11 +105,13 @@ export function ScreenplayBody({
   status,
   onStatusChange,
   onBack,
+  backLabel,
   prefs,
   onPrefsChange,
   user,
   sessionExpired,
   onImportAsNew,
+  onOpenProject,
   autoFocusTitle,
 }: {
   projectId: string;
@@ -117,11 +120,15 @@ export function ScreenplayBody({
   status: ProjectStatus;
   onStatusChange: (status: ProjectStatus) => void;
   onBack: () => void;
+  /** Names where back goes (the film's page for filed drafts). */
+  backLabel?: string;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
   sessionExpired?: boolean;
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
+  /** Save-and-switch to a sibling project (the Docs panel's jump). */
+  onOpenProject?: (id: string) => void;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
 }) {
@@ -189,6 +196,12 @@ export function ScreenplayBody({
   const editorRef = useRef<Editor | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
+  // True only while an edit is newer than the last successful write. The
+  // unmount/pagehide flushes check it so that merely OPENING a script never
+  // re-saves it (a save stamps updatedAt, and the home orders films by that
+  // clock: reading must not reshuffle the library).
+  const unsavedRef = useRef(false);
+
   const debouncedSave = useMemo(
     () =>
       debounce(
@@ -196,6 +209,7 @@ export function ScreenplayBody({
           const ok = saveProjectDoc(projectId, doc);
           setSaveError(!ok);
           if (ok) {
+            unsavedRef.current = false;
             setSaved(true);
             // Cache the visual page count on the index (additive, optional
             // field) so the dashboard can show "12 pp" without parsing bodies.
@@ -263,6 +277,7 @@ export function ScreenplayBody({
       }
     },
     onUpdate: ({ editor }) => {
+      unsavedRef.current = true;
       setSaved(false);
       debouncedSave(editor.getJSON());
       measure(editor);
@@ -342,7 +357,8 @@ export function ScreenplayBody({
     return () => {
       debouncedSave.cancel();
       const ed = editorRef.current;
-      if (ed) saveProjectDoc(projectId, ed.getJSON());
+      // Only a real pending edit gets written on the way out; see unsavedRef.
+      if (ed && unsavedRef.current) saveProjectDoc(projectId, ed.getJSON());
       flushRef.current();
     };
   }, [projectId, debouncedSave]);
@@ -354,9 +370,10 @@ export function ScreenplayBody({
   useEffect(() => {
     const flushLocal = () => {
       const ed = editorRef.current;
-      if (!ed) return;
+      if (!ed || !unsavedRef.current) return;
       debouncedSave.cancel();
       const ok = saveProjectDoc(projectId, ed.getJSON());
+      if (ok) unsavedRef.current = false;
       setSaveError(!ok);
     };
     const onPageHide = () => {
@@ -387,7 +404,9 @@ export function ScreenplayBody({
       // The content was just replaced from the cloud. Re-persist it and reflect
       // the REAL result: this clears a stale "not saved" after a recovered pull,
       // but does not hide a genuine storage-full that also affects this write.
-      setSaveError(!saveProjectDoc(projectId, editor.getJSON()));
+      const ok = saveProjectDoc(projectId, editor.getJSON());
+      if (ok) unsavedRef.current = false;
+      setSaveError(!ok);
     }
   }, [pulledTick, editor, measure, debouncedSave]);
 
@@ -819,7 +838,7 @@ export function ScreenplayBody({
     } else {
       cmds.push({ id: "lock", group: "Pages", label: "Lock pages (freeze numbers, A-pages on revision)", run: lockPages });
     }
-    cmds.push({ id: "go-home", group: "Go", label: "Back to projects", run: onBack });
+    cmds.push({ id: "go-home", group: "Go", label: backLabel ?? "Back to projects", run: onBack });
     for (const s of outline.scenes) {
       cmds.push({
         id: "scene-" + s.number,
@@ -829,7 +848,7 @@ export function ScreenplayBody({
       });
     }
     return cmds;
-  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection]);
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, backLabel, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection]);
 
   // ---- Chrome wiring (Part 2B): menus, rail, dock content ------------------
 
@@ -900,11 +919,14 @@ export function ScreenplayBody({
           ]
         : [{ label: "Sign in", onSelect: () => setShowAuth(true) } as MenuItem]
       : []),
-    { label: "Back to projects", onSelect: onBack },
+    { label: backLabel ?? "Back to projects", onSelect: onBack },
   ];
 
   const railItems: RailItem[] = [
     { kind: "panel", id: "scenes", label: "Scenes" },
+    // The film's other drafts and documents (Altitude 3). An implicit film
+    // (a loose screenplay) still shows it, with just its drafts group.
+    { kind: "panel", id: "docs", label: "Docs" },
     { kind: "panel", id: "cast", label: "Cast and locations" },
     { kind: "panel", id: "notes", label: "Notes" },
     { kind: "panel", id: "breakdown", label: "Breakdown" },
@@ -921,6 +943,12 @@ export function ScreenplayBody({
         scenes={outline.scenes}
         currentSceneNumber={currentSceneNumber}
         onJump={jumpToScene}
+        onClose={closePanel}
+      />
+    ) : activePanel === "docs" ? (
+      <DocsPanel
+        projectId={projectId}
+        onOpen={(id) => onOpenProject?.(id)}
         onClose={closePanel}
       />
     ) : activePanel === "cast" ? (
@@ -1004,6 +1032,7 @@ export function ScreenplayBody({
         title={title}
         onRename={onRename}
         onBack={onBack}
+        backLabel={backLabel}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}

@@ -3,20 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CloudUser as User } from "@/lib/cloud/client";
 import type { JSONContent } from "@tiptap/core";
-import { lsGet, lsSet, type Prefs } from "@/lib/storage/localStore";
+import type { Prefs } from "@/lib/storage/localStore";
 import {
-  loadPageLock,
   loadProjectDoc,
-  loadProjectTitlePage,
   type ProjectMeta,
   type ProjectStatus,
   type ProjectType,
 } from "@/lib/storage/projects";
 import { FOLDER_COLORS, type Folder } from "@/lib/storage/folders";
-import { SCREENPLAY_TEMPLATES, buildTemplate } from "@/lib/editor/templates";
+import { listFilms, listIdeas, type Film } from "@/lib/storage/films";
 import { docText } from "@/lib/editor/docUtils";
 import type { TitlePage } from "@/lib/export/titlePage";
-import { IMPORT_ACCEPT, exportDoc, type ExportFormat } from "@/lib/export";
+import { IMPORT_ACCEPT } from "@/lib/export";
 import { claimSyncCode } from "@/lib/cloud/auth";
 import { Menu, type MenuItem } from "./ui/Menu";
 import { Modal } from "./ui/Modal";
@@ -24,11 +22,11 @@ import { showToast } from "./ui/Toast";
 import { DotsIcon, PersonIcon } from "./chrome/icons";
 
 /**
- * The dashboard (Superaudit 2, Part 2C): a writer's desk, not a filing cabinet.
- * One 48px top bar (wordmark, search, overflow, account avatar, split New
- * button), a 220px
- * folder sidebar on the left, and a content column with the Continue card and
- * 52px script rows. Folder stages are retired from display entirely.
+ * The home (films-home build, Altitude 1): one question, "what am I working
+ * on?" One line per film, the film touched last rendered big as the lead, and
+ * the loose ideas underneath with a zero-ceremony jot line. Films are read
+ * through lib/storage/films (folders reinterpreted, data untouched); every
+ * write still goes through the existing useProjects handlers.
  */
 
 /* ---- Small shared pieces ------------------------------------------------- */
@@ -39,27 +37,7 @@ const STATUS_LABEL: Record<ProjectStatus, string> = {
   done: "Done",
 };
 
-const NEXT_STATUS: Record<ProjectStatus, ProjectStatus> = {
-  not_started: "writing",
-  writing: "done",
-  done: "not_started",
-};
-
-type SortKey = "recent" | "title" | "created";
-const SORT_LABEL: Record<SortKey, string> = {
-  recent: "Recent",
-  title: "Title",
-  created: "Created",
-};
-/** NEW additive key (never the deleted HomeView shape). */
-const SORT_KEY = "less:homeSort";
-
-function loadSort(): SortKey {
-  const raw = lsGet(SORT_KEY);
-  return raw === "title" || raw === "created" ? raw : "recent";
-}
-
-function relativeTime(iso: string): string {
+export function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const secs = Math.round((Date.now() - then) / 1000);
@@ -73,44 +51,13 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function typeLabel(type: ProjectType): string {
-  return type === "plain" ? "Document" : "Screenplay";
-}
-
-/** A document (page) or screenplay (clapperboard) glyph, tinted by `color`. */
-function TypeIcon({ type, color }: { type: ProjectType; color: string }) {
+/** The status dot + word pair used in film state lines. */
+export function StatusWord({ status }: { status: ProjectStatus }) {
   return (
-    <svg
-      className="srow-icon"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ color }}
-      role="img"
-      aria-label={typeLabel(type)}
-    >
-      {type === "plain" ? (
-        <>
-          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-          <polyline points="14 3 14 9 20 9" />
-          <line x1="8" y1="13" x2="16" y2="13" />
-          <line x1="8" y1="17" x2="13" y2="17" />
-        </>
-      ) : (
-        <>
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <line x1="3" y1="8.5" x2="21" y2="8.5" />
-          <line x1="7.5" y1="3" x2="5.5" y2="8.5" />
-          <line x1="12.5" y1="3" x2="10.5" y2="8.5" />
-          <line x1="17.5" y1="3" x2="15.5" y2="8.5" />
-        </>
-      )}
-    </svg>
+    <span className="st">
+      <span className={"dot dot-" + status} aria-hidden="true" />
+      {STATUS_LABEL[status]}
+    </span>
   );
 }
 
@@ -133,9 +80,9 @@ const ChevronDown = () => (
 /**
  * Press-and-hold to confirm a destructive action. The bar fills over ~2s; let
  * go early and nothing happens. Deliberately harder than a single click so a
- * folder is never deleted by accident.
+ * film is never deleted by accident. Lives inside the confirm modal.
  */
-function HoldDelete({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+export function HoldDelete({ onConfirm }: { onConfirm: () => void }) {
   const [holding, setHolding] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancel = () => {
@@ -155,22 +102,17 @@ function HoldDelete({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: 
     if (timer.current) clearTimeout(timer.current);
   }, []);
   return (
-    <span className="hold-del">
-      <button
-        type="button"
-        className={"hold-btn" + (holding ? " holding" : "")}
-        onPointerDown={start}
-        onPointerUp={cancel}
-        onPointerLeave={cancel}
-        onPointerCancel={cancel}
-      >
-        <span className="hold-fill" />
-        <span className="hold-label">{holding ? "Keep holding" : "Hold to delete"}</span>
-      </button>
-      <button type="button" className="hold-cancel" title="Cancel" onClick={onCancel}>
-        ×
-      </button>
-    </span>
+    <button
+      type="button"
+      className={"hold-btn" + (holding ? " holding" : "")}
+      onPointerDown={start}
+      onPointerUp={cancel}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+    >
+      <span className="hold-fill" />
+      <span className="hold-label">{holding ? "Keep holding" : "Hold to delete"}</span>
+    </button>
   );
 }
 
@@ -178,7 +120,7 @@ function HoldDelete({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: 
  * Name field that buffers keystrokes locally and commits on blur or Enter, so
  * a cloud-synced rename fires one write instead of one per letter.
  */
-function NameInput({
+export function NameInput({
   initial,
   className,
   ariaLabel,
@@ -229,8 +171,8 @@ function NameInput({
   );
 }
 
-/** First non-empty line of a stored doc: the Continue card's live specimen. */
-function firstLine(meta: ProjectMeta): { text: string; isScene: boolean } | null {
+/** First non-empty line of a stored doc: the lead film's live specimen. */
+export function firstLine(meta: ProjectMeta): { text: string; isScene: boolean } | null {
   const doc = loadProjectDoc(meta.id);
   if (!doc?.content) return null;
   if (meta.type === "screenplay") {
@@ -243,25 +185,7 @@ function firstLine(meta: ProjectMeta): { text: string; isScene: boolean } | null
   return any ? { text: docText(any), isScene: false } : null;
 }
 
-/** First few lines of a template, formatted for the 12pt Courier preview. */
-function templatePreview(id: string): string[] {
-  const doc = buildTemplate(id);
-  if (!doc?.content) return [];
-  const upper = new Set(["scene_heading", "transition", "character"]);
-  return doc.content
-    .map((l) => {
-      const text = docText(l);
-      if (!text) return "";
-      const el = typeof l.attrs?.element === "string" ? l.attrs.element : "";
-      return upper.has(el) ? text.toUpperCase() : text;
-    })
-    .filter(Boolean)
-    .slice(0, 4);
-}
-
-/* ---- The dashboard ------------------------------------------------------- */
-
-type Selection = "all" | "unfiled" | { folderId: string };
+/* ---- The home ------------------------------------------------------------ */
 
 export function ProjectsHome({
   projects,
@@ -270,12 +194,11 @@ export function ProjectsHome({
   cloudConfigured,
   prefs,
   onPrefsChange,
-  lastOpenedId,
   onOpen,
+  onOpenFilm,
   onCreate,
   onDelete,
   onRename,
-  onSetStatus,
   onSetFolder,
   onCreateFolder,
   onUpdateFolder,
@@ -291,9 +214,10 @@ export function ProjectsHome({
   cloudConfigured: boolean;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
-  lastOpenedId: string | null;
   onOpen: (id: string, opts?: { focusTitle?: boolean }) => void;
-  /** Creates without opening; the dashboard decides whether to open. */
+  /** Opens a folder film's project page (#/f/<folderId>). */
+  onOpenFilm: (folderId: string) => void;
+  /** Creates without opening; the home decides whether to open. */
   onCreate: (
     type: ProjectType,
     title: string,
@@ -305,7 +229,6 @@ export function ProjectsHome({
   ) => ProjectMeta;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
-  onSetStatus: (id: string, status: ProjectStatus) => void;
   onSetFolder: (id: string, folderId: string | null) => void;
   onCreateFolder: (parentId?: string) => Folder;
   onUpdateFolder: (
@@ -319,43 +242,31 @@ export function ProjectsHome({
   onSignOut: () => void;
 }) {
   /* ---- View state ---- */
-  const [sel, setSel] = useState<Selection>("all");
   const [query, setQuery] = useState("");
-  const [sort, setSortState] = useState<SortKey>(loadSort);
-  const setSort = (s: SortKey) => {
-    setSortState(s);
-    lsSet(SORT_KEY, s);
-  };
+  const [jot, setJot] = useState("");
 
   // Anchored menus: which one is open and where it hangs.
   const [menu, setMenu] = useState<
     | null
-    | { kind: "overflow" | "account" | "new" | "sort"; anchor: DOMRect }
-    | { kind: "row" | "folder"; id: string; anchor: DOMRect }
+    | { kind: "overflow" | "account" | "new"; anchor: DOMRect }
+    | { kind: "film" | "idea"; id: string; anchor: DOMRect }
   >(null);
   const openMenu = (
     e: React.MouseEvent,
-    m:
-      | { kind: "overflow" | "account" | "new" | "sort" }
-      | { kind: "row" | "folder"; id: string }
+    m: { kind: "overflow" | "account" | "new" } | { kind: "film" | "idea"; id: string }
   ) => {
     e.stopPropagation();
     setMenu({ ...m, anchor: e.currentTarget.getBoundingClientRect() });
   };
 
-  // Modals.
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [moveTarget, setMoveTarget] = useState<ProjectMeta | null>(null);
+  // Modals and inline edits.
   const [colorTarget, setColorTarget] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null);
+  const [confirmDeleteFilm, setConfirmDeleteFilm] = useState<Film | null>(null);
   const [showCodeImport, setShowCodeImport] = useState(false);
+  const [renamingFilm, setRenamingFilm] = useState<string | null>(null);
 
-  // Inline renames and the armed folder delete.
-  const [renamingRow, setRenamingRow] = useState<string | null>(null);
-  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
-  const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
-
-  // Relative times refresh once a minute while the dashboard is on screen.
+  // Relative times refresh once a minute while the home is on screen.
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 60_000);
@@ -381,122 +292,66 @@ export function ProjectsHome({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  /* ---- Data shaping ---- */
+  /* ---- The reinterpretation: films and ideas ---- */
 
-  // Orphan-safe: a folderId/parentId pointing at a folder we do not have is
-  // treated as top level, so nothing vanishes.
-  const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
-  const effFolderId = (p: ProjectMeta) =>
-    p.folderId && folderById.has(p.folderId) ? p.folderId : null;
-  const effParentId = (f: Folder) =>
-    f.parentId && folderById.has(f.parentId) ? f.parentId : null;
+  const films = useMemo(() => listFilms(projects, folders), [projects, folders]);
+  const ideas = useMemo(() => listIdeas(projects, folders), [projects, folders]);
+  const lead = films[0] ?? null;
 
-  const subfolders = (parentId: string | null) =>
-    folders
-      .filter((f) => effParentId(f) === parentId)
-      .sort((a, b) => a.order - b.order || (a.createdAt < b.createdAt ? -1 : 1));
-
-  const countIn = useMemo(() => {
-    const m = new Map<string | null, number>();
-    for (const p of projects) {
-      const k = effFolderId(p);
-      m.set(k, (m.get(k) ?? 0) + 1);
-    }
-    return m;
+  // The lead's live specimen: its draft's first scene line, re-read only when
+  // the draft or its content clock changes.
+  const leadDraft = lead?.currentDraft ?? null;
+  const leadLine = useMemo(
+    () => (leadDraft ? firstLine(leadDraft) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, folders]);
-
-  // Scripts in a folder INCLUDING everything in its subfolders. This is the
-  // number a person means by "how many scripts are in here": a parent that
-  // holds three full subfolders must never read 0.
-  const deepCountIn = useMemo(() => {
-    const m = new Map<string, number>();
-    const walk = (id: string): number => {
-      if (m.has(id)) return m.get(id)!;
-      m.set(id, 0); // cycle guard while recursing
-      let n = countIn.get(id) ?? 0;
-      for (const sf of folders) if (effParentId(sf) === id) n += walk(sf.id);
-      m.set(id, n);
-      return n;
-    };
-    for (const f of folders) walk(f.id);
-    return m;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countIn, folders]);
-
-  // Ancestor chain for the breadcrumb, root first, cycle-safe.
-  const crumbPath = (folderId: string): Folder[] => {
-    const out: Folder[] = [];
-    const seen = new Set<string>();
-    let cur = folderById.get(folderId);
-    while (cur && !seen.has(cur.id)) {
-      seen.add(cur.id);
-      out.unshift(cur);
-      cur = cur.parentId ? folderById.get(cur.parentId) : undefined;
-    }
-    return out;
-  };
-
-  const sorters: Record<SortKey, (a: ProjectMeta, b: ProjectMeta) => number> = {
-    recent: (a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0),
-    title: (a, b) => a.title.localeCompare(b.title),
-    created: (a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0),
-  };
-
-  const q = query.trim().toLowerCase();
-  const visible = useMemo(() => {
-    const base = q
-      ? projects.filter((p) => p.title.toLowerCase().includes(q))
-      : sel === "all"
-        ? projects
-        : projects.filter(
-            (p) => effFolderId(p) === (sel === "unfiled" ? null : sel.folderId)
-          );
-    return base.slice().sort(sorters[sort]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, folders, q, sel, sort]);
-
-  const listTitle = q
-    ? "Search results"
-    : sel === "all"
-      ? "All scripts"
-      : sel === "unfiled"
-        ? "Unfiled"
-        : folderById.get(sel.folderId)?.name || "Untitled folder";
-
-  // The Continue card (B10: lastOpenedId lives again). Shown on the plain
-  // "All scripts" desk only; hidden while searching or browsing a folder.
-  const contMeta =
-    !q && sel === "all" && lastOpenedId
-      ? projects.find((p) => p.id === lastOpenedId) ?? null
-      : null;
-  const contLine = useMemo(
-    () => (contMeta ? firstLine(contMeta) : null),
-    // Re-read only when the project or its content clock changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contMeta?.id, contMeta?.updatedAt]
+    [leadDraft?.id, leadDraft?.updatedAt]
   );
 
-  /* ---- Drag: rows onto sidebar folders ---- */
-  const dragId = useRef<string | null>(null);
-  const [dropHi, setDropHi] = useState<string | null>(null); // "unfiled" | folderId
+  /* ---- Drag: idea lines onto films ---- */
+
+  const dragIdea = useRef<string | null>(null);
+  const [draggingIdea, setDraggingIdea] = useState<string | null>(null);
+  const [dropFilm, setDropFilm] = useState<string | null>(null);
   const clearDrag = () => {
-    dragId.current = null;
-    setDropHi(null);
+    dragIdea.current = null;
+    setDraggingIdea(null);
+    setDropFilm(null);
   };
-  const dropProps = (key: string, folderId: string | null) => ({
+
+  /** File an idea into a film. Folder films take it directly; an implicit
+   *  film MATERIALIZES first: a folder named after the script appears and
+   *  both the script and the idea are filed into it, all through the
+   *  existing handlers so every clock stamps correctly. */
+  const fileIdeaInto = (film: Film, ideaId: string) => {
+    if (film.kind === "folder") {
+      onSetFolder(ideaId, film.id);
+      return;
+    }
+    const scriptId = film.id; // an implicit film IS its loose screenplay
+    const f = onCreateFolder();
+    onUpdateFolder(f.id, { name: film.name });
+    onSetFolder(scriptId, f.id);
+    onSetFolder(ideaId, f.id);
+  };
+
+  const filmDropProps = (film: Film) => ({
     onDragOver: (e: React.DragEvent) => {
-      if (dragId.current) {
+      if (dragIdea.current) {
         e.preventDefault();
-        setDropHi(key);
+        setDropFilm(film.id);
       }
     },
-    onDragLeave: () => setDropHi((h) => (h === key ? null : h)),
+    onDragLeave: (e: React.DragEvent) => {
+      // Moving between a film's own children also fires dragleave; only a
+      // real exit clears the wash.
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        setDropFilm((f) => (f === film.id ? null : f));
+      }
+    },
     onDrop: (e: React.DragEvent) => {
-      if (dragId.current) {
+      if (dragIdea.current) {
         e.preventDefault();
-        const cur = projects.find((p) => p.id === dragId.current);
-        if (cur && effFolderId(cur) !== folderId) onSetFolder(cur.id, folderId);
+        fileIdeaInto(film, dragIdea.current);
       }
       clearDrag();
     },
@@ -504,14 +359,9 @@ export function ProjectsHome({
 
   /* ---- Flows ---- */
 
-  const createAndOpen = (
-    type: ProjectType,
-    title: string,
-    opts?: { content?: JSONContent }
-  ) => {
+  const createAndOpen = (type: ProjectType, title: string) => {
     try {
-      const folderId = !q && sel !== "all" && sel !== "unfiled" ? sel.folderId : undefined;
-      const meta = onCreate(type, title, { ...opts, folderId });
+      const meta = onCreate(type, title);
       onOpen(meta.id, { focusTitle: true });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not create the project.", {
@@ -520,62 +370,45 @@ export function ProjectsHome({
     }
   };
 
-  const duplicate = (p: ProjectMeta) => {
-    const content = loadProjectDoc(p.id);
-    if (!content) {
-      showToast("This script is not stored on this device. Open it once first.", {
-        variant: "danger",
-      });
-      return;
-    }
+  // The jot: Enter turns the line into a loose plain project (title only,
+  // empty body) and stays right here. The new idea line appearing is the
+  // feedback; no toast, no navigation.
+  const jotIdea = () => {
+    const title = jot.trim();
+    if (!title) return;
     try {
-      onCreate(p.type, `${p.title} copy`, {
-        content,
-        titlePage: loadProjectTitlePage(p.id),
-        folderId: effFolderId(p),
-      });
-      showToast("Duplicated.");
+      onCreate("plain", title);
+      setJot("");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not duplicate the project.", {
+      showToast(e instanceof Error ? e.message : "Could not save the idea.", {
         variant: "danger",
       });
     }
   };
 
-  const exportRow = (p: ProjectMeta, format: ExportFormat) => {
-    const doc = loadProjectDoc(p.id);
-    if (!doc) {
-      showToast("This script is not stored on this device. Open it once first.", {
-        variant: "danger",
-      });
-      return;
-    }
-    void exportDoc(doc, format, loadProjectTitlePage(p.id) ?? undefined, {
-      sceneNumbers: prefs.sceneNumbers,
-      autoContd: prefs.autoContd,
-      lock: loadPageLock(p.id),
-    }).catch(() => showToast("Export failed.", { variant: "danger" }));
+  // "Make this a film": a folder named after the idea materializes and the
+  // idea files itself into it, so the film starts life holding its first note.
+  const makeFilmOf = (idea: ProjectMeta) => {
+    const f = onCreateFolder();
+    onUpdateFolder(f.id, { name: idea.title });
+    onSetFolder(idea.id, f.id);
   };
 
-  const addFolder = (parentId?: string) => {
-    const f = onCreateFolder(parentId);
-    setRenamingFolder(f.id);
-  };
-
-  const removeFolder = (f: Folder) => {
-    // Reparent children (subfolders and scripts) up a level, then delete.
+  // Deleting a film deletes only the folder: its drafts and documents are
+  // reparented up a level through the existing handlers (top level = loose),
+  // so nothing a writer wrote is ever destroyed by this.
+  const removeFilm = (film: Film) => {
     folders
-      .filter((sf) => sf.parentId === f.id)
-      .forEach((sf) => onUpdateFolder(sf.id, { parentId: f.parentId ?? null }));
+      .filter((sf) => sf.parentId === film.id)
+      .forEach((sf) => onUpdateFolder(sf.id, { parentId: null }));
     projects
-      .filter((p) => p.folderId === f.id)
-      .forEach((p) => onSetFolder(p.id, f.parentId ?? null));
-    onDeleteFolder(f.id);
-    setDeletingFolder(null);
-    setSel((s) => (s !== "all" && s !== "unfiled" && s.folderId === f.id ? "all" : s));
+      .filter((p) => p.folderId === film.id)
+      .forEach((p) => onSetFolder(p.id, null));
+    onDeleteFolder(film.id);
+    setConfirmDeleteFilm(null);
   };
 
-  // Bulk import behind the split menu; results land as a toast.
+  // Bulk import behind the New menu; results land as a toast.
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const runImport = async (fileList: FileList | null) => {
@@ -631,7 +464,7 @@ export function ProjectsHome({
     },
   ];
 
-  // Account lives behind its own avatar button (2C), not the overflow.
+  // Account lives behind its own avatar button, not the overflow.
   const accountItems: MenuItem[] = user
     ? [
         { label: user.email ?? "Signed in", onSelect: () => {}, disabled: true },
@@ -642,224 +475,252 @@ export function ProjectsHome({
       ]
     : [{ label: "Sign in", onSelect: onSignIn }];
 
+  // Folders are never created by hand anymore; they materialize when an idea
+  // lands on a script. So New offers exactly the three real beginnings.
   const newItems: MenuItem[] = [
+    { label: "New script", onSelect: () => createAndOpen("screenplay", "Untitled screenplay") },
     { label: "New document", onSelect: () => createAndOpen("plain", "") },
-    { label: "From template…", onSelect: () => setShowTemplates(true) },
     {
-      label: importing ? "Importing…" : "Import files…",
+      label: importing ? "Importing" : "Import files",
       onSelect: () => importInputRef.current?.click(),
       disabled: importing,
     },
-    { kind: "divider" },
-    { label: "New folder", onSelect: () => addFolder() },
   ];
 
-  const sortItems: MenuItem[] = (["recent", "title", "created"] as SortKey[]).map((s) => ({
-    kind: "radio",
-    group: "sort",
-    label: SORT_LABEL[s],
-    checked: sort === s,
-    onSelect: () => setSort(s),
-  }));
-
-  const rowItems = (p: ProjectMeta): MenuItem[] => [
-    {
-      label: "Rename",
-      onSelect: () => setRenamingRow(p.id),
-    },
-    { label: "Move to…", onSelect: () => setMoveTarget(p) },
-    { label: "Duplicate", onSelect: () => duplicate(p) },
-    ...(p.type === "screenplay"
-      ? ([
+  const filmItems = (film: Film): MenuItem[] =>
+    film.kind === "folder"
+      ? [
+          { label: "Rename", onSelect: () => setRenamingFilm(film.id) },
+          { label: "Color", onSelect: () => setColorTarget(film.id) },
           { kind: "divider" },
-          { label: "Export PDF", onSelect: () => exportRow(p, "pdf") },
-          { label: "Export Fountain", onSelect: () => exportRow(p, "fountain") },
-          { label: "Export FDX", onSelect: () => exportRow(p, "fdx") },
-        ] as MenuItem[])
-      : []),
+          { label: "Delete", danger: true, onSelect: () => setConfirmDeleteFilm(film) },
+        ]
+      : [
+          // An implicit film IS its script: these act on the project itself.
+          { label: "Rename", onSelect: () => setRenamingFilm(film.id) },
+          { kind: "divider" },
+          {
+            label: "Delete",
+            danger: true,
+            onSelect: () => {
+              const meta = projects.find((p) => p.id === film.id);
+              if (meta) setConfirmDelete(meta);
+            },
+          },
+        ];
+
+  const ideaItems = (idea: ProjectMeta): MenuItem[] => [
+    { label: "Open", onSelect: () => onOpen(idea.id) },
+    { label: "Make this a film", onSelect: () => makeFilmOf(idea) },
     { kind: "divider" },
-    { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
+    { label: "Delete", danger: true, onSelect: () => setConfirmDelete(idea) },
   ];
 
-  const folderItems = (f: Folder): MenuItem[] => [
-    { label: "Rename", onSelect: () => setRenamingFolder(f.id) },
-    { label: "Color", onSelect: () => setColorTarget(f.id) },
-    { label: "New subfolder", onSelect: () => addFolder(f.id) },
-    { kind: "divider" },
-    { label: "Delete", danger: true, onSelect: () => setDeletingFolder(f.id) },
-  ];
+  /* ---- Search: one flat list across everything ---- */
+
+  const q = query.trim().toLowerCase();
+  type Hit =
+    | { key: string; kind: "film"; film: Film }
+    | { key: string; kind: "draft" | "document"; meta: ProjectMeta; film: Film }
+    | { key: string; kind: "idea"; meta: ProjectMeta };
+  const hits = useMemo<Hit[]>(() => {
+    if (!q) return [];
+    const out: Hit[] = [];
+    for (const film of films) {
+      if (film.name.toLowerCase().includes(q)) {
+        out.push({ key: "f:" + film.id, kind: "film", film });
+      }
+      // An implicit film IS its draft; listing both would be the same line twice.
+      if (film.kind === "implicit") continue;
+      const drafts = film.currentDraft
+        ? [film.currentDraft, ...film.earlierDrafts]
+        : film.earlierDrafts;
+      for (const d of drafts) {
+        if (d.title.toLowerCase().includes(q)) {
+          out.push({ key: "p:" + d.id, kind: "draft", meta: d, film });
+        }
+      }
+      for (const doc of film.documents) {
+        if (doc.title.toLowerCase().includes(q)) {
+          out.push({ key: "p:" + doc.id, kind: "document", meta: doc, film });
+        }
+      }
+    }
+    for (const idea of ideas) {
+      if (idea.title.toLowerCase().includes(q)) {
+        out.push({ key: "p:" + idea.id, kind: "idea", meta: idea });
+      }
+    }
+    return out;
+  }, [q, films, ideas]);
+
+  const openHit = (hit: Hit) => {
+    if (hit.kind === "film") {
+      if (hit.film.kind === "folder") onOpenFilm(hit.film.id);
+      else onOpen(hit.film.id);
+    } else {
+      onOpen(hit.meta.id);
+    }
+  };
+
+  const HIT_WORD: Record<Exclude<Hit["kind"], never>, string> = {
+    film: "Film",
+    draft: "Draft",
+    document: "Document",
+    idea: "Idea",
+  };
 
   /* ---- Renders ---- */
 
-  const folderRow = (f: Folder, depth: number): React.ReactNode => {
-    const selected = sel !== "all" && sel !== "unfiled" && sel.folderId === f.id;
-    return (
-      <div key={f.id} className="snav-group">
-        <div
-          className={
-            "snav-row" +
-            (selected ? " snav-active" : "") +
-            (dropHi === f.id ? " snav-drop" : "")
-          }
-          style={{ "--indent": depth * 14 + "px" } as React.CSSProperties}
-          role="button"
-          tabIndex={0}
-          onClick={() => {
-            setQuery("");
-            setSel({ folderId: f.id });
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setQuery("");
-              setSel({ folderId: f.id });
-            }
-          }}
-          {...dropProps(f.id, f.id)}
-        >
-          <span className="snav-dot" style={{ background: f.color }} aria-hidden="true" />
-          {deletingFolder === f.id ? (
-            <HoldDelete
-              onConfirm={() => removeFolder(f)}
-              onCancel={() => setDeletingFolder(null)}
-            />
-          ) : renamingFolder === f.id ? (
-            <NameInput
-              initial={f.name}
-              className="snav-rename"
-              ariaLabel="Folder name"
-              onCommit={(name) => onUpdateFolder(f.id, { name: name || "Untitled folder" })}
-              onDone={() => setRenamingFolder(null)}
-            />
-          ) : (
-            <>
-              <span className="snav-label">{f.name || "Untitled folder"}</span>
-              <span className="snav-count">{deepCountIn.get(f.id) ?? 0}</span>
-              <button
-                type="button"
-                className="snav-kebab"
-                aria-label={`Folder actions for ${f.name || "Untitled folder"}`}
-                onClick={(e) => openMenu(e, { kind: "folder", id: f.id })}
-                aria-haspopup="menu"
-              >
-                <DotsIcon />
-              </button>
-            </>
-          )}
-        </div>
-        {subfolders(f.id).map((sf) => folderRow(sf, depth + 1))}
-      </div>
-    );
-  };
-
-  const scriptRow = (p: ProjectMeta) => {
-    const fid = effFolderId(p);
-    const iconColor = (fid ? folderById.get(fid)?.color : null) ?? "var(--muted)";
+  const filmRow = (film: Film, isLead: boolean) => {
+    const draft = film.currentDraft;
+    const renaming = renamingFilm === film.id;
+    // The lead opens straight into the writing; other folder films open their
+    // page; an implicit film has no page, so it opens its script.
+    const open = () => {
+      if (renaming) return;
+      if (isLead && draft) onOpen(draft.id);
+      else if (film.kind === "folder") onOpenFilm(film.id);
+      else onOpen(film.id);
+    };
+    const docsWord =
+      film.documents.length > 0
+        ? `${film.documents.length} document${film.documents.length === 1 ? "" : "s"}`
+        : null;
     return (
       <div
-        key={p.id}
-        className="srow"
+        key={film.id}
+        className={
+          "film" +
+          (isLead ? " lead" : "") +
+          (dropFilm === film.id ? " dropping" : "")
+        }
+        style={{ ["--fc" as string]: film.color }}
         role="button"
         tabIndex={0}
-        draggable={renamingRow !== p.id}
-        onDragStart={(e) => {
-          dragId.current = p.id;
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", p.id);
-        }}
-        onDragEnd={clearDrag}
-        onClick={() => {
-          if (renamingRow !== p.id) onOpen(p.id);
-        }}
+        onClick={open}
         onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && renamingRow !== p.id) {
+          if ((e.key === "Enter" || e.key === " ") && !renaming) {
             e.preventDefault();
-            onOpen(p.id);
+            open();
           }
         }}
+        {...filmDropProps(film)}
       >
-        <TypeIcon type={p.type} color={iconColor} />
-        {renamingRow === p.id ? (
-          <NameInput
-            initial={p.title}
-            className="srow-rename"
-            ariaLabel="Script title"
-            onCommit={(name) => {
-              if (name && name !== p.title) onRename(p.id, name);
-            }}
-            onDone={() => setRenamingRow(null)}
-          />
-        ) : (
-          <span className="srow-title">{p.title}</span>
-        )}
-        {/* In the All-scripts and search views a filed script shows where it
-            lives; clicking the chip jumps into that folder. */}
-        {(q || sel === "all") && fid && folderById.get(fid) && (
+        {isLead && <div className="lead-label">Now writing</div>}
+        <div className="film-top">
+          <span className="film-mark" aria-hidden="true" />
+          {renaming ? (
+            <NameInput
+              initial={film.name}
+              className="film-rename"
+              ariaLabel="Film name"
+              onCommit={(name) => {
+                if (!name) return;
+                if (film.kind === "folder") onUpdateFolder(film.id, { name });
+                else if (name !== film.name) onRename(film.id, name);
+              }}
+              onDone={() => setRenamingFilm(null)}
+            />
+          ) : film.kind === "folder" ? (
+            // The name is always the way into the film's world, even on the
+            // lead (whose block otherwise opens the draft directly).
+            <button
+              type="button"
+              className="film-name film-name-link"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenFilm(film.id);
+              }}
+            >
+              {film.name}
+            </button>
+          ) : (
+            <span className="film-name">{film.name}</span>
+          )}
           <button
             type="button"
-            className="srow-folder"
-            title={`Open the folder ${folderById.get(fid)!.name || "Untitled folder"}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setQuery("");
-              setSel({ folderId: fid });
-            }}
+            className="fh-kebab"
+            aria-label={`Actions for ${film.name}`}
+            aria-haspopup="menu"
+            onClick={(e) => openMenu(e, { kind: "film", id: film.id })}
           >
-            <span
-              className="snav-dot"
-              style={{ background: folderById.get(fid)!.color }}
-              aria-hidden="true"
-            />
-            {folderById.get(fid)!.name || "Untitled folder"}
+            <DotsIcon />
           </button>
+        </div>
+        {isLead && draft ? (
+          <div className="film-state">
+            {/* pageCount is the draft's TOTAL pages, not a caret position, so
+                the copy says its length rather than pretending to know where
+                the writer left the cursor. */}
+            <span className="film-continue">
+              Continue {draft.title}
+              {draft.pageCount != null ? `, ${draft.pageCount} pages` : ""}
+            </span>
+            {leadLine && (
+              <span
+                className={
+                  "film-courier" + (leadLine.isScene ? " film-courier-scene" : "")
+                }
+              >
+                {leadLine.text}
+              </span>
+            )}
+            <span className="film-when">{relativeTime(film.lastTouched)}</span>
+          </div>
+        ) : (
+          <div className="film-state">
+            <StatusWord status={film.status} />
+            {draft?.pageCount != null && <span>{draft.pageCount} pp</span>}
+            {docsWord && <span>{docsWord}</span>}
+            <span className="film-when">{relativeTime(film.lastTouched)}</span>
+          </div>
         )}
-        <button
-          type="button"
-          className={"srow-status st-" + p.status}
-          title="Click to change the status"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSetStatus(p.id, NEXT_STATUS[p.status]);
-          }}
-        >
-          <span className="srow-statusdot" aria-hidden="true" />
-          {STATUS_LABEL[p.status]}
-        </button>
-        {p.type === "screenplay" && p.pageCount != null && (
-          <span className="srow-pp">{p.pageCount} pp</span>
-        )}
-        <span className="srow-time">{relativeTime(p.updatedAt)}</span>
-        <button
-          type="button"
-          className="srow-kebab"
-          aria-label={`Actions for ${p.title}`}
-          aria-haspopup="menu"
-          onClick={(e) => openMenu(e, { kind: "row", id: p.id })}
-        >
-          <DotsIcon />
-        </button>
       </div>
     );
   };
 
-  // The Move to… picker lists every folder, indented by depth.
-  const flatFolders = useMemo(() => {
-    const out: { folder: Folder; depth: number }[] = [];
-    const walk = (parentId: string | null, depth: number) => {
-      for (const f of subfolders(parentId)) {
-        out.push({ folder: f, depth });
-        walk(f.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folders]);
+  const ideaRow = (idea: ProjectMeta) => (
+    <div
+      key={idea.id}
+      className={"idea" + (draggingIdea === idea.id ? " dragging" : "")}
+      role="button"
+      tabIndex={0}
+      draggable
+      onDragStart={(e) => {
+        dragIdea.current = idea.id;
+        setDraggingIdea(idea.id);
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", idea.id);
+      }}
+      onDragEnd={clearDrag}
+      onClick={() => onOpen(idea.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(idea.id);
+        }
+      }}
+    >
+      <span className="idea-title">{idea.title}</span>
+      <span className="idea-when">{relativeTime(idea.updatedAt)}</span>
+      <button
+        type="button"
+        className="fh-kebab"
+        aria-label={`Actions for ${idea.title}`}
+        aria-haspopup="menu"
+        onClick={(e) => openMenu(e, { kind: "idea", id: idea.id })}
+      >
+        <DotsIcon />
+      </button>
+    </div>
+  );
 
-  const menuTargetRow = menu?.kind === "row" ? projects.find((p) => p.id === menu.id) : null;
-  const menuTargetFolder =
-    menu?.kind === "folder" ? folderById.get(menu.id) ?? null : null;
-  const colorFolder = colorTarget ? folderById.get(colorTarget) ?? null : null;
+  const menuTargetFilm = menu?.kind === "film" ? films.find((f) => f.id === menu.id) : null;
+  const menuTargetIdea = menu?.kind === "idea" ? ideas.find((p) => p.id === menu.id) : null;
+  const colorFolder = colorTarget
+    ? folders.find((f) => f.id === colorTarget) ?? null
+    : null;
 
   return (
     <div className="home">
@@ -871,8 +732,8 @@ export function ProjectsHome({
           ref={searchRef}
           type="search"
           className="home-search"
-          placeholder="Search scripts"
-          aria-label="Search scripts"
+          placeholder="Search everything"
+          aria-label="Search everything"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -911,24 +772,15 @@ export function ProjectsHome({
             )}
           </button>
         )}
-        <div className="home-split">
-          <button
-            type="button"
-            className="ui-btn ui-btn-solid home-split-main"
-            onClick={() => createAndOpen("screenplay", "Untitled screenplay")}
-          >
-            New script
-          </button>
-          <button
-            type="button"
-            className="ui-btn ui-btn-solid home-split-caret"
-            aria-label="More ways to create"
-            aria-haspopup="menu"
-            onClick={(e) => openMenu(e, { kind: "new" })}
-          >
-            <ChevronDown />
-          </button>
-        </div>
+        <button
+          type="button"
+          className="ui-btn ui-btn-solid fh-new"
+          aria-haspopup="menu"
+          onClick={(e) => openMenu(e, { kind: "new" })}
+        >
+          New
+          <ChevronDown />
+        </button>
         <input
           ref={importInputRef}
           type="file"
@@ -939,204 +791,71 @@ export function ProjectsHome({
         />
       </header>
 
-      <div className="home-layout">
-        <nav className="home-sidebar" aria-label="Folders">
-          <div
-            className={
-              "snav-row" + (sel === "all" && !q ? " snav-active" : "")
-            }
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              setQuery("");
-              setSel("all");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setQuery("");
-                setSel("all");
-              }
-            }}
-          >
-            <span className="snav-label">All scripts</span>
-            <span className="snav-count">{projects.length}</span>
-          </div>
-          <div
-            className={
-              "snav-row" +
-              (sel === "unfiled" && !q ? " snav-active" : "") +
-              (dropHi === "unfiled" ? " snav-drop" : "")
-            }
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              setQuery("");
-              setSel("unfiled");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setQuery("");
-                setSel("unfiled");
-              }
-            }}
-            {...dropProps("unfiled", null)}
-          >
-            <span className="snav-label">Unfiled</span>
-            <span className="snav-count">{countIn.get(null) ?? 0}</span>
-          </div>
-          {folders.length > 0 && <div className="snav-sep" aria-hidden="true" />}
-          {subfolders(null).map((f) => folderRow(f, 0))}
-        </nav>
-
-        <main className="home-content">
-          {contMeta && (
-            <button
-              type="button"
-              className="cont-card"
-              onClick={() => onOpen(contMeta.id)}
-            >
-              <span className="cont-label">Continue</span>
-              <span className="cont-title">{contMeta.title}</span>
-              <span className="cont-meta">
-                {contMeta.type === "screenplay" && contMeta.pageCount != null
-                  ? `Page ${contMeta.pageCount} · `
-                  : ""}
-                edited {relativeTime(contMeta.updatedAt)}
-              </span>
-              {contLine && (
-                <span
-                  className={
-                    "cont-specimen" + (contLine.isScene ? " cont-specimen-scene" : "")
-                  }
+      <main className="fh-page">
+        {q ? (
+          /* Searching: the bands hide and one flat result list takes over. */
+          hits.length > 0 ? (
+            <div className="fh-hits">
+              {hits.map((hit) => (
+                <div
+                  key={hit.key}
+                  className="fh-hit"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openHit(hit)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openHit(hit);
+                    }
+                  }}
                 >
-                  {contLine.text}
-                </span>
-              )}
-            </button>
-          )}
-
-          <div className="list-head">
-            {!q && sel !== "all" && sel !== "unfiled" ? (
-              // Inside a folder the title becomes a breadcrumb, so the main
-              // pane can navigate up without the sidebar.
-              <h2 className="list-title list-crumbs">
-                <button type="button" className="crumb" onClick={() => setSel("all")}>
-                  All scripts
-                </button>
-                {crumbPath(sel.folderId).map((f, i, path) =>
-                  i < path.length - 1 ? (
-                    <span key={f.id} className="crumb-wrap">
-                      <span className="crumb-sep" aria-hidden="true">/</span>
-                      <button
-                        type="button"
-                        className="crumb"
-                        onClick={() => setSel({ folderId: f.id })}
-                      >
-                        {f.name || "Untitled folder"}
-                      </button>
+                  <span className="fh-hit-title">
+                    {hit.kind === "film" ? hit.film.name : hit.meta.title}
+                  </span>
+                  <span className="fh-hit-kind">{HIT_WORD[hit.kind]}</span>
+                  {(hit.kind === "draft" || hit.kind === "document") && (
+                    <span className="fh-hit-film">
+                      <span
+                        className="fh-dot"
+                        style={{ background: hit.film.color }}
+                        aria-hidden="true"
+                      />
+                      {hit.film.name}
                     </span>
-                  ) : (
-                    <span key={f.id} className="crumb-wrap">
-                      <span className="crumb-sep" aria-hidden="true">/</span>
-                      <span className="crumb-cur">{f.name || "Untitled folder"}</span>
-                    </span>
-                  )
-                )}
-              </h2>
-            ) : (
-              <h2 className="list-title">{listTitle}</h2>
-            )}
-            <button
-              type="button"
-              className="list-sort"
-              aria-haspopup="menu"
-              title="Sort"
-              onClick={(e) => openMenu(e, { kind: "sort" })}
-            >
-              {SORT_LABEL[sort]}
-              <ChevronDown />
-            </button>
-          </div>
-
-          {/* Folders live in the main pane too (the sidebar mirrors them): at
-              the root the top-level folders, inside a folder its subfolders.
-              Click to drill in, drop a row to file it. */}
-          {(() => {
-            if (q || sel === "unfiled") return null;
-            const parentId = sel === "all" ? null : sel.folderId;
-            const cards = subfolders(parentId);
-            if (cards.length === 0) return null;
-            return (
-              <div className="fol-grid">
-                {cards.map((f) => (
-                  <div
-                    key={f.id}
-                    className={"fol-card" + (dropHi === "card:" + f.id ? " fol-drop" : "")}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSel({ folderId: f.id })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSel({ folderId: f.id });
-                      }
-                    }}
-                    {...dropProps("card:" + f.id, f.id)}
-                  >
-                    <span className="snav-dot" style={{ background: f.color }} aria-hidden="true" />
-                    <span className="fol-name">{f.name || "Untitled folder"}</span>
-                    <span className="fol-count">
-                      {(() => {
-                        const n = deepCountIn.get(f.id) ?? 0;
-                        return n === 1 ? "1 script" : `${n} scripts`;
-                      })()}
-                    </span>
-                    <button
-                      type="button"
-                      className="srow-kebab"
-                      aria-label={`Folder actions for ${f.name || "Untitled folder"}`}
-                      aria-haspopup="menu"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openMenu(e, { kind: "folder", id: f.id });
-                      }}
-                    >
-                      <DotsIcon />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
-
-          {visible.length > 0 ? (
-            <div className="srow-list">{visible.map(scriptRow)}</div>
+                  )}
+                </div>
+              ))}
+            </div>
           ) : (
-            (() => {
-              // With folder cards showing, an empty direct list needs no
-              // banner at the root, and only a quiet note inside a folder.
-              const hasCards =
-                !q &&
-                sel !== "unfiled" &&
-                subfolders(sel === "all" ? null : sel.folderId).length > 0;
-              if (hasCards && sel === "all") return null;
-              return (
-                <p className="list-empty">
-                  {q
-                    ? "Nothing matches that search."
-                    : sel === "all"
-                      ? "Nothing here yet. Press New to start."
-                      : hasCards
-                        ? "No scripts sit directly in this folder."
-                        : "Nothing here yet. Drag a script in, or press New."}
-                </p>
-              );
-            })()
-          )}
-        </main>
-      </div>
+            <p className="list-empty">Nothing matches that search.</p>
+          )
+        ) : (
+          <>
+            {films.length > 0 && (
+              <>
+                <div className="band">Films</div>
+                {films.map((film, i) => filmRow(film, i === 0))}
+              </>
+            )}
+
+            <div className={"band" + (films.length > 0 ? " band-later" : "")}>Ideas</div>
+            {ideas.map(ideaRow)}
+            <div className="jot">
+              <input
+                type="text"
+                value={jot}
+                placeholder="Jot an idea and press Enter"
+                aria-label="Jot an idea"
+                onChange={(e) => setJot(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") jotIdea();
+                }}
+              />
+            </div>
+          </>
+        )}
+      </main>
 
       {/* ---- Anchored menus ---- */}
       {menu?.kind === "overflow" && (
@@ -1153,108 +872,27 @@ export function ProjectsHome({
       {menu?.kind === "new" && (
         <Menu anchor={menu.anchor} items={newItems} onClose={() => setMenu(null)} ariaLabel="Create" />
       )}
-      {menu?.kind === "sort" && (
-        <Menu anchor={menu.anchor} items={sortItems} onClose={() => setMenu(null)} ariaLabel="Sort" />
-      )}
-      {menuTargetRow && menu?.kind === "row" && (
+      {menuTargetFilm && menu?.kind === "film" && (
         <Menu
           anchor={menu.anchor}
-          items={rowItems(menuTargetRow)}
+          items={filmItems(menuTargetFilm)}
           onClose={() => setMenu(null)}
-          ariaLabel="Script actions"
+          ariaLabel="Film actions"
         />
       )}
-      {menuTargetFolder && menu?.kind === "folder" && (
+      {menuTargetIdea && menu?.kind === "idea" && (
         <Menu
           anchor={menu.anchor}
-          items={folderItems(menuTargetFolder)}
+          items={ideaItems(menuTargetIdea)}
           onClose={() => setMenu(null)}
-          ariaLabel="Folder actions"
+          ariaLabel="Idea actions"
         />
       )}
 
-      {/* ---- Template picker ---- */}
-      {showTemplates && (
-        <Modal title="From template" onClose={() => setShowTemplates(false)}>
-          <div className="tpl-list">
-            {SCREENPLAY_TEMPLATES.map((t) => {
-              const preview = templatePreview(t.id);
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  className="tpl-item"
-                  onClick={() => {
-                    setShowTemplates(false);
-                    createAndOpen(
-                      "screenplay",
-                      "Untitled screenplay",
-                      t.id === "blank" ? undefined : { content: buildTemplate(t.id) ?? undefined }
-                    );
-                  }}
-                >
-                  <span className="tpl-name">{t.label}</span>
-                  <span className="tpl-desc">{t.description}</span>
-                  {preview.length > 0 && (
-                    <span className="tpl-preview">
-                      {preview.map((line, i) => (
-                        <span key={i}>{line}</span>
-                      ))}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </Modal>
-      )}
-
-      {/* ---- Move to… (the keyboard path for filing) ---- */}
-      {moveTarget && (
-        <Modal title={`Move "${moveTarget.title}"`} onClose={() => setMoveTarget(null)}>
-          <div className="move-list">
-            <button
-              type="button"
-              className={
-                "move-item" + (effFolderId(moveTarget) === null ? " move-current" : "")
-              }
-              onClick={() => {
-                onSetFolder(moveTarget.id, null);
-                setMoveTarget(null);
-              }}
-            >
-              Unfiled
-            </button>
-            {flatFolders.map(({ folder, depth }) => (
-              <button
-                key={folder.id}
-                type="button"
-                className={
-                  "move-item" +
-                  (effFolderId(moveTarget) === folder.id ? " move-current" : "")
-                }
-                style={{ paddingLeft: 12 + depth * 16 }}
-                onClick={() => {
-                  onSetFolder(moveTarget.id, folder.id);
-                  setMoveTarget(null);
-                }}
-              >
-                <span
-                  className="snav-dot"
-                  style={{ background: folder.color }}
-                  aria-hidden="true"
-                />
-                {folder.name || "Untitled folder"}
-              </button>
-            ))}
-          </div>
-        </Modal>
-      )}
-
-      {/* ---- Folder color ---- */}
+      {/* ---- Film color ---- */}
       {colorFolder && (
-        <Modal title="Folder color" onClose={() => setColorTarget(null)}>
-          <div className="folder-swatches" role="group" aria-label="Folder color">
+        <Modal title="Film color" onClose={() => setColorTarget(null)}>
+          <div className="folder-swatches" role="group" aria-label="Film color">
             {FOLDER_COLORS.map((c) => (
               <button
                 key={c}
@@ -1281,7 +919,7 @@ export function ProjectsHome({
                     className="swatch-custom-input"
                     value={colorFolder.color}
                     onChange={(e) => onUpdateFolder(colorFolder.id, { color: e.target.value })}
-                    aria-label="Pick a custom folder color"
+                    aria-label="Pick a custom film color"
                   />
                 </label>
               );
@@ -1298,7 +936,7 @@ export function ProjectsHome({
         />
       )}
 
-      {/* ---- Delete a project ---- */}
+      {/* ---- Delete a project (an idea, or an implicit film's script) ---- */}
       {confirmDelete && (
         <Modal
           title="Delete project"
@@ -1316,6 +954,23 @@ export function ProjectsHome({
           ]}
         >
           <p>Delete &quot;{confirmDelete.title}&quot;? This cannot be undone.</p>
+        </Modal>
+      )}
+
+      {/* ---- Delete a film (the folder only; its contents drop out loose) ---- */}
+      {confirmDeleteFilm && (
+        <Modal
+          title="Delete film"
+          onClose={() => setConfirmDeleteFilm(null)}
+          actions={[{ label: "Cancel", onClick: () => setConfirmDeleteFilm(null) }]}
+        >
+          <p>
+            Delete the film &quot;{confirmDeleteFilm.name}&quot;? Its drafts and
+            documents are kept: they return to the home as loose items.
+          </p>
+          <div className="hold-row">
+            <HoldDelete onConfirm={() => removeFilm(confirmDeleteFilm)} />
+          </div>
         </Modal>
       )}
     </div>
@@ -1358,7 +1013,7 @@ function CodeImportModal({
       actions={[
         { label: "Cancel", onClick: onClose },
         {
-          label: busy ? "Importing…" : "Apply",
+          label: busy ? "Importing" : "Apply",
           variant: "solid",
           onClick: () => void apply(),
           disabled: busy || !code.trim(),

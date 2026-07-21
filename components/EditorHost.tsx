@@ -34,6 +34,9 @@ export function EditorHost({
   status: ProjectStatus;
   onStatusChange: (status: ProjectStatus) => void;
   onBack: () => void;
+  /** What the back chevron says and where it goes: a filed project backs out
+   *  to its film's page, so the label names the film. Default: the home. */
+  backLabel?: string;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
@@ -41,6 +44,8 @@ export function EditorHost({
   sessionExpired?: boolean;
   /** Screenplay-only: "Add as a new project" in the editor's import choice. */
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
+  /** Save-and-switch to a sibling project (the Docs panel's jump). */
+  onOpenProject?: (id: string) => void;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
 }) {
