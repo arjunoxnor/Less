@@ -23,11 +23,13 @@ import {
 } from "@/lib/storage/projects";
 import { SAMPLE_SCRIPT } from "@/lib/editor/sampleScript";
 import { ProjectsHome } from "./ProjectsHome";
+import { ProjectPage } from "./ProjectPage";
 import { EditorHost } from "./EditorHost";
 import { AuthModal } from "./AuthModal";
 import { SessionExpiredBanner } from "./SessionExpiredBanner";
 import { importFile } from "@/lib/export";
-import type { Stage } from "@/lib/storage/folders";
+import { getFolder, type Stage } from "@/lib/storage/folders";
+import { filmForProject } from "@/lib/storage/films";
 
 type View =
   | { kind: "home" }
@@ -37,7 +39,9 @@ type View =
       /** Instant-create hint (2C): focus-select the title on this open. Lives
        *  only in this in-memory view state, never persisted. */
       focusTitle?: boolean;
-    };
+    }
+  /** A film's project page: one folder's world (#/f/<folderId>). */
+  | { kind: "film"; folderId: string };
 
 /**
  * Optional sidecar that tells a bulk import how to lay the files out: which
@@ -50,10 +54,25 @@ type ImportManifest = {
   order?: string[];
 };
 
-function parseHash(): string | null {
+/** The two routed destinations: a project (#/p/<id>) or a film (#/f/<id>). */
+function parseHash():
+  | { kind: "editor"; id: string }
+  | { kind: "film"; folderId: string }
+  | null {
   if (typeof window === "undefined") return null;
-  const m = window.location.hash.match(/^#\/p\/(.+)$/);
-  return m ? decodeURIComponent(m[1]) : null;
+  const p = window.location.hash.match(/^#\/p\/(.+)$/);
+  if (p) return { kind: "editor", id: decodeURIComponent(p[1]) };
+  const f = window.location.hash.match(/^#\/f\/(.+)$/);
+  if (f) return { kind: "film", folderId: decodeURIComponent(f[1]) };
+  return null;
+}
+
+/** Does the hash target actually exist? Unknown ids fall back to the home. */
+function resolveHash(): View | null {
+  const h = parseHash();
+  if (!h) return null;
+  if (h.kind === "editor") return getProjectMeta(h.id) ? h : null;
+  return getFolder(h.folderId) ? h : null;
 }
 
 /**
@@ -73,6 +92,7 @@ export function AppShell() {
     rename,
     setStatus,
     setFolder,
+    reorder,
     createFolder,
     updateFolder,
     deleteFolder,
@@ -120,8 +140,8 @@ export function AppShell() {
   // Resolve the opening view from the hash once on mount (migration has run in
   // useProjects). hashchange does not fire on initial load, so do it explicitly.
   useEffect(() => {
-    const id = parseHash();
-    if (id && getProjectMeta(id)) setView({ kind: "editor", id });
+    const v = resolveHash();
+    if (v) setView(v);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -151,11 +171,17 @@ export function AppShell() {
   // existing view object so an in-memory focusTitle hint survives the echo.
   useEffect(() => {
     const onHash = () => {
-      const id = parseHash();
-      if (id && getProjectMeta(id)) {
+      const next = resolveHash();
+      if (next?.kind === "editor") {
+        const id = next.id;
         setView((v) => (v.kind === "editor" && v.id === id ? v : { kind: "editor", id }));
+      } else if (next?.kind === "film") {
+        // A film page rendered via browser back needs fresh times and counts
+        // just like the home does.
+        refresh();
+        setView(next);
       } else {
-        // Landing on the dashboard via browser back must re-read the index
+        // Landing on the home via browser back must re-read the index
         // (same-tab writes do not broadcast), or times and page counts go stale.
         refresh();
         setView({ kind: "home" });
@@ -171,6 +197,13 @@ export function AppShell() {
       window.location.hash = "#/p/" + encodeURIComponent(id);
     }
     setView({ kind: "editor", id, focusTitle: opts?.focusTitle });
+  }, []);
+
+  const openFilm = useCallback((folderId: string) => {
+    if (typeof window !== "undefined") {
+      window.location.hash = "#/f/" + encodeURIComponent(folderId);
+    }
+    setView({ kind: "film", folderId });
   }, []);
 
   const goHome = useCallback(() => {
@@ -301,11 +334,28 @@ export function AppShell() {
     view.kind === "editor"
       ? projects.find((p) => p.id === view.id) ?? getProjectMeta(view.id)
       : null;
+  const currentFolder =
+    view.kind === "film"
+      ? folders.find((f) => f.id === view.folderId) ?? getFolder(view.folderId)
+      : null;
 
-  // If the open project disappears (deleted, or sign-out dropped it), go home.
+  // If the open project or film disappears (deleted, or sign-out dropped it),
+  // go home.
   useEffect(() => {
     if (view.kind === "editor" && !getProjectMeta(view.id)) goHome();
-  }, [view, projects, goHome]);
+    if (view.kind === "film" && !getFolder(view.folderId)) goHome();
+  }, [view, projects, folders, goHome]);
+
+  // Back from the editor goes up one altitude, not two: a project filed in a
+  // film returns to that film's page; loose projects (implicit films, ideas)
+  // go home. The label follows so the chevron never lies.
+  const backFilm =
+    view.kind === "editor"
+      ? (() => {
+          const film = filmForProject(view.id, projects, folders);
+          return film && film.kind === "folder" ? film : null;
+        })()
+      : null;
 
   if (view.kind === "editor" && current) {
     // The instant-create title focus (2C): only for a project that still has
@@ -325,16 +375,45 @@ export function AppShell() {
           onRename={(t) => rename(current.id, t)}
           status={current.status}
           onStatusChange={(s) => setStatus(current.id, s)}
-          onBack={goHome}
+          onBack={backFilm ? () => openFilm(backFilm.id) : goHome}
+          backLabel={backFilm ? `Back to ${backFilm.name}` : undefined}
           prefs={prefs}
           onPrefsChange={onPrefsChange}
           user={user}
           sessionExpired={sessionExpired}
           onImportAsNew={(file) => importScreenplays([file])}
+          onOpenProject={openProject}
           autoFocusTitle={autoFocusTitle}
         />
         {/* Inside the editor the top bar's sync indicator carries the expired
             state (2B.1); the banner stays for the dashboard only. */}
+        {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      </>
+    );
+  }
+
+  if (view.kind === "film" && currentFolder) {
+    return (
+      <>
+        <ProjectPage
+          key={currentFolder.id}
+          folder={currentFolder}
+          projects={projects}
+          folders={folders}
+          prefs={prefs}
+          onPrefsChange={onPrefsChange}
+          onBack={goHome}
+          onOpen={openProject}
+          onCreate={onCreate}
+          onDelete={remove}
+          onRename={rename}
+          onSetFolder={setFolder}
+          onReorder={reorder}
+          onUpdateFolder={updateFolder}
+        />
+        {sessionExpired && (
+          <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />
+        )}
         {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       </>
     );
@@ -348,12 +427,11 @@ export function AppShell() {
         cloudConfigured={isCloudConfigured}
         prefs={prefs}
         onPrefsChange={onPrefsChange}
-        lastOpenedId={getLastOpenedId()}
         onOpen={openProject}
+        onOpenFilm={openFilm}
         onCreate={onCreate}
         onDelete={remove}
         onRename={rename}
-        onSetStatus={setStatus}
         onSetFolder={setFolder}
         folders={folders}
         onCreateFolder={createFolder}
