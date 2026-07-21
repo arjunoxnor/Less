@@ -406,6 +406,37 @@ export function ProjectsHome({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, folders]);
 
+  // Scripts in a folder INCLUDING everything in its subfolders. This is the
+  // number a person means by "how many scripts are in here": a parent that
+  // holds three full subfolders must never read 0.
+  const deepCountIn = useMemo(() => {
+    const m = new Map<string, number>();
+    const walk = (id: string): number => {
+      if (m.has(id)) return m.get(id)!;
+      m.set(id, 0); // cycle guard while recursing
+      let n = countIn.get(id) ?? 0;
+      for (const sf of folders) if (effParentId(sf) === id) n += walk(sf.id);
+      m.set(id, n);
+      return n;
+    };
+    for (const f of folders) walk(f.id);
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countIn, folders]);
+
+  // Ancestor chain for the breadcrumb, root first, cycle-safe.
+  const crumbPath = (folderId: string): Folder[] => {
+    const out: Folder[] = [];
+    const seen = new Set<string>();
+    let cur = folderById.get(folderId);
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      out.unshift(cur);
+      cur = cur.parentId ? folderById.get(cur.parentId) : undefined;
+    }
+    return out;
+  };
+
   const sorters: Record<SortKey, (a: ProjectMeta, b: ProjectMeta) => number> = {
     recent: (a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0),
     title: (a, b) => a.title.localeCompare(b.title),
@@ -703,7 +734,7 @@ export function ProjectsHome({
           ) : (
             <>
               <span className="snav-label">{f.name || "Untitled folder"}</span>
-              <span className="snav-count">{countIn.get(f.id) ?? 0}</span>
+              <span className="snav-count">{deepCountIn.get(f.id) ?? 0}</span>
               <button
                 type="button"
                 className="snav-kebab"
@@ -760,6 +791,27 @@ export function ProjectsHome({
           />
         ) : (
           <span className="srow-title">{p.title}</span>
+        )}
+        {/* In the All-scripts and search views a filed script shows where it
+            lives; clicking the chip jumps into that folder. */}
+        {(q || sel === "all") && fid && folderById.get(fid) && (
+          <button
+            type="button"
+            className="srow-folder"
+            title={`Open the folder ${folderById.get(fid)!.name || "Untitled folder"}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setQuery("");
+              setSel({ folderId: fid });
+            }}
+          >
+            <span
+              className="snav-dot"
+              style={{ background: folderById.get(fid)!.color }}
+              aria-hidden="true"
+            />
+            {folderById.get(fid)!.name || "Untitled folder"}
+          </button>
         )}
         <button
           type="button"
@@ -966,7 +1018,36 @@ export function ProjectsHome({
           )}
 
           <div className="list-head">
-            <h2 className="list-title">{listTitle}</h2>
+            {!q && sel !== "all" && sel !== "unfiled" ? (
+              // Inside a folder the title becomes a breadcrumb, so the main
+              // pane can navigate up without the sidebar.
+              <h2 className="list-title list-crumbs">
+                <button type="button" className="crumb" onClick={() => setSel("all")}>
+                  All scripts
+                </button>
+                {crumbPath(sel.folderId).map((f, i, path) =>
+                  i < path.length - 1 ? (
+                    <span key={f.id} className="crumb-wrap">
+                      <span className="crumb-sep" aria-hidden="true">/</span>
+                      <button
+                        type="button"
+                        className="crumb"
+                        onClick={() => setSel({ folderId: f.id })}
+                      >
+                        {f.name || "Untitled folder"}
+                      </button>
+                    </span>
+                  ) : (
+                    <span key={f.id} className="crumb-wrap">
+                      <span className="crumb-sep" aria-hidden="true">/</span>
+                      <span className="crumb-cur">{f.name || "Untitled folder"}</span>
+                    </span>
+                  )
+                )}
+              </h2>
+            ) : (
+              <h2 className="list-title">{listTitle}</h2>
+            )}
             <button
               type="button"
               className="list-sort"
@@ -979,16 +1060,80 @@ export function ProjectsHome({
             </button>
           </div>
 
+          {/* Folders live in the main pane too (the sidebar mirrors them): at
+              the root the top-level folders, inside a folder its subfolders.
+              Click to drill in, drop a row to file it. */}
+          {(() => {
+            if (q || sel === "unfiled") return null;
+            const parentId = sel === "all" ? null : sel.folderId;
+            const cards = subfolders(parentId);
+            if (cards.length === 0) return null;
+            return (
+              <div className="fol-grid">
+                {cards.map((f) => (
+                  <div
+                    key={f.id}
+                    className={"fol-card" + (dropHi === "card:" + f.id ? " fol-drop" : "")}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSel({ folderId: f.id })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSel({ folderId: f.id });
+                      }
+                    }}
+                    {...dropProps("card:" + f.id, f.id)}
+                  >
+                    <span className="snav-dot" style={{ background: f.color }} aria-hidden="true" />
+                    <span className="fol-name">{f.name || "Untitled folder"}</span>
+                    <span className="fol-count">
+                      {(() => {
+                        const n = deepCountIn.get(f.id) ?? 0;
+                        return n === 1 ? "1 script" : `${n} scripts`;
+                      })()}
+                    </span>
+                    <button
+                      type="button"
+                      className="srow-kebab"
+                      aria-label={`Folder actions for ${f.name || "Untitled folder"}`}
+                      aria-haspopup="menu"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openMenu(e, { kind: "folder", id: f.id });
+                      }}
+                    >
+                      <DotsIcon />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
           {visible.length > 0 ? (
             <div className="srow-list">{visible.map(scriptRow)}</div>
           ) : (
-            <p className="list-empty">
-              {q
-                ? "Nothing matches that search."
-                : sel === "all"
-                  ? "Nothing here yet. Press New to start."
-                  : "Nothing here yet. Drag a script in, or press New."}
-            </p>
+            (() => {
+              // With folder cards showing, an empty direct list needs no
+              // banner at the root, and only a quiet note inside a folder.
+              const hasCards =
+                !q &&
+                sel !== "unfiled" &&
+                subfolders(sel === "all" ? null : sel.folderId).length > 0;
+              if (hasCards && sel === "all") return null;
+              return (
+                <p className="list-empty">
+                  {q
+                    ? "Nothing matches that search."
+                    : sel === "all"
+                      ? "Nothing here yet. Press New to start."
+                      : hasCards
+                        ? "No scripts sit directly in this folder."
+                        : "Nothing here yet. Drag a script in, or press New."}
+                </p>
+              );
+            })()
           )}
         </main>
       </div>
