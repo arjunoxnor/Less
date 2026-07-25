@@ -1475,6 +1475,86 @@ button.film-name-link:hover {
   margin-bottom: 2px;
 }
 
+/* ---- What a film holds, listed on the home ------------------------------- */
+
+/* The fold toggle. Quiet until the film is hovered, so a tidy home stays
+   tidy, but always reachable by keyboard. */
+.film-caret {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 2px;
+  margin-left: -4px;
+  line-height: 0;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transform: rotate(-90deg);
+  transition:
+    transform var(--dur-1) var(--ease),
+    opacity var(--dur-1) var(--ease);
+}
+.film-caret.open {
+  transform: rotate(0deg);
+}
+.film:hover .film-caret,
+.film-caret:focus-visible {
+  opacity: 1;
+}
+/* A folded film keeps its caret visible: it is the only sign there is more. */
+.film:not(:hover) .film-caret:not(.open) {
+  opacity: 0.55;
+}
+
+.film-items {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  padding-left: 28px; /* aligns under the name, past the mark */
+}
+.fh-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.fh-item:hover {
+  background: var(--surface-2);
+}
+.fh-item-kind {
+  color: var(--muted);
+  align-self: center;
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.fh-item-title {
+  font-size: 14.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fh-item-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.fh-item .fh-kebab {
+  opacity: 0;
+}
+.fh-item:hover .fh-kebab,
+.fh-item .fh-kebab:focus-visible {
+  opacity: 1;
+}
+
 /* ---- Idea lines and the jot ---------------------------------------------- */
 
 .idea {

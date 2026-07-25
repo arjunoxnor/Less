@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CloudUser as User } from "@/lib/cloud/client";
 import type { JSONContent } from "@tiptap/core";
-import type { Prefs } from "@/lib/storage/localStore";
+import { lsGet, lsSet, type Prefs } from "@/lib/storage/localStore";
 import {
   loadProjectDoc,
   type ProjectMeta,
@@ -60,6 +60,25 @@ export function StatusWord({ status }: { status: ProjectStatus }) {
     </span>
   );
 }
+
+/** Films the writer folded shut on the home (ids). Additive, local-only. */
+const COLLAPSED_KEY = "less:home:collapsed:v1";
+
+/* Two quiet glyphs so a draft and a note read apart at a glance: a page with
+   a folded corner for a script, a lined sheet for a document. */
+const ScriptGlyph = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 3 14 8 19 8" />
+  </svg>
+);
+const DocGlyph = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="5" y1="7" x2="19" y2="7" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+    <line x1="5" y1="17" x2="13" y2="17" />
+  </svg>
+);
 
 const ChevronDown = () => (
   <svg
@@ -249,11 +268,13 @@ export function ProjectsHome({
   const [menu, setMenu] = useState<
     | null
     | { kind: "overflow" | "account" | "new"; anchor: DOMRect }
-    | { kind: "film" | "idea"; id: string; anchor: DOMRect }
+    | { kind: "film" | "idea" | "item"; id: string; anchor: DOMRect }
   >(null);
   const openMenu = (
     e: React.MouseEvent,
-    m: { kind: "overflow" | "account" | "new" } | { kind: "film" | "idea"; id: string }
+    m:
+      | { kind: "overflow" | "account" | "new" }
+      | { kind: "film" | "idea" | "item"; id: string }
   ) => {
     e.stopPropagation();
     setMenu({ ...m, anchor: e.currentTarget.getBoundingClientRect() });
@@ -265,6 +286,23 @@ export function ProjectsHome({
   const [confirmDeleteFilm, setConfirmDeleteFilm] = useState<Film | null>(null);
   const [showCodeImport, setShowCodeImport] = useState(false);
   const [renamingFilm, setRenamingFilm] = useState<string | null>(null);
+  const [renamingItem, setRenamingItem] = useState<string | null>(null);
+
+  // Which films are folded shut. Everything is OPEN by default: the home is
+  // the whole library, not a table of contents, so a script is never more than
+  // one click away. Only the films the writer folds by hand are remembered.
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(JSON.parse(lsGet(COLLAPSED_KEY) ?? "[]") as string[])
+  );
+  const toggleFilm = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      lsSet(COLLAPSED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // Relative times refresh once a minute while the home is on screen.
   const [, setTick] = useState(0);
@@ -509,6 +547,14 @@ export function ProjectsHome({
           },
         ];
 
+  // A draft or document listed under its film on the home.
+  const itemItems = (p: ProjectMeta): MenuItem[] => [
+    { label: "Open", onSelect: () => onOpen(p.id) },
+    { label: "Rename", onSelect: () => setRenamingItem(p.id) },
+    { kind: "divider" },
+    { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
+  ];
+
   const ideaItems = (idea: ProjectMeta): MenuItem[] => [
     { label: "Open", onSelect: () => onOpen(idea.id) },
     { label: "Make this a film", onSelect: () => makeFilmOf(idea) },
@@ -572,9 +618,77 @@ export function ProjectsHome({
 
   /* ---- Renders ---- */
 
+  /** One draft or document, listed under its film. The home lists everything
+   *  a film holds, so nothing lives more than one click from here. */
+  const itemRow = (p: ProjectMeta) => {
+    const renaming = renamingItem === p.id;
+    const open = (e: React.SyntheticEvent) => {
+      // The film block around this row has its own click action.
+      e.stopPropagation();
+      if (!renaming) onOpen(p.id);
+    };
+    return (
+      <div
+        key={p.id}
+        className="fh-item"
+        role="button"
+        tabIndex={0}
+        onClick={open}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            open(e);
+          }
+        }}
+      >
+        <span className="fh-item-kind" aria-hidden="true">
+          {p.type === "screenplay" ? <ScriptGlyph /> : <DocGlyph />}
+        </span>
+        {renaming ? (
+          <NameInput
+            initial={p.title}
+            className="line-rename"
+            ariaLabel={p.type === "screenplay" ? "Draft title" : "Document title"}
+            onCommit={(name) => {
+              if (name && name !== p.title) onRename(p.id, name);
+            }}
+            onDone={() => setRenamingItem(null)}
+          />
+        ) : (
+          <span className="fh-item-title">{p.title}</span>
+        )}
+        <span className="fh-item-meta">
+          {p.type === "screenplay" && p.pageCount != null && (
+            <span>{p.pageCount} pp</span>
+          )}
+          <span>{relativeTime(p.updatedAt)}</span>
+        </span>
+        <button
+          type="button"
+          className="fh-kebab"
+          aria-label={`Actions for ${p.title}`}
+          aria-haspopup="menu"
+          onClick={(e) => openMenu(e, { kind: "item", id: p.id })}
+        >
+          <DotsIcon />
+        </button>
+      </div>
+    );
+  };
+
   const filmRow = (film: Film, isLead: boolean) => {
     const draft = film.currentDraft;
     const renaming = renamingFilm === film.id;
+    // Everything the film holds, listed right here. Two things are never
+    // repeated underneath because the film's own line already IS them: the
+    // lead's current draft (its "Continue" line) and an implicit film's single
+    // script (the film's name).
+    const showsOwnDraft = isLead || film.kind === "implicit";
+    const items: ProjectMeta[] = [
+      ...(showsOwnDraft ? film.earlierDrafts : draft ? [draft, ...film.earlierDrafts] : []),
+      ...film.documents,
+    ];
+    const isOpen = !collapsed.has(film.id);
     // The lead opens straight into the writing; other folder films open their
     // page; an implicit film has no page, so it opens its script.
     const open = () => {
@@ -610,6 +724,22 @@ export function ProjectsHome({
         {isLead && <div className="lead-label">Now writing</div>}
         <div className="film-top">
           <span className="film-mark" aria-hidden="true" />
+          {items.length > 0 && (
+            <button
+              type="button"
+              className={"film-caret" + (isOpen ? " open" : "")}
+              aria-expanded={isOpen}
+              aria-label={
+                isOpen ? `Hide what is inside ${film.name}` : `Show what is inside ${film.name}`
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFilm(film.id);
+              }}
+            >
+              <ChevronDown />
+            </button>
+          )}
           {renaming ? (
             <NameInput
               initial={film.name}
@@ -670,11 +800,16 @@ export function ProjectsHome({
           </div>
         ) : (
           <div className="film-state">
-            <StatusWord status={film.status} />
+            {/* A film holding only notes has no status to speak of yet. */}
+            {draft ? <StatusWord status={film.status} /> : <span>No script yet</span>}
             {draft?.pageCount != null && <span>{draft.pageCount} pp</span>}
-            {docsWord && <span>{docsWord}</span>}
+            {/* With the contents listed below, counting them here is noise. */}
+            {!isOpen && docsWord && <span>{docsWord}</span>}
             <span className="film-when">{relativeTime(film.lastTouched)}</span>
           </div>
+        )}
+        {items.length > 0 && isOpen && (
+          <div className="film-items">{items.map(itemRow)}</div>
         )}
       </div>
     );
@@ -718,6 +853,8 @@ export function ProjectsHome({
 
   const menuTargetFilm = menu?.kind === "film" ? films.find((f) => f.id === menu.id) : null;
   const menuTargetIdea = menu?.kind === "idea" ? ideas.find((p) => p.id === menu.id) : null;
+  const menuTargetItem =
+    menu?.kind === "item" ? projects.find((p) => p.id === menu.id) ?? null : null;
   const colorFolder = colorTarget
     ? folders.find((f) => f.id === colorTarget) ?? null
     : null;
@@ -886,6 +1023,14 @@ export function ProjectsHome({
           items={ideaItems(menuTargetIdea)}
           onClose={() => setMenu(null)}
           ariaLabel="Idea actions"
+        />
+      )}
+      {menuTargetItem && menu?.kind === "item" && (
+        <Menu
+          anchor={menu.anchor}
+          items={itemItems(menuTargetItem)}
+          onClose={() => setMenu(null)}
+          ariaLabel={menuTargetItem.type === "screenplay" ? "Draft actions" : "Document actions"}
         />
       )}
 
