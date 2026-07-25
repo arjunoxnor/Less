@@ -1313,12 +1313,23 @@ body {
 
 /* Band labels: FILMS, IDEAS, SCRIPT, DOCUMENTS. */
 .band {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 600;
   padding: 0 8px 8px;
+}
+/* A folded section keeps its count: the one clue to what is inside. */
+.band-ct {
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .band-later {
   margin-top: 38px;
@@ -1603,7 +1614,7 @@ button.film-name-link:hover {
   background: var(--surface);
   color: var(--ink);
 }
-.pcard-top .film-caret {
+.pcard-top .fh-kebab {
   margin-left: auto;
 }
 .pcard-meta {
@@ -1661,9 +1672,6 @@ button.film-name-link:hover {
 
 /* A folder deeper than a card keeps its own name, right where it lives. */
 .shelf {
-  appearance: none;
-  background: none;
-  border: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1673,11 +1681,28 @@ button.film-name-link:hover {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
+}
+.shelf-name {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
   cursor: pointer;
   text-align: left;
 }
-.shelf:hover {
+.shelf-name:hover {
   color: var(--ink);
+}
+.pcard:hover .shelf-caret {
+  opacity: 1;
+}
+.shelf-caret:not(.open) {
+  opacity: 0.75;
 }
 .shelf-dot {
   width: 8px;
@@ -1728,7 +1753,9 @@ button.film-name-link:hover {
   line-height: 0;
   color: var(--muted);
   cursor: pointer;
-  opacity: 0;
+  /* A folder that folds should look like one, so the caret is always there,
+     quiet until you reach for it. */
+  opacity: 0.45;
   transform: rotate(-90deg);
   transition:
     transform var(--dur-1) var(--ease),
@@ -1738,12 +1765,22 @@ button.film-name-link:hover {
   transform: rotate(0deg);
 }
 .film:hover .film-caret,
+.pcard:hover .film-caret,
+.desk-section:hover .band-caret,
+.film-caret:hover,
 .film-caret:focus-visible {
   opacity: 1;
 }
-/* A folded film keeps its caret visible: it is the only sign there is more. */
-.film:not(:hover) .film-caret:not(.open) {
-  opacity: 0.55;
+/* A folded folder shows its caret a touch stronger: it is the only sign
+   left that there is anything inside. */
+.film-caret:not(.open) {
+  opacity: 0.75;
+}
+.band-caret {
+  margin-left: -2px;
+}
+.shelf-caret {
+  margin: 0 -2px 0 0;
 }
 
 .film-items {

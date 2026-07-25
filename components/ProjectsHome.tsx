@@ -295,7 +295,7 @@ export function ProjectsHome({
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(JSON.parse(lsGet(COLLAPSED_KEY) ?? "[]") as string[])
   );
-  const toggleFilm = (id: string) => {
+  const toggleFold = (id: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -721,6 +721,22 @@ export function ProjectsHome({
         <div className="pcard-head">
           {isLead && <div className="lead-label">Now writing</div>}
           <div className="pcard-top">
+            {card.total > 0 && (
+              <button
+                type="button"
+                className={"film-caret" + (isOpen ? " open" : "")}
+                aria-expanded={isOpen}
+                aria-label={
+                  isOpen ? `Hide what is inside ${f.name}` : `Show what is inside ${f.name}`
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFold(f.id);
+                }}
+              >
+                <ChevronDown />
+              </button>
+            )}
             {renaming ? (
               <NameInput
                 initial={f.name}
@@ -734,22 +750,6 @@ export function ProjectsHome({
             ) : (
               <button type="button" className="pcard-name" onClick={openFolder}>
                 {f.name}
-              </button>
-            )}
-            {card.total > 0 && (
-              <button
-                type="button"
-                className={"film-caret" + (isOpen ? " open" : "")}
-                aria-expanded={isOpen}
-                aria-label={
-                  isOpen ? `Hide what is inside ${f.name}` : `Show what is inside ${f.name}`
-                }
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleFilm(f.id);
-                }}
-              >
-                <ChevronDown />
               </button>
             )}
             <button
@@ -793,30 +793,56 @@ export function ProjectsHome({
         {isOpen && card.total > 0 && (
           <div className="pcard-list">
             {card.items.map((p) => itemRow(p, 0, isLead && p.id === card.current?.id))}
-            {card.shelves.map((shelf) => (
+            {card.shelves.map((shelf) => {
+              const shelfOpen = !collapsed.has(shelf.folder.id);
+              return (
               <div key={shelf.folder.id} className="pcard-shelfgroup">
-                <button
-                  type="button"
+                <div
                   className="shelf"
                   style={{ paddingLeft: 14 + (shelf.depth - 1) * 12 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenFilm(shelf.folder.id);
-                  }}
                 >
+                  {shelf.items.length > 0 && (
+                    <button
+                      type="button"
+                      className={"film-caret shelf-caret" + (shelfOpen ? " open" : "")}
+                      aria-expanded={shelfOpen}
+                      aria-label={
+                        shelfOpen
+                          ? `Hide what is inside ${shelf.folder.name}`
+                          : `Show what is inside ${shelf.folder.name}`
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFold(shelf.folder.id);
+                      }}
+                    >
+                      <ChevronDown />
+                    </button>
+                  )}
                   <span
                     className="shelf-dot"
                     style={{ background: shelf.folder.color }}
                     aria-hidden="true"
                   />
-                  {shelf.folder.name}
+                  <button
+                    type="button"
+                    className="shelf-name"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenFilm(shelf.folder.id);
+                    }}
+                  >
+                    {shelf.folder.name}
+                  </button>
                   <span className="shelf-ct">{shelf.items.length}</span>
-                </button>
-                {shelf.items.map((p) =>
-                  itemRow(p, shelf.depth, isLead && p.id === card.current?.id)
-                )}
+                </div>
+                {shelfOpen &&
+                  shelf.items.map((p) =>
+                    itemRow(p, shelf.depth, isLead && p.id === card.current?.id)
+                  )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </article>
@@ -977,9 +1003,25 @@ export function ProjectsHome({
             {sections.map((section, si) => {
               const sf = section.folder;
               const renamingSec = renamingSection === sf.id;
+              const sectionOpen = !collapsed.has(sf.id);
+              // What folding this away would hide, so the count is only shown
+              // when it is the one clue left.
+              const held =
+                section.cards.reduce((n, c) => n + c.total, 0) + section.loose.length;
               return (
                 <section key={sf.id} className="desk-section">
                   <div className={"band" + (si > 0 ? " later" : "")}>
+                    <button
+                      type="button"
+                      className={"film-caret band-caret" + (sectionOpen ? " open" : "")}
+                      aria-expanded={sectionOpen}
+                      aria-label={
+                        sectionOpen ? `Fold ${sf.name} away` : `Open ${sf.name}`
+                      }
+                      onClick={() => toggleFold(sf.id)}
+                    >
+                      <ChevronDown />
+                    </button>
                     {renamingSec ? (
                       <NameInput
                         initial={sf.name}
@@ -1008,21 +1050,32 @@ export function ProjectsHome({
                     >
                       <DotsIcon />
                     </button>
+                    {!sectionOpen && held > 0 && (
+                      <span className="band-ct">
+                        {held} item{held === 1 ? "" : "s"}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="desk-grid">
-                    {section.cards.map((card) => cardBlock(card, card === lead))}
-                    <button
-                      type="button"
-                      className="pcard pcard-new"
-                      onClick={() => newProjectIn(sf.id)}
-                    >
-                      New project in {sf.name}
-                    </button>
-                  </div>
+                  {sectionOpen && (
+                    <>
+                      <div className="desk-grid">
+                        {section.cards.map((card) => cardBlock(card, card === lead))}
+                        <button
+                          type="button"
+                          className="pcard pcard-new"
+                          onClick={() => newProjectIn(sf.id)}
+                        >
+                          New project in {sf.name}
+                        </button>
+                      </div>
 
-                  {section.loose.length > 0 && (
-                    <div className="desk-loose">{section.loose.map((p) => itemRow(p))}</div>
+                      {section.loose.length > 0 && (
+                        <div className="desk-loose">
+                          {section.loose.map((p) => itemRow(p))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
               );
