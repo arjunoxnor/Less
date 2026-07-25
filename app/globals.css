@@ -1787,6 +1787,15 @@ button.film-name-link:hover {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.fh-item-current {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
 .fh-item .fh-kebab {
   opacity: 0;
 }

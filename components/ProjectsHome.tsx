@@ -633,7 +633,7 @@ export function ProjectsHome({
   /** One script or document, listed inside its card. The home lists everything
    *  a folder holds, so nothing lives more than one click from here.
    *  `indent` steps the row in to match the shelf it belongs to. */
-  const itemRow = (p: ProjectMeta, indent = 0) => {
+  const itemRow = (p: ProjectMeta, indent = 0, isCurrent = false) => {
     const renaming = renamingItem === p.id;
     const open = (e: React.SyntheticEvent) => {
       // The card around this row has its own click action.
@@ -672,6 +672,11 @@ export function ProjectsHome({
           <span className="fh-item-title">{p.title}</span>
         )}
         <span className="fh-item-meta">
+          {/* Only the lead card carries this: it marks the row its Continue
+              line points at, so that line reads as a shortcut to this row
+              rather than a second copy of it. Elsewhere it would just be
+              noise, and on an archive folder it would be a lie. */}
+          {isCurrent && <span className="fh-item-current">Current</span>}
           {p.type === "screenplay" && p.pageCount != null && (
             <span>{p.pageCount} pp</span>
           )}
@@ -787,7 +792,7 @@ export function ProjectsHome({
 
         {isOpen && card.total > 0 && (
           <div className="pcard-list">
-            {card.items.map((p) => itemRow(p))}
+            {card.items.map((p) => itemRow(p, 0, isLead && p.id === card.current?.id))}
             {card.shelves.map((shelf) => (
               <div key={shelf.folder.id} className="pcard-shelfgroup">
                 <button
@@ -807,7 +812,9 @@ export function ProjectsHome({
                   {shelf.folder.name}
                   <span className="shelf-ct">{shelf.items.length}</span>
                 </button>
-                {shelf.items.map((p) => itemRow(p, shelf.depth))}
+                {shelf.items.map((p) =>
+                  itemRow(p, shelf.depth, isLead && p.id === card.current?.id)
+                )}
               </div>
             ))}
           </div>
