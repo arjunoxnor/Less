@@ -12,7 +12,7 @@ import {
   type ProjectType,
 } from "@/lib/storage/projects";
 import type { Folder } from "@/lib/storage/folders";
-import { filmForFolder, listFilms } from "@/lib/storage/films";
+import { folderView, listLibrary } from "@/lib/storage/library";
 import type { TitlePage } from "@/lib/export/titlePage";
 import { exportDoc, type ExportFormat } from "@/lib/export";
 import { Menu, type MenuItem } from "./ui/Menu";
@@ -43,6 +43,7 @@ export function ProjectPage({
   onPrefsChange,
   onBack,
   onOpen,
+  onOpenFolder,
   onCreate,
   onDelete,
   onRename,
@@ -57,6 +58,8 @@ export function ProjectPage({
   onPrefsChange: (next: Partial<Prefs>) => void;
   onBack: () => void;
   onOpen: (id: string, opts?: { focusTitle?: boolean }) => void;
+  /** Open another folder's page: the breadcrumb and the sub-folder headings. */
+  onOpenFolder: (folderId: string) => void;
   onCreate: (
     type: ProjectType,
     title: string,
@@ -75,13 +78,15 @@ export function ProjectPage({
     patch: { name?: string; color?: string; parentId?: string | null }
   ) => void;
 }) {
+  // Any folder has a page, at any depth: this is the writer's own folder,
+  // not a reinterpretation of it.
   const film = useMemo(
-    () => filmForFolder(folder.id, projects, folders),
+    () => folderView(folder.id, projects, folders),
     [folder.id, projects, folders]
   );
 
-  // AppShell already guards unknown folder ids; this catches the folder
-  // becoming nested (no longer a film) while the page is open.
+  // AppShell already guards unknown folder ids; this catches the folder being
+  // deleted while its page is open.
   useEffect(() => {
     if (!film) onBack();
   }, [film, onBack]);
@@ -122,8 +127,15 @@ export function ProjectPage({
     return () => clearInterval(t);
   }, []);
 
-  const draft = film?.currentDraft ?? null;
-  const earlier = film?.earlierDrafts ?? [];
+  // This folder's own scripts, newest first: the first one is what "Continue"
+  // opens. Scripts filed in sub-folders belong to those sub-folders, and are
+  // listed under their own names further down.
+  const ownScripts = useMemo(
+    () => (film?.items ?? []).filter((p) => p.type === "screenplay"),
+    [film]
+  );
+  const draft = ownScripts[0] ?? null;
+  const earlier = ownScripts.slice(1);
 
   // The current draft's first scene line, re-read only when its clock moves.
   const draftLine = useMemo(
@@ -136,7 +148,7 @@ export function ProjectPage({
   // recency order remains the fallback (the sort is stable, so untouched
   // documents keep their newest-first placement).
   const documents = useMemo(() => {
-    const docs = film?.documents ?? [];
+    const docs = (film?.items ?? []).filter((p) => p.type === "plain");
     return docs
       .slice()
       .sort(
@@ -304,12 +316,20 @@ export function ProjectPage({
     { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
   ];
 
-  // Move targets are films (top-level folders), plus loose. Moving into a
-  // different film or out to loose uses the same one filing handler.
-  const moveTargets = useMemo(
-    () => listFilms(projects, folders).filter((f) => f.kind === "folder"),
-    [projects, folders]
-  );
+  // Move targets are every folder the writer has, shown with their path so two
+  // folders with the same name are still telling apart. Moving out to "not in a
+  // folder" uses the same one filing handler.
+  const moveTargets = useMemo(() => {
+    const out: { folder: Folder; path: string }[] = [];
+    const walk = (parentId: string | undefined, path: string) => {
+      for (const f of folders.filter((c) => (c.parentId ?? undefined) === parentId)) {
+        out.push({ folder: f, path });
+        walk(f.id, path ? `${path} / ${f.name}` : f.name);
+      }
+    };
+    walk(undefined, "");
+    return out;
+  }, [folders]);
 
   /* ---- Row renders ---- */
 
@@ -451,8 +471,21 @@ export function ProjectPage({
       <main className="fh-page">
         <div className="pp-head">
           <div className="pp-kicker">
-            <span className="pp-mark" style={{ background: film.color }} aria-hidden="true" />
-            <span className="pp-kind">Film</span>
+            <span className="pp-mark" style={{ background: folder.color }} aria-hidden="true" />
+            {film.trail.length > 0 ? (
+              film.trail.map((up) => (
+                <button
+                  key={up.id}
+                  type="button"
+                  className="pp-crumb"
+                  onClick={() => onOpenFolder(up.id)}
+                >
+                  {up.name}
+                </button>
+              ))
+            ) : (
+              <span className="pp-kind">Folder</span>
+            )}
           </div>
           <input
             className="pp-title"
@@ -468,7 +501,7 @@ export function ProjectPage({
                 (e.target as HTMLInputElement).blur();
               }
             }}
-            aria-label="Film name"
+            aria-label="Folder name"
           />
           <div className="pp-meta">
             {draft && (
@@ -480,14 +513,18 @@ export function ProjectPage({
                 >
                   {/* pageCount is total pages, not a caret position */}
                   Continue {draft.title}
-                  {draft.pageCount != null ? `, ${draft.pageCount} pages` : ""}
+                  {draft.pageCount != null
+                    ? `, ${draft.pageCount} page${draft.pageCount === 1 ? "" : "s"}`
+                    : ""}
                 </button>
                 <span className="pp-sep" aria-hidden="true">
                   &middot;
                 </span>
               </>
             )}
-            <span>{STATUS_WORD[film.status]}</span>
+            <span>
+              {film.total} item{film.total === 1 ? "" : "s"}
+            </span>
             <span className="pp-sep" aria-hidden="true">
               &middot;
             </span>
@@ -583,12 +620,48 @@ export function ProjectPage({
           {caretIdx === documents.length && documents.length > 0 && (
             <div className="drop-caret" aria-hidden="true" />
           )}
+          {documents.length === 0 && <p className="list-empty">No documents in here yet.</p>}
         </div>
+
+        {/* Sub-folders keep their own names and their own pages: this folder
+            shows what it holds, never what its children hold. */}
+        {film.shelves
+          .filter((sh) => sh.depth === 1)
+          .map((sh) => (
+            <div key={sh.folder.id}>
+              <div className="band band-later">
+                <button
+                  type="button"
+                  className="band-name"
+                  onClick={() => onOpenFolder(sh.folder.id)}
+                >
+                  {sh.folder.name}
+                </button>
+              </div>
+              {sh.items.map(draftRow)}
+              {(() => {
+                const deeper = film.shelves.filter(
+                  (d) => d.depth > 1 && d.folder.parentId === sh.folder.id
+                );
+                const buried = deeper.reduce((n, d) => n + d.items.length, 0);
+                return deeper.length > 0 ? (
+                  <button
+                    type="button"
+                    className="mline"
+                    onClick={() => onOpenFolder(sh.folder.id)}
+                  >
+                    {deeper.length} folder{deeper.length === 1 ? "" : "s"} deeper, holding{" "}
+                    {buried} item{buried === 1 ? "" : "s"}
+                  </button>
+                ) : null;
+              })()}
+            </div>
+          ))}
         <div className="jot">
           <input
             type="text"
             value={jot}
-            placeholder={`Add a note to ${film.name} and press Enter`}
+            placeholder={`Add a note to ${folder.name} and press Enter`}
             aria-label="Add a note"
             onChange={(e) => setJot(e.target.value)}
             onKeyDown={(e) => {
@@ -626,9 +699,9 @@ export function ProjectPage({
                 setMoveTarget(null);
               }}
             >
-              Loose (no film)
+              Not in a folder
             </button>
-            {moveTargets.map((f) => (
+            {moveTargets.map(({ folder: f, path }) => (
               <button
                 key={f.id}
                 type="button"
@@ -640,6 +713,7 @@ export function ProjectPage({
               >
                 <span className="move-dot" style={{ background: f.color }} aria-hidden="true" />
                 {f.name}
+                {path && <span className="move-path">{path}</span>}
               </button>
             ))}
           </div>

@@ -11,7 +11,7 @@ import {
   type ProjectType,
 } from "@/lib/storage/projects";
 import { FOLDER_COLORS, type Folder } from "@/lib/storage/folders";
-import { listFilms, listIdeas, type Film } from "@/lib/storage/films";
+import { listLibrary, type Card } from "@/lib/storage/library";
 import { docText } from "@/lib/editor/docUtils";
 import type { TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
@@ -268,13 +268,13 @@ export function ProjectsHome({
   const [menu, setMenu] = useState<
     | null
     | { kind: "overflow" | "account" | "new"; anchor: DOMRect }
-    | { kind: "film" | "idea" | "item"; id: string; anchor: DOMRect }
+    | { kind: "card" | "section" | "idea" | "item"; id: string; anchor: DOMRect }
   >(null);
   const openMenu = (
     e: React.MouseEvent,
     m:
       | { kind: "overflow" | "account" | "new" }
-      | { kind: "film" | "idea" | "item"; id: string }
+      | { kind: "card" | "section" | "idea" | "item"; id: string }
   ) => {
     e.stopPropagation();
     setMenu({ ...m, anchor: e.currentTarget.getBoundingClientRect() });
@@ -283,9 +283,10 @@ export function ProjectsHome({
   // Modals and inline edits.
   const [colorTarget, setColorTarget] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null);
-  const [confirmDeleteFilm, setConfirmDeleteFilm] = useState<Film | null>(null);
+  const [confirmDeleteFilm, setConfirmDeleteFilm] = useState<Folder | null>(null);
   const [showCodeImport, setShowCodeImport] = useState(false);
   const [renamingFilm, setRenamingFilm] = useState<string | null>(null);
+  const [renamingSection, setRenamingSection] = useState<string | null>(null);
   const [renamingItem, setRenamingItem] = useState<string | null>(null);
 
   // Which films are folded shut. Everything is OPEN by default: the home is
@@ -330,22 +331,32 @@ export function ProjectsHome({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  /* ---- The reinterpretation: films and ideas ---- */
+  /* ---- The library: the writer's own folders, at their own depth ---- */
 
-  const films = useMemo(() => listFilms(projects, folders), [projects, folders]);
-  const ideas = useMemo(() => listIdeas(projects, folders), [projects, folders]);
-  const lead = films[0] ?? null;
+  const library = useMemo(() => listLibrary(projects, folders), [projects, folders]);
+  const sections = library.sections;
+  const unfiled = library.unfiled;
+  // The desk leads with the most recently touched card THAT HOLDS SOMETHING.
+  // A folder made a moment ago is the newest thing in the library, but there
+  // is nothing in it to continue, so it never gets crowned "Now writing".
+  const lead = useMemo(() => {
+    const withWork = sections.flatMap((s) => s.cards).filter((c) => c.current);
+    withWork.sort((a, b) =>
+      a.lastTouched < b.lastTouched ? 1 : a.lastTouched > b.lastTouched ? -1 : 0
+    );
+    return withWork[0] ?? null;
+  }, [sections]);
 
-  // The lead's live specimen: its draft's first scene line, re-read only when
-  // the draft or its content clock changes.
-  const leadDraft = lead?.currentDraft ?? null;
+  // The lead's live specimen: its script's first scene line, re-read only when
+  // that script or its content clock changes.
+  const leadDraft = lead?.current ?? null;
   const leadLine = useMemo(
     () => (leadDraft ? firstLine(leadDraft) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [leadDraft?.id, leadDraft?.updatedAt]
   );
 
-  /* ---- Drag: idea lines onto films ---- */
+  /* ---- Drag: loose notes onto a card ---- */
 
   const dragIdea = useRef<string | null>(null);
   const [draggingIdea, setDraggingIdea] = useState<string | null>(null);
@@ -356,40 +367,30 @@ export function ProjectsHome({
     setDropFilm(null);
   };
 
-  /** File an idea into a film. Folder films take it directly; an implicit
-   *  film MATERIALIZES first: a folder named after the script appears and
-   *  both the script and the idea are filed into it, all through the
-   *  existing handlers so every clock stamps correctly. */
-  const fileIdeaInto = (film: Film, ideaId: string) => {
-    if (film.kind === "folder") {
-      onSetFolder(ideaId, film.id);
-      return;
-    }
-    const scriptId = film.id; // an implicit film IS its loose screenplay
-    const f = onCreateFolder();
-    onUpdateFolder(f.id, { name: film.name });
-    onSetFolder(scriptId, f.id);
-    onSetFolder(ideaId, f.id);
+  /** File a loose note into a card: it lands in that folder, through the
+   *  existing handler so every clock stamps correctly. */
+  const fileIdeaInto = (card: Card, ideaId: string) => {
+    onSetFolder(ideaId, card.folder.id);
   };
 
-  const filmDropProps = (film: Film) => ({
+  const cardDropProps = (card: Card) => ({
     onDragOver: (e: React.DragEvent) => {
       if (dragIdea.current) {
         e.preventDefault();
-        setDropFilm(film.id);
+        setDropFilm(card.folder.id);
       }
     },
     onDragLeave: (e: React.DragEvent) => {
-      // Moving between a film's own children also fires dragleave; only a
-      // real exit clears the wash.
+      // Moving between a card's own rows also fires dragleave; only a real
+      // exit clears the wash.
       if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-        setDropFilm((f) => (f === film.id ? null : f));
+        setDropFilm((f) => (f === card.folder.id ? null : f));
       }
     },
     onDrop: (e: React.DragEvent) => {
       if (dragIdea.current) {
         e.preventDefault();
-        fileIdeaInto(film, dragIdea.current);
+        fileIdeaInto(card, dragIdea.current);
       }
       clearDrag();
     },
@@ -424,25 +425,33 @@ export function ProjectsHome({
     }
   };
 
-  // "Make this a film": a folder named after the idea materializes and the
-  // idea files itself into it, so the film starts life holding its first note.
-  const makeFilmOf = (idea: ProjectMeta) => {
-    const f = onCreateFolder();
-    onUpdateFolder(f.id, { name: idea.title });
-    onSetFolder(idea.id, f.id);
+  // A new project inside a section: the folder appears on the desk as an empty
+  // card, named on the spot.
+  const newProjectIn = (sectionId: string) => {
+    const f = onCreateFolder(sectionId);
+    onUpdateFolder(f.id, { name: "Untitled project" });
+    setRenamingFilm(f.id);
   };
 
-  // Deleting a film deletes only the folder: its drafts and documents are
-  // reparented up a level through the existing handlers (top level = loose),
-  // so nothing a writer wrote is ever destroyed by this.
-  const removeFilm = (film: Film) => {
+  // A new top-level folder: a new heading on the home.
+  const newSection = () => {
+    const f = onCreateFolder();
+    onUpdateFolder(f.id, { name: "Untitled folder" });
+    setRenamingSection(f.id);
+  };
+
+  // Deleting a folder deletes ONLY the folder. Whatever it held moves up one
+  // level to its parent, through the existing handlers, so nothing a writer
+  // wrote is ever destroyed and nothing falls out of the tree.
+  const removeFolder = (target: Folder) => {
+    const up = target.parentId ?? null;
     folders
-      .filter((sf) => sf.parentId === film.id)
-      .forEach((sf) => onUpdateFolder(sf.id, { parentId: null }));
+      .filter((sf) => sf.parentId === target.id)
+      .forEach((sf) => onUpdateFolder(sf.id, { parentId: up }));
     projects
-      .filter((p) => p.folderId === film.id)
-      .forEach((p) => onSetFolder(p.id, null));
-    onDeleteFolder(film.id);
+      .filter((p) => p.folderId === target.id)
+      .forEach((p) => onSetFolder(p.id, up));
+    onDeleteFolder(target.id);
     setConfirmDeleteFilm(null);
   };
 
@@ -513,11 +522,12 @@ export function ProjectsHome({
       ]
     : [{ label: "Sign in", onSelect: onSignIn }];
 
-  // Folders are never created by hand anymore; they materialize when an idea
-  // lands on a script. So New offers exactly the three real beginnings.
+  // The two levels of the home, plus the two kinds of writing.
   const newItems: MenuItem[] = [
     { label: "New script", onSelect: () => createAndOpen("screenplay", "Untitled screenplay") },
     { label: "New document", onSelect: () => createAndOpen("plain", "") },
+    { kind: "divider" },
+    { label: "New folder", onSelect: newSection },
     {
       label: importing ? "Importing" : "Import files",
       onSelect: () => importInputRef.current?.click(),
@@ -525,27 +535,22 @@ export function ProjectsHome({
     },
   ];
 
-  const filmItems = (film: Film): MenuItem[] =>
-    film.kind === "folder"
-      ? [
-          { label: "Rename", onSelect: () => setRenamingFilm(film.id) },
-          { label: "Color", onSelect: () => setColorTarget(film.id) },
-          { kind: "divider" },
-          { label: "Delete", danger: true, onSelect: () => setConfirmDeleteFilm(film) },
-        ]
-      : [
-          // An implicit film IS its script: these act on the project itself.
-          { label: "Rename", onSelect: () => setRenamingFilm(film.id) },
-          { kind: "divider" },
-          {
-            label: "Delete",
-            danger: true,
-            onSelect: () => {
-              const meta = projects.find((p) => p.id === film.id);
-              if (meta) setConfirmDelete(meta);
-            },
-          },
-        ];
+  /** A card's kebab: it acts on the folder, never on what is inside it. */
+  const cardItems = (card: Card): MenuItem[] => [
+    { label: "Open", onSelect: () => onOpenFilm(card.folder.id) },
+    { label: "Rename", onSelect: () => setRenamingFilm(card.folder.id) },
+    { label: "Color", onSelect: () => setColorTarget(card.folder.id) },
+    { kind: "divider" },
+    { label: "Delete folder", danger: true, onSelect: () => setConfirmDeleteFilm(card.folder) },
+  ];
+
+  /** A section heading's kebab. */
+  const sectionItems = (f: Folder): MenuItem[] => [
+    { label: "New project in here", onSelect: () => newProjectIn(f.id) },
+    { label: "Rename", onSelect: () => setRenamingSection(f.id) },
+    { kind: "divider" },
+    { label: "Delete folder", danger: true, onSelect: () => setConfirmDeleteFilm(f) },
+  ];
 
   // A draft or document listed under its film on the home.
   const itemItems = (p: ProjectMeta): MenuItem[] => [
@@ -557,7 +562,6 @@ export function ProjectsHome({
 
   const ideaItems = (idea: ProjectMeta): MenuItem[] => [
     { label: "Open", onSelect: () => onOpen(idea.id) },
-    { label: "Make this a film", onSelect: () => makeFilmOf(idea) },
     { kind: "divider" },
     { label: "Delete", danger: true, onSelect: () => setConfirmDelete(idea) },
   ];
@@ -566,64 +570,73 @@ export function ProjectsHome({
 
   const q = query.trim().toLowerCase();
   type Hit =
-    | { key: string; kind: "film"; film: Film }
-    | { key: string; kind: "draft" | "document"; meta: ProjectMeta; film: Film }
-    | { key: string; kind: "idea"; meta: ProjectMeta };
+    | { key: string; kind: "folder"; folder: Folder; where: string }
+    | { key: string; kind: "script" | "document"; meta: ProjectMeta; where: string };
   const hits = useMemo<Hit[]>(() => {
     if (!q) return [];
     const out: Hit[] = [];
-    for (const film of films) {
-      if (film.name.toLowerCase().includes(q)) {
-        out.push({ key: "f:" + film.id, kind: "film", film });
+    const addProject = (p: ProjectMeta, where: string) => {
+      if (p.title.toLowerCase().includes(q)) {
+        out.push({
+          key: "p:" + p.id,
+          kind: p.type === "screenplay" ? "script" : "document",
+          meta: p,
+          where,
+        });
       }
-      // An implicit film IS its draft; listing both would be the same line twice.
-      if (film.kind === "implicit") continue;
-      const drafts = film.currentDraft
-        ? [film.currentDraft, ...film.earlierDrafts]
-        : film.earlierDrafts;
-      for (const d of drafts) {
-        if (d.title.toLowerCase().includes(q)) {
-          out.push({ key: "p:" + d.id, kind: "draft", meta: d, film });
+    };
+    for (const section of sections) {
+      if (section.folder.name.toLowerCase().includes(q)) {
+        out.push({ key: "f:" + section.folder.id, kind: "folder", folder: section.folder, where: "" });
+      }
+      for (const p of section.loose) addProject(p, section.folder.name);
+      for (const card of section.cards) {
+        if (card.folder.name.toLowerCase().includes(q)) {
+          out.push({
+            key: "f:" + card.folder.id,
+            kind: "folder",
+            folder: card.folder,
+            where: section.folder.name,
+          });
         }
-      }
-      for (const doc of film.documents) {
-        if (doc.title.toLowerCase().includes(q)) {
-          out.push({ key: "p:" + doc.id, kind: "document", meta: doc, film });
+        for (const p of card.items) addProject(p, card.folder.name);
+        for (const shelf of card.shelves) {
+          if (shelf.folder.name.toLowerCase().includes(q)) {
+            out.push({
+              key: "f:" + shelf.folder.id,
+              kind: "folder",
+              folder: shelf.folder,
+              where: card.folder.name,
+            });
+          }
+          for (const p of shelf.items) addProject(p, shelf.folder.name);
         }
       }
     }
-    for (const idea of ideas) {
-      if (idea.title.toLowerCase().includes(q)) {
-        out.push({ key: "p:" + idea.id, kind: "idea", meta: idea });
-      }
-    }
+    for (const p of unfiled) addProject(p, "");
     return out;
-  }, [q, films, ideas]);
+  }, [q, sections, unfiled]);
 
   const openHit = (hit: Hit) => {
-    if (hit.kind === "film") {
-      if (hit.film.kind === "folder") onOpenFilm(hit.film.id);
-      else onOpen(hit.film.id);
-    } else {
-      onOpen(hit.meta.id);
-    }
+    if (hit.kind === "folder") onOpenFilm(hit.folder.id);
+    else onOpen(hit.meta.id);
   };
 
-  const HIT_WORD: Record<Exclude<Hit["kind"], never>, string> = {
-    film: "Film",
-    draft: "Draft",
+  const HIT_WORD: Record<Hit["kind"], string> = {
+    folder: "Folder",
+    script: "Script",
     document: "Document",
-    idea: "Idea",
   };
 
   /* ---- Renders ---- */
 
-  /** One draft or document, listed under its film. The home lists everything
-   *  a film holds, so nothing lives more than one click from here. */
-  const itemRow = (p: ProjectMeta) => {
+  /** One script or document, listed inside its card. The home lists everything
+   *  a folder holds, so nothing lives more than one click from here.
+   *  `indent` steps the row in to match the shelf it belongs to. */
+  const itemRow = (p: ProjectMeta, indent = 0) => {
     const renaming = renamingItem === p.id;
     const open = (e: React.SyntheticEvent) => {
-      // The film block around this row has its own click action.
+      // The card around this row has its own click action.
       e.stopPropagation();
       if (!renaming) onOpen(p.id);
     };
@@ -631,6 +644,7 @@ export function ProjectsHome({
       <div
         key={p.id}
         className="fh-item"
+        style={indent ? { paddingLeft: 14 + indent * 12 } : undefined}
         role="button"
         tabIndex={0}
         onClick={open}
@@ -676,142 +690,129 @@ export function ProjectsHome({
     );
   };
 
-  const filmRow = (film: Film, isLead: boolean) => {
-    const draft = film.currentDraft;
-    const renaming = renamingFilm === film.id;
-    // Everything the film holds, listed right here. Two things are never
-    // repeated underneath because the film's own line already IS them: the
-    // lead's current draft (its "Continue" line) and an implicit film's single
-    // script (the film's name).
-    const showsOwnDraft = isLead || film.kind === "implicit";
-    const items: ProjectMeta[] = [
-      ...(showsOwnDraft ? film.earlierDrafts : draft ? [draft, ...film.earlierDrafts] : []),
-      ...film.documents,
-    ];
-    const isOpen = !collapsed.has(film.id);
-    // The lead opens straight into the writing; other folder films open their
-    // page; an implicit film has no page, so it opens its script.
-    const open = () => {
-      if (renaming) return;
-      if (isLead && draft) onOpen(draft.id);
-      else if (film.kind === "folder") onOpenFilm(film.id);
-      else onOpen(film.id);
+  /** One card: a project folder, with everything it holds inside its edges.
+   *  Sub-folders keep their own names as shelves, at any depth. */
+  const cardBlock = (card: Card, isLead: boolean) => {
+    const f = card.folder;
+    const renaming = renamingFilm === f.id;
+    const isOpen = !collapsed.has(f.id);
+    const draft = card.current;
+    const openFolder = (e: React.SyntheticEvent) => {
+      e.stopPropagation();
+      if (!renaming) onOpenFilm(f.id);
     };
-    const docsWord =
-      film.documents.length > 0
-        ? `${film.documents.length} document${film.documents.length === 1 ? "" : "s"}`
-        : null;
     return (
-      <div
-        key={film.id}
+      <article
+        key={f.id}
         className={
-          "film" +
+          "pcard" +
           (isLead ? " lead" : "") +
-          (dropFilm === film.id ? " dropping" : "")
+          (dropFilm === f.id ? " dropping" : "")
         }
-        style={{ ["--fc" as string]: film.color }}
-        role="button"
-        tabIndex={0}
-        onClick={open}
-        onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && !renaming) {
-            e.preventDefault();
-            open();
-          }
-        }}
-        {...filmDropProps(film)}
+        style={{ ["--fc" as string]: f.color }}
+        {...cardDropProps(card)}
       >
-        {isLead && <div className="lead-label">Now writing</div>}
-        <div className="film-top">
-          <span className="film-mark" aria-hidden="true" />
-          {items.length > 0 && (
-            <button
-              type="button"
-              className={"film-caret" + (isOpen ? " open" : "")}
-              aria-expanded={isOpen}
-              aria-label={
-                isOpen ? `Hide what is inside ${film.name}` : `Show what is inside ${film.name}`
-              }
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFilm(film.id);
-              }}
-            >
-              <ChevronDown />
-            </button>
-          )}
-          {renaming ? (
-            <NameInput
-              initial={film.name}
-              className="film-rename"
-              ariaLabel="Film name"
-              onCommit={(name) => {
-                if (!name) return;
-                if (film.kind === "folder") onUpdateFolder(film.id, { name });
-                else if (name !== film.name) onRename(film.id, name);
-              }}
-              onDone={() => setRenamingFilm(null)}
-            />
-          ) : film.kind === "folder" ? (
-            // The name is always the way into the film's world, even on the
-            // lead (whose block otherwise opens the draft directly).
-            <button
-              type="button"
-              className="film-name film-name-link"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenFilm(film.id);
-              }}
-            >
-              {film.name}
-            </button>
-          ) : (
-            <span className="film-name">{film.name}</span>
-          )}
-          <button
-            type="button"
-            className="fh-kebab"
-            aria-label={`Actions for ${film.name}`}
-            aria-haspopup="menu"
-            onClick={(e) => openMenu(e, { kind: "film", id: film.id })}
-          >
-            <DotsIcon />
-          </button>
-        </div>
-        {isLead && draft ? (
-          <div className="film-state">
-            {/* pageCount is the draft's TOTAL pages, not a caret position, so
-                the copy says its length rather than pretending to know where
-                the writer left the cursor. */}
-            <span className="film-continue">
-              Continue {draft.title}
-              {draft.pageCount != null ? `, ${draft.pageCount} pages` : ""}
-            </span>
-            {leadLine && (
-              <span
-                className={
-                  "film-courier" + (leadLine.isScene ? " film-courier-scene" : "")
-                }
-              >
-                {leadLine.text}
-              </span>
+        <div className="pcard-spine" aria-hidden="true" />
+        <div className="pcard-head">
+          {isLead && <div className="lead-label">Now writing</div>}
+          <div className="pcard-top">
+            {renaming ? (
+              <NameInput
+                initial={f.name}
+                className="pcard-rename"
+                ariaLabel="Folder name"
+                onCommit={(name) => {
+                  if (name) onUpdateFolder(f.id, { name });
+                }}
+                onDone={() => setRenamingFilm(null)}
+              />
+            ) : (
+              <button type="button" className="pcard-name" onClick={openFolder}>
+                {f.name}
+              </button>
             )}
-            <span className="film-when">{relativeTime(film.lastTouched)}</span>
+            {card.total > 0 && (
+              <button
+                type="button"
+                className={"film-caret" + (isOpen ? " open" : "")}
+                aria-expanded={isOpen}
+                aria-label={
+                  isOpen ? `Hide what is inside ${f.name}` : `Show what is inside ${f.name}`
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFilm(f.id);
+                }}
+              >
+                <ChevronDown />
+              </button>
+            )}
+            <button
+              type="button"
+              className="fh-kebab"
+              aria-label={`Actions for ${f.name}`}
+              aria-haspopup="menu"
+              onClick={(e) => openMenu(e, { kind: "card", id: f.id })}
+            >
+              <DotsIcon />
+            </button>
           </div>
-        ) : (
-          <div className="film-state">
-            {/* A film holding only notes has no status to speak of yet. */}
-            {draft ? <StatusWord status={film.status} /> : <span>No script yet</span>}
-            {draft?.pageCount != null && <span>{draft.pageCount} pp</span>}
-            {/* With the contents listed below, counting them here is noise. */}
-            {!isOpen && docsWord && <span>{docsWord}</span>}
-            <span className="film-when">{relativeTime(film.lastTouched)}</span>
+
+          <div className="pcard-meta">
+            {isLead && draft ? (
+              <button
+                type="button"
+                className="pcard-continue"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen(draft.id);
+                }}
+              >
+                Continue {draft.title}
+                {draft.pageCount != null
+                    ? `, ${draft.pageCount} page${draft.pageCount === 1 ? "" : "s"}`
+                    : ""}
+              </button>
+            ) : (
+              <span>{card.total === 0 ? "Empty" : `${card.total} item${card.total === 1 ? "" : "s"}`}</span>
+            )}
+            <span className="film-when">{relativeTime(card.lastTouched)}</span>
+          </div>
+          {isLead && leadLine && (
+            <div className={"film-courier" + (leadLine.isScene ? " film-courier-scene" : "")}>
+              {leadLine.text}
+            </div>
+          )}
+        </div>
+
+        {isOpen && card.total > 0 && (
+          <div className="pcard-list">
+            {card.items.map((p) => itemRow(p))}
+            {card.shelves.map((shelf) => (
+              <div key={shelf.folder.id} className="pcard-shelfgroup">
+                <button
+                  type="button"
+                  className="shelf"
+                  style={{ paddingLeft: 14 + (shelf.depth - 1) * 12 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenFilm(shelf.folder.id);
+                  }}
+                >
+                  <span
+                    className="shelf-dot"
+                    style={{ background: shelf.folder.color }}
+                    aria-hidden="true"
+                  />
+                  {shelf.folder.name}
+                  <span className="shelf-ct">{shelf.items.length}</span>
+                </button>
+                {shelf.items.map((p) => itemRow(p, shelf.depth))}
+              </div>
+            ))}
           </div>
         )}
-        {items.length > 0 && isOpen && (
-          <div className="film-items">{items.map(itemRow)}</div>
-        )}
-      </div>
+      </article>
     );
   };
 
@@ -851,8 +852,14 @@ export function ProjectsHome({
     </div>
   );
 
-  const menuTargetFilm = menu?.kind === "film" ? films.find((f) => f.id === menu.id) : null;
-  const menuTargetIdea = menu?.kind === "idea" ? ideas.find((p) => p.id === menu.id) : null;
+  const menuTargetCard =
+    menu?.kind === "card"
+      ? sections.flatMap((s) => s.cards).find((c) => c.folder.id === menu.id) ?? null
+      : null;
+  const menuTargetSection =
+    menu?.kind === "section" ? folders.find((f) => f.id === menu.id) ?? null : null;
+  const menuTargetIdea =
+    menu?.kind === "idea" ? unfiled.find((p) => p.id === menu.id) ?? null : null;
   const menuTargetItem =
     menu?.kind === "item" ? projects.find((p) => p.id === menu.id) ?? null : null;
   const colorFolder = colorTarget
@@ -930,7 +937,7 @@ export function ProjectsHome({
 
       <main className="fh-page">
         {q ? (
-          /* Searching: the bands hide and one flat result list takes over. */
+          /* Searching: the desk hides and one flat result list takes over. */
           hits.length > 0 ? (
             <div className="fh-hits">
               {hits.map((hit) => (
@@ -948,19 +955,10 @@ export function ProjectsHome({
                   }}
                 >
                   <span className="fh-hit-title">
-                    {hit.kind === "film" ? hit.film.name : hit.meta.title}
+                    {hit.kind === "folder" ? hit.folder.name : hit.meta.title}
                   </span>
                   <span className="fh-hit-kind">{HIT_WORD[hit.kind]}</span>
-                  {(hit.kind === "draft" || hit.kind === "document") && (
-                    <span className="fh-hit-film">
-                      <span
-                        className="fh-dot"
-                        style={{ background: hit.film.color }}
-                        aria-hidden="true"
-                      />
-                      {hit.film.name}
-                    </span>
-                  )}
+                  {hit.where && <span className="fh-hit-film">{hit.where}</span>}
                 </div>
               ))}
             </div>
@@ -969,15 +967,64 @@ export function ProjectsHome({
           )
         ) : (
           <>
-            {films.length > 0 && (
-              <>
-                <div className="band">Films</div>
-                {films.map((film, i) => filmRow(film, i === 0))}
-              </>
-            )}
+            {sections.map((section, si) => {
+              const sf = section.folder;
+              const renamingSec = renamingSection === sf.id;
+              return (
+                <section key={sf.id} className="desk-section">
+                  <div className={"band" + (si > 0 ? " later" : "")}>
+                    {renamingSec ? (
+                      <NameInput
+                        initial={sf.name}
+                        className="band-rename"
+                        ariaLabel="Folder name"
+                        onCommit={(name) => {
+                          if (name) onUpdateFolder(sf.id, { name });
+                        }}
+                        onDone={() => setRenamingSection(null)}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="band-name"
+                        onClick={() => onOpenFilm(sf.id)}
+                      >
+                        {sf.name}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="fh-kebab band-kebab"
+                      aria-label={`Actions for ${sf.name}`}
+                      aria-haspopup="menu"
+                      onClick={(e) => openMenu(e, { kind: "section", id: sf.id })}
+                    >
+                      <DotsIcon />
+                    </button>
+                  </div>
 
-            <div className={"band" + (films.length > 0 ? " band-later" : "")}>Ideas</div>
-            {ideas.map(ideaRow)}
+                  <div className="desk-grid">
+                    {section.cards.map((card) => cardBlock(card, card === lead))}
+                    <button
+                      type="button"
+                      className="pcard pcard-new"
+                      onClick={() => newProjectIn(sf.id)}
+                    >
+                      New project in {sf.name}
+                    </button>
+                  </div>
+
+                  {section.loose.length > 0 && (
+                    <div className="desk-loose">{section.loose.map((p) => itemRow(p))}</div>
+                  )}
+                </section>
+              );
+            })}
+
+            <div className={"band" + (sections.length > 0 ? " later" : "")}>
+              <span className="band-name band-plain">Not in a folder</span>
+            </div>
+            {unfiled.map(ideaRow)}
             <div className="jot">
               <input
                 type="text"
@@ -1009,12 +1056,20 @@ export function ProjectsHome({
       {menu?.kind === "new" && (
         <Menu anchor={menu.anchor} items={newItems} onClose={() => setMenu(null)} ariaLabel="Create" />
       )}
-      {menuTargetFilm && menu?.kind === "film" && (
+      {menuTargetCard && menu?.kind === "card" && (
         <Menu
           anchor={menu.anchor}
-          items={filmItems(menuTargetFilm)}
+          items={cardItems(menuTargetCard)}
           onClose={() => setMenu(null)}
-          ariaLabel="Film actions"
+          ariaLabel="Folder actions"
+        />
+      )}
+      {menuTargetSection && menu?.kind === "section" && (
+        <Menu
+          anchor={menu.anchor}
+          items={sectionItems(menuTargetSection)}
+          onClose={() => setMenu(null)}
+          ariaLabel="Folder actions"
         />
       )}
       {menuTargetIdea && menu?.kind === "idea" && (
@@ -1034,10 +1089,10 @@ export function ProjectsHome({
         />
       )}
 
-      {/* ---- Film color ---- */}
+      {/* ---- Folder color ---- */}
       {colorFolder && (
-        <Modal title="Film color" onClose={() => setColorTarget(null)}>
-          <div className="folder-swatches" role="group" aria-label="Film color">
+        <Modal title="Folder color" onClose={() => setColorTarget(null)}>
+          <div className="folder-swatches" role="group" aria-label="Folder color">
             {FOLDER_COLORS.map((c) => (
               <button
                 key={c}
@@ -1102,19 +1157,24 @@ export function ProjectsHome({
         </Modal>
       )}
 
-      {/* ---- Delete a film (the folder only; its contents drop out loose) ---- */}
+      {/* ---- Delete a folder (the folder only; contents move up a level) ---- */}
       {confirmDeleteFilm && (
         <Modal
-          title="Delete film"
+          title="Delete folder"
           onClose={() => setConfirmDeleteFilm(null)}
           actions={[{ label: "Cancel", onClick: () => setConfirmDeleteFilm(null) }]}
         >
           <p>
-            Delete the film &quot;{confirmDeleteFilm.name}&quot;? Its drafts and
-            documents are kept: they return to the home as loose items.
+            Delete the folder &quot;{confirmDeleteFilm.name}&quot;? Nothing inside
+            it is deleted. Its scripts, documents and sub-folders move up one
+            level, into{" "}
+            {confirmDeleteFilm.parentId
+              ? `"${folders.find((f) => f.id === confirmDeleteFilm.parentId)?.name ?? "the level above"}"`
+              : "the top level"}
+            .
           </p>
           <div className="hold-row">
-            <HoldDelete onConfirm={() => removeFilm(confirmDeleteFilm)} />
+            <HoldDelete onConfirm={() => removeFolder(confirmDeleteFilm)} />
           </div>
         </Modal>
       )}

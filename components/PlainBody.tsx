@@ -39,7 +39,7 @@ import { HistoryPanel } from "./HistoryPanel";
 import { Modal } from "./ui/Modal";
 import type { MenuItem } from "./ui/Menu";
 import { listFolders } from "@/lib/storage/folders";
-import { filmForProject } from "@/lib/storage/films";
+import { cardForProject } from "@/lib/storage/library";
 
 export function PlainBody({
   projectId,
@@ -281,11 +281,11 @@ export function PlainBody({
     { label: backLabel ?? "Back to projects", onSelect: onBack },
   ];
 
-  // A filed document belongs to a film, so it gets the Docs panel and can
-  // jump back to the draft. A loose document is an idea: no film, no panel.
+  // A filed document belongs to a folder, so it gets the Docs panel and can
+  // jump back to the script. An unfiled note has no folder, so no panel.
   // Membership is read once per mount; the panel itself re-reads on open.
   const [inFilm] = useState(
-    () => filmForProject(projectId, listProjects(), listFolders()) !== null
+    () => cardForProject(projectId, listProjects(), listFolders()) !== null
   );
 
   const railItems: RailItem[] = [

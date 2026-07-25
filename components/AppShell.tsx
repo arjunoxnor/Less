@@ -29,7 +29,7 @@ import { AuthModal } from "./AuthModal";
 import { SessionExpiredBanner } from "./SessionExpiredBanner";
 import { importFile } from "@/lib/export";
 import { getFolder, type Stage } from "@/lib/storage/folders";
-import { filmForProject } from "@/lib/storage/films";
+import { cardForProject } from "@/lib/storage/library";
 
 type View =
   | { kind: "home" }
@@ -352,8 +352,7 @@ export function AppShell() {
   const backFilm =
     view.kind === "editor"
       ? (() => {
-          const film = filmForProject(view.id, projects, folders);
-          return film && film.kind === "folder" ? film : null;
+          return cardForProject(view.id, projects, folders);
         })()
       : null;
 
@@ -375,8 +374,8 @@ export function AppShell() {
           onRename={(t) => rename(current.id, t)}
           status={current.status}
           onStatusChange={(s) => setStatus(current.id, s)}
-          onBack={backFilm ? () => openFilm(backFilm.id) : goHome}
-          backLabel={backFilm ? `Back to ${backFilm.name}` : undefined}
+          onBack={backFilm ? () => openFilm(backFilm.folder.id) : goHome}
+          backLabel={backFilm ? `Back to ${backFilm.folder.name}` : undefined}
           prefs={prefs}
           onPrefsChange={onPrefsChange}
           user={user}
@@ -404,6 +403,7 @@ export function AppShell() {
           onPrefsChange={onPrefsChange}
           onBack={goHome}
           onOpen={openProject}
+          onOpenFolder={openFilm}
           onCreate={onCreate}
           onDelete={remove}
           onRename={rename}

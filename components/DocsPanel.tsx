@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { listProjects, type ProjectMeta } from "@/lib/storage/projects";
 import { listFolders } from "@/lib/storage/folders";
-import { filmForProject } from "@/lib/storage/films";
+import { cardForProject } from "@/lib/storage/library";
 import { relativeTime } from "./ProjectsHome";
 
 /**
@@ -25,16 +25,15 @@ export function DocsPanel({
   // A fresh storage read per open. The panel mounts each time it is shown, so
   // this stays current without threading the whole library into the editor.
   const film = useMemo(
-    () => filmForProject(projectId, listProjects(), listFolders()),
+    () => cardForProject(projectId, listProjects(), listFolders()),
     [projectId]
   );
 
-  const drafts = film
-    ? film.currentDraft
-      ? [film.currentDraft, ...film.earlierDrafts]
-      : film.earlierDrafts
-    : [];
-  const documents = film?.documents ?? [];
+  // Everything the folder holds, however deep, split by kind: from any draft
+  // you can reach every other draft and note of the same project.
+  const all = film ? [...film.items, ...film.shelves.flatMap((s) => s.items)] : [];
+  const drafts = all.filter((p) => p.type === "screenplay");
+  const documents = all.filter((p) => p.type === "plain");
 
   const item = (p: ProjectMeta) => {
     const current = p.id === projectId;
@@ -61,7 +60,7 @@ export function DocsPanel({
   return (
     <aside className="side-panel docs-panel">
       <div className="side-panel-head">
-        <strong>{film ? film.name : "Docs"}</strong>
+        <strong>{film ? film.folder.name : "Docs"}</strong>
         <button type="button" className="side-panel-x" onClick={onClose} title="Close">
           Close
         </button>
@@ -69,8 +68,8 @@ export function DocsPanel({
 
       {!film ? (
         <div className="side-panel-empty">
-          This document is not part of a film yet. File it into one from the
-          home to see the film&apos;s drafts and documents here.
+          This is not in a folder yet. File it into one from the home to see
+          that folder&apos;s scripts and documents here.
         </div>
       ) : (
         <div className="docs-list">
@@ -80,17 +79,11 @@ export function DocsPanel({
           ) : (
             <div className="docs-none">No script yet.</div>
           )}
-          {/* An implicit film is just its one script; only folder films carry
-              a documents shelf. */}
-          {film.kind === "folder" && (
-            <>
-              <div className="docs-group">Documents</div>
-              {documents.length > 0 ? (
-                documents.map(item)
-              ) : (
-                <div className="docs-none">No documents yet.</div>
-              )}
-            </>
+          <div className="docs-group">Documents</div>
+          {documents.length > 0 ? (
+            documents.map(item)
+          ) : (
+            <div className="docs-none">No documents yet.</div>
           )}
         </div>
       )}

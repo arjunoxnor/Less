@@ -1475,7 +1475,247 @@ button.film-name-link:hover {
   margin-bottom: 2px;
 }
 
-/* ---- What a film holds, listed on the home ------------------------------- */
+/* ---- The desk: sections, cards, shelves ---------------------------------- */
+
+.desk-section {
+  display: block;
+}
+/* A section heading is the writer's own top-level folder name. */
+.band-name {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.band-name:hover {
+  color: var(--ink);
+}
+.band-plain {
+  cursor: default;
+}
+.band-rename {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+}
+.band-kebab {
+  margin-left: 6px;
+  opacity: 0;
+  vertical-align: middle;
+}
+.band:hover .band-kebab,
+.band-kebab:focus-visible {
+  opacity: 1;
+}
+
+.desk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  /* Each card is as tall as what it holds: a short project next to a long one
+     must not be padded out to match it. */
+  align-items: start;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+
+.pcard {
+  position: relative;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition:
+    box-shadow var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease);
+}
+.pcard:hover {
+  box-shadow: var(--sheet-shadow);
+}
+/* The card the writer touched last spans the row and carries the specimen. */
+.pcard.lead {
+  grid-column: 1 / -1;
+}
+.pcard.dropping {
+  border-color: var(--ink);
+}
+.pcard-spine {
+  height: 3px;
+  width: 100%;
+  background: var(--fc, var(--muted));
+  flex: 0 0 auto;
+}
+.pcard-head {
+  padding: 12px 14px 10px;
+}
+.pcard-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pcard-name {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pcard-name:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pcard.lead .pcard-name {
+  font-size: 24px;
+}
+.pcard-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+}
+.pcard-top .film-caret {
+  margin-left: auto;
+}
+.pcard-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pcard-continue {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.pcard-continue:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pcard.lead .pcard-meta {
+  font-size: 13.5px;
+}
+.pcard.lead .pcard-continue {
+  font-size: 13.5px;
+}
+.pcard-list {
+  border-top: 1px solid var(--hairline);
+  padding: 2px 0 4px;
+}
+/* The lead is wide, so its contents pair up on a roomy screen. A sub-folder
+   spans the full width and pairs its own items, so a shelf never splits and
+   no column is left half empty. */
+@media (min-width: 720px) {
+  .pcard.lead .pcard-list,
+  .pcard.lead .pcard-shelfgroup {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-content: start;
+    column-gap: 8px;
+  }
+  .pcard.lead .pcard-shelfgroup,
+  .pcard.lead .pcard-shelfgroup .shelf {
+    grid-column: 1 / -1;
+  }
+}
+
+/* A folder deeper than a card keeps its own name, right where it lives. */
+.shelf {
+  appearance: none;
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.shelf:hover {
+  color: var(--ink);
+}
+.shelf-dot {
+  width: 8px;
+  height: 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.shelf-ct {
+  margin-left: auto;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The quiet way to start a new project inside a section. */
+.pcard-new {
+  align-items: center;
+  justify-content: center;
+  min-height: 74px;
+  padding: 16px;
+  border: 1px dashed var(--hairline);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: center;
+}
+.pcard-new:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+  box-shadow: none;
+}
+.desk-loose {
+  margin-top: 2px;
+}
+
+/* ---- What a card holds ---------------------------------------------------- */
+
 
 /* The fold toggle. Quiet until the film is hovered, so a tidy home stays
    tidy, but always reachable by keyboard. */
