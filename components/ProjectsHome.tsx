@@ -283,6 +283,10 @@ export function ProjectsHome({
   // Modals and inline edits.
   const [colorTarget, setColorTarget] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null);
+  // What the Move to modal is moving: a project, or a whole folder.
+  const [moveTarget, setMoveTarget] = useState<
+    null | { kind: "item"; meta: ProjectMeta } | { kind: "folder"; folder: Folder }
+  >(null);
   const [confirmDeleteFilm, setConfirmDeleteFilm] = useState<Folder | null>(null);
   const [showCodeImport, setShowCodeImport] = useState(false);
   const [renamingFilm, setRenamingFilm] = useState<string | null>(null);
@@ -356,44 +360,91 @@ export function ProjectsHome({
     [leadDraft?.id, leadDraft?.updatedAt]
   );
 
-  /* ---- Drag: loose notes onto a card ---- */
+  /* ---- Drag: move anything into any folder ---- */
 
-  const dragIdea = useRef<string | null>(null);
-  const [draggingIdea, setDraggingIdea] = useState<string | null>(null);
+  // What is being dragged: a project (script or note), or a whole folder.
+  // The ref is the authority during the drag (drop can fire before a render);
+  // the state only drives the wash and the dimmed row.
+  const drag = useRef<{ kind: "item" | "folder"; id: string } | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  // The folder id currently under the pointer, or "unfiled" for the last band.
   const [dropFilm, setDropFilm] = useState<string | null>(null);
+
   const clearDrag = () => {
-    dragIdea.current = null;
-    setDraggingIdea(null);
+    drag.current = null;
+    setDragging(null);
     setDropFilm(null);
   };
 
-  /** File a loose note into a card: it lands in that folder, through the
-   *  existing handler so every clock stamps correctly. */
-  const fileIdeaInto = (card: Card, ideaId: string) => {
-    onSetFolder(ideaId, card.folder.id);
+  /** Is `maybe` inside `folderId` (or the folder itself)? A folder can never be
+   *  dropped into its own branch: that would orphan it from the tree. */
+  const isSelfOrInside = (folderId: string, maybe: string): boolean => {
+    if (folderId === maybe) return true;
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    let cur = byId.get(folderId);
+    const seen = new Set<string>();
+    while (cur?.parentId && byId.has(cur.parentId) && !seen.has(cur.parentId)) {
+      if (cur.parentId === maybe) return true;
+      seen.add(cur.parentId);
+      cur = byId.get(cur.parentId);
+    }
+    return false;
   };
 
-  const cardDropProps = (card: Card) => ({
+  /** Can what is being dragged land here? null means the unfiled band. */
+  const canDropOn = (folderId: string | null): boolean => {
+    const d = drag.current;
+    if (!d) return false;
+    if (d.kind === "item") return true;
+    // A folder cannot go into itself or into anything already inside it.
+    return folderId === null ? true : !isSelfOrInside(folderId, d.id);
+  };
+
+  /** Do the move, through the existing handlers so clocks stamp correctly. */
+  const dropInto = (folderId: string | null) => {
+    const d = drag.current;
+    if (!d || !canDropOn(folderId)) return clearDrag();
+    if (d.kind === "item") onSetFolder(d.id, folderId);
+    else onUpdateFolder(d.id, { parentId: folderId });
+    clearDrag();
+  };
+
+  /** Anything that accepts a drop wears these. `key` marks the wash target. */
+  const dropProps = (folderId: string | null, key: string) => ({
     onDragOver: (e: React.DragEvent) => {
-      if (dragIdea.current) {
-        e.preventDefault();
-        setDropFilm(card.folder.id);
-      }
+      if (!canDropOn(folderId)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDropFilm(key);
     },
     onDragLeave: (e: React.DragEvent) => {
-      // Moving between a card's own rows also fires dragleave; only a real
+      // Crossing a target's own children also fires dragleave; only a real
       // exit clears the wash.
       if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-        setDropFilm((f) => (f === card.folder.id ? null : f));
+        setDropFilm((f) => (f === key ? null : f));
       }
     },
     onDrop: (e: React.DragEvent) => {
-      if (dragIdea.current) {
-        e.preventDefault();
-        fileIdeaInto(card, dragIdea.current);
-      }
-      clearDrag();
+      if (!drag.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dropInto(folderId);
     },
+  });
+
+  /** Whatever can be picked up wears these. */
+  const dragProps = (kind: "item" | "folder", id: string) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      // The innermost draggable wins: a row inside a card must not start the
+      // card dragging as well.
+      e.stopPropagation();
+      drag.current = { kind, id };
+      setDragging(id);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", id);
+    },
+    onDragEnd: clearDrag,
   });
 
   /* ---- Flows ---- */
@@ -485,6 +536,21 @@ export function ProjectsHome({
     }
   };
 
+  // Every folder with its path, so two folders sharing a name are still
+  // telling apart. Drag does the same job with the mouse; this is the way that
+  // works from the keyboard.
+  const moveTargets = useMemo(() => {
+    const out: { folder: Folder; path: string }[] = [];
+    const walk = (parentId: string | undefined, path: string) => {
+      for (const f of folders.filter((c) => (c.parentId ?? undefined) === parentId)) {
+        out.push({ folder: f, path });
+        walk(f.id, path ? `${path} / ${f.name}` : f.name);
+      }
+    };
+    walk(undefined, "");
+    return out;
+  }, [folders]);
+
   /* ---- Menu item builders ---- */
 
   const overflowItems: MenuItem[] = [
@@ -540,6 +606,10 @@ export function ProjectsHome({
     { label: "Open", onSelect: () => onOpenFilm(card.folder.id) },
     { label: "Rename", onSelect: () => setRenamingFilm(card.folder.id) },
     { label: "Color", onSelect: () => setColorTarget(card.folder.id) },
+    {
+      label: "Move to",
+      onSelect: () => setMoveTarget({ kind: "folder", folder: card.folder }),
+    },
     { kind: "divider" },
     { label: "Delete folder", danger: true, onSelect: () => setConfirmDeleteFilm(card.folder) },
   ];
@@ -548,6 +618,7 @@ export function ProjectsHome({
   const sectionItems = (f: Folder): MenuItem[] => [
     { label: "New project in here", onSelect: () => newProjectIn(f.id) },
     { label: "Rename", onSelect: () => setRenamingSection(f.id) },
+    { label: "Move to", onSelect: () => setMoveTarget({ kind: "folder", folder: f }) },
     { kind: "divider" },
     { label: "Delete folder", danger: true, onSelect: () => setConfirmDeleteFilm(f) },
   ];
@@ -556,12 +627,14 @@ export function ProjectsHome({
   const itemItems = (p: ProjectMeta): MenuItem[] => [
     { label: "Open", onSelect: () => onOpen(p.id) },
     { label: "Rename", onSelect: () => setRenamingItem(p.id) },
+    { label: "Move to", onSelect: () => setMoveTarget({ kind: "item", meta: p }) },
     { kind: "divider" },
     { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
   ];
 
   const ideaItems = (idea: ProjectMeta): MenuItem[] => [
     { label: "Open", onSelect: () => onOpen(idea.id) },
+    { label: "Move to", onSelect: () => setMoveTarget({ kind: "item", meta: idea }) },
     { kind: "divider" },
     { label: "Delete", danger: true, onSelect: () => setConfirmDelete(idea) },
   ];
@@ -643,10 +716,11 @@ export function ProjectsHome({
     return (
       <div
         key={p.id}
-        className="fh-item"
+        className={"fh-item" + (dragging === p.id ? " dragging" : "")}
         style={indent ? { paddingLeft: 14 + indent * 12 } : undefined}
         role="button"
         tabIndex={0}
+        {...dragProps("item", p.id)}
         onClick={open}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -712,10 +786,12 @@ export function ProjectsHome({
         className={
           "pcard" +
           (isLead ? " lead" : "") +
-          (dropFilm === f.id ? " dropping" : "")
+          (dropFilm === f.id ? " dropping" : "") +
+          (dragging === f.id ? " dragging" : "")
         }
         style={{ ["--fc" as string]: f.color }}
-        {...cardDropProps(card)}
+        {...dragProps("folder", f.id)}
+        {...dropProps(f.id, f.id)}
       >
         <div className="pcard-spine" aria-hidden="true" />
         <div className="pcard-head">
@@ -798,8 +874,14 @@ export function ProjectsHome({
               return (
               <div key={shelf.folder.id} className="pcard-shelfgroup">
                 <div
-                  className="shelf"
+                  className={
+                    "shelf" +
+                    (dropFilm === shelf.folder.id ? " dropping" : "") +
+                    (dragging === shelf.folder.id ? " dragging" : "")
+                  }
                   style={{ paddingLeft: 14 + (shelf.depth - 1) * 12 }}
+                  {...dragProps("folder", shelf.folder.id)}
+                  {...dropProps(shelf.folder.id, shelf.folder.id)}
                 >
                   {shelf.items.length > 0 && (
                     <button
@@ -852,17 +934,10 @@ export function ProjectsHome({
   const ideaRow = (idea: ProjectMeta) => (
     <div
       key={idea.id}
-      className={"idea" + (draggingIdea === idea.id ? " dragging" : "")}
+      className={"idea" + (dragging === idea.id ? " dragging" : "")}
       role="button"
       tabIndex={0}
-      draggable
-      onDragStart={(e) => {
-        dragIdea.current = idea.id;
-        setDraggingIdea(idea.id);
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", idea.id);
-      }}
-      onDragEnd={clearDrag}
+      {...dragProps("item", idea.id)}
       onClick={() => onOpen(idea.id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -1010,7 +1085,14 @@ export function ProjectsHome({
                 section.cards.reduce((n, c) => n + c.total, 0) + section.loose.length;
               return (
                 <section key={sf.id} className="desk-section">
-                  <div className={"band" + (si > 0 ? " later" : "")}>
+                  <div
+                    className={
+                      "band" +
+                      (si > 0 ? " later" : "") +
+                      (dropFilm === sf.id ? " dropping" : "")
+                    }
+                    {...dropProps(sf.id, sf.id)}
+                  >
                     <button
                       type="button"
                       className={"film-caret band-caret" + (sectionOpen ? " open" : "")}
@@ -1081,7 +1163,14 @@ export function ProjectsHome({
               );
             })}
 
-            <div className={"band" + (sections.length > 0 ? " later" : "")}>
+            <div
+              className={
+                "band" +
+                (sections.length > 0 ? " later" : "") +
+                (dropFilm === "unfiled" ? " dropping" : "")
+              }
+              {...dropProps(null, "unfiled")}
+            >
               <span className="band-name band-plain">Not in a folder</span>
             </div>
             {unfiled.map(ideaRow)}
@@ -1214,6 +1303,62 @@ export function ProjectsHome({
           ]}
         >
           <p>Delete &quot;{confirmDelete.title}&quot;? This cannot be undone.</p>
+        </Modal>
+      )}
+
+      {/* ---- Move to: the keyboard path for what drag does with a mouse ---- */}
+      {moveTarget && (
+        <Modal
+          title={`Move "${
+            moveTarget.kind === "item" ? moveTarget.meta.title : moveTarget.folder.name
+          }"`}
+          onClose={() => setMoveTarget(null)}
+        >
+          <div className="move-list">
+            <button
+              type="button"
+              className="move-item"
+              onClick={() => {
+                if (moveTarget.kind === "item") onSetFolder(moveTarget.meta.id, null);
+                else onUpdateFolder(moveTarget.folder.id, { parentId: null });
+                setMoveTarget(null);
+              }}
+            >
+              Not in a folder
+            </button>
+            {moveTargets
+              .filter(
+                ({ folder: f }) =>
+                  moveTarget.kind === "item" ||
+                  !isSelfOrInside(f.id, moveTarget.folder.id)
+              )
+              .map(({ folder: f, path }) => {
+                const here =
+                  moveTarget.kind === "item"
+                    ? moveTarget.meta.folderId === f.id
+                    : moveTarget.folder.parentId === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={"move-item" + (here ? " move-current" : "")}
+                    onClick={() => {
+                      if (moveTarget.kind === "item") onSetFolder(moveTarget.meta.id, f.id);
+                      else onUpdateFolder(moveTarget.folder.id, { parentId: f.id });
+                      setMoveTarget(null);
+                    }}
+                  >
+                    <span
+                      className="move-dot"
+                      style={{ background: f.color }}
+                      aria-hidden="true"
+                    />
+                    {f.name}
+                    {path && <span className="move-path">{path}</span>}
+                  </button>
+                );
+              })}
+          </div>
         </Modal>
       )}
 

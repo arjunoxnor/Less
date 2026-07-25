@@ -1562,6 +1562,26 @@ button.film-name-link:hover {
 }
 .pcard.dropping {
   border-color: var(--ink);
+  background: var(--surface);
+}
+/* What is being carried goes quiet, so the eye follows the target. */
+.pcard.dragging,
+.fh-item.dragging,
+.shelf.dragging {
+  opacity: 0.4;
+}
+.fh-item {
+  cursor: grab;
+}
+.fh-item:active {
+  cursor: grabbing;
+}
+/* A heading is a real destination: drop here to file into that folder, or to
+   move a whole project between stages. */
+.band.dropping,
+.shelf.dropping {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 0 var(--ink);
 }
 .pcard-spine {
   height: 3px;
