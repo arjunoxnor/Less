@@ -105,7 +105,6 @@ export function ScreenplayBody({
   status,
   onStatusChange,
   onBack,
-  backLabel,
   prefs,
   onPrefsChange,
   user,
@@ -120,8 +119,6 @@ export function ScreenplayBody({
   status: ProjectStatus;
   onStatusChange: (status: ProjectStatus) => void;
   onBack: () => void;
-  /** Names where back goes (the film's page for filed drafts). */
-  backLabel?: string;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
@@ -838,7 +835,7 @@ export function ScreenplayBody({
     } else {
       cmds.push({ id: "lock", group: "Pages", label: "Lock pages (freeze numbers, A-pages on revision)", run: lockPages });
     }
-    cmds.push({ id: "go-home", group: "Go", label: backLabel ?? "Back to projects", run: onBack });
+    cmds.push({ id: "go-home", group: "Go", label: "Back to projects", run: onBack });
     for (const s of outline.scenes) {
       cmds.push({
         id: "scene-" + s.number,
@@ -848,7 +845,7 @@ export function ScreenplayBody({
       });
     }
     return cmds;
-  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, backLabel, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection]);
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection]);
 
   // ---- Chrome wiring (Part 2B): menus, rail, dock content ------------------
 
@@ -919,7 +916,7 @@ export function ScreenplayBody({
           ]
         : [{ label: "Sign in", onSelect: () => setShowAuth(true) } as MenuItem]
       : []),
-    { label: backLabel ?? "Back to projects", onSelect: onBack },
+    { label: "Back to projects", onSelect: onBack },
   ];
 
   const railItems: RailItem[] = [
@@ -1032,7 +1029,6 @@ export function ScreenplayBody({
         title={title}
         onRename={onRename}
         onBack={onBack}
-        backLabel={backLabel}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}

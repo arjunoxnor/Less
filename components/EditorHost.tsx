@@ -34,9 +34,6 @@ export function EditorHost({
   status: ProjectStatus;
   onStatusChange: (status: ProjectStatus) => void;
   onBack: () => void;
-  /** What the back chevron says and where it goes: a filed project backs out
-   *  to its film's page, so the label names the film. Default: the home. */
-  backLabel?: string;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;

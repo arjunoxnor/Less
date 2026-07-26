@@ -37,7 +37,6 @@ export function EditorShell({
   title,
   onRename,
   onBack,
-  backLabel,
   cloudConfigured,
   user,
   syncStatus,
@@ -64,8 +63,6 @@ export function EditorShell({
   title: string;
   onRename: (title: string) => void;
   onBack: () => void;
-  /** Where the back chevron goes, spoken: names the film for filed projects. */
-  backLabel?: string;
   cloudConfigured: boolean;
   user: User | null;
   syncStatus: SyncStatus;
@@ -167,7 +164,6 @@ export function EditorShell({
           title={title}
           onRename={onRename}
           onBack={onBack}
-          backLabel={backLabel}
           cloudConfigured={cloudConfigured}
           user={user}
           syncStatus={syncStatus}

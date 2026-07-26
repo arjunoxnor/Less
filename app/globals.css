@@ -18,10 +18,6 @@ body {
 }
 
 /* ---- Theme tokens ------------------------------------------------------- */
-/* The real tokens live in tokens.css (loaded first). The legacy names below
-   are aliases onto them so every existing selector keeps working while the
-   shell migrates; var() resolves per-element, so the dark values flow through
-   automatically. --muted comes straight from tokens.css. */
 
 :root {
   --bg: var(--desk);
@@ -50,7 +46,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---- Font choice for the script (set on .app, used by the page) --------- */
 
 .font-courier-prime {
   --sp-font: var(--font-courier-prime), "Courier Prime", "Courier New", monospace;
@@ -97,7 +92,6 @@ body {
   --doc-font: var(--font-courier-prime), "Courier Prime", monospace;
 }
 
-/* ---- App layout: toolbar / scrollable page / status bar ---------------- */
 
 .app {
   display: flex;
@@ -159,7 +153,6 @@ body {
   cursor: pointer;
 }
 
-/* ---- Export / Import dropdown menus ------------------------------------- */
 
 .tb-menu {
   position: relative;
@@ -201,7 +194,6 @@ body {
   display: none;
 }
 
-/* ---- The scrollable area that holds the page --------------------------- */
 
 .page-scroll {
   flex: 1 1 auto;
@@ -214,7 +206,6 @@ body {
   justify-content: center;
 }
 
-/* ---- Paginated page sheets (the Google-Docs look) ----------------------- */
 
 /* Relative host. The screenplay host is sized to its 8.5in content (centered by
    page-wrap); the plain host is full width and centers the page itself. The
@@ -289,7 +280,6 @@ body {
   text-transform: uppercase;
 }
 
-/* ---- Status bar (2B.4: 26px) -------------------------------------------- */
 
 .status-bar {
   display: flex;
@@ -379,12 +369,6 @@ body {
   font-weight: 600;
 }
 
-/* ============================================================================
-   THE SCREENPLAY PAGE
-   8.5in x 11in. Margins: 1in top/bottom, 1.5in left, 1in right -> a 6in text
-   column. At 12pt Courier with 6 lines/inch this is the standard spec layout.
-   The element indents below are measured inside that 6in column.
-   ========================================================================== */
 
 .sp-editor .sp-prose {
   width: 8.5in;
@@ -460,7 +444,6 @@ body {
   margin-left: 3.2in;
 }
 
-/* ---- Placeholder hints on the current empty line ----------------------- */
 
 .sp-prose .is-empty::before {
   content: attr(data-placeholder);
@@ -475,9 +458,6 @@ body {
   background: var(--selection);
 }
 
-/* ============================================================================
-   ACCOUNT / SYNC / MODAL / HISTORY
-   ========================================================================== */
 
 .sync-label {
   font-size: var(--text-sm);
@@ -503,7 +483,6 @@ body {
   background: var(--danger);
 }
 
-/* ---- Modal ------------------------------------------------------------- */
 
 .modal-backdrop {
   position: fixed;
@@ -638,7 +617,6 @@ body {
   text-decoration: underline;
 }
 
-/* ---- History panel (dock-fill: geometry comes from the dock) ------------ */
 
 .history-panel {
   display: flex;
@@ -713,11 +691,7 @@ body {
   border-color: var(--accent);
 }
 
-/* ============================================================================
-   PHASE 4: NAVIGATION (scene navigator, cast list, find/replace, autocomplete)
-   ========================================================================== */
 
-/* ---- Shared side panel (dock-fill: the dock provides the geometry) ------ */
 
 .side-panel {
   display: flex;
@@ -764,7 +738,6 @@ body {
   line-height: 1.5;
 }
 
-/* ---- Scene navigator ---------------------------------------------------- */
 
 .scene-item {
   display: flex;
@@ -804,7 +777,6 @@ body {
   flex: 0 0 auto;
 }
 
-/* ---- Cast list ---------------------------------------------------------- */
 
 .cast-item {
   display: flex;
@@ -846,7 +818,6 @@ body {
   border-color: var(--accent);
 }
 
-/* ---- Find and replace --------------------------------------------------- */
 
 .find-seg {
   display: flex;
@@ -925,7 +896,6 @@ body {
   outline: 1px solid var(--accent);
 }
 
-/* ---- Autocomplete dropdown ---------------------------------------------- */
 
 .ac-menu {
   z-index: var(--z-menus);
@@ -967,7 +937,6 @@ body {
   flex: 0 0 auto;
 }
 
-/* ---- Spell check -------------------------------------------------------- */
 
 /* A red wavy underline, distinct from the blue find highlight. Drawn under the
    prose text only (the plugin never marks sluglines, cues, or transitions). */
@@ -1022,9 +991,6 @@ body {
   font-size: var(--text-md);
 }
 
-/* ============================================================================
-   Phase 7: projects home, project cards, editor chrome, plain documents
-   ========================================================================== */
 
 .tb-btn-danger {
   color: var(--danger);
@@ -1034,10 +1000,6 @@ body {
   background: rgba(224, 83, 59, 0.12);
 }
 
-/* ============================================================================
-   DASHBOARD (Superaudit 2, Part 2C): top bar, folder sidebar, Continue card,
-   script rows. Replaces the chip-grid and folder-card generations wholesale.
-   ========================================================================== */
 
 /* View swap (2E): the incoming view fades in with a 4px rise; no exit. */
 @keyframes view-in {
@@ -1059,7 +1021,6 @@ body {
   color: var(--ink);
 }
 
-/* ---- Top bar (48px, --surface, hairline bottom) -------------------------- */
 
 .home-topbar {
   display: flex;
@@ -1121,7 +1082,6 @@ body {
   color: var(--muted);
 }
 
-/* ---- Dashboard modals: move-to, sync code -------------------------------- */
 
 .move-list {
   display: flex;
@@ -1265,12 +1225,6 @@ body {
   position: relative;
 }
 
-/* ============================================================================
-   FILMS HOME (Altitude 1) and the project page (Altitude 2). One 760px column
-   on the desk; a line per film, the lead simply bigger; ideas with the jot
-   line underneath. Type sizes and spacing follow the approved fifth-pass
-   sketch, mapped onto the tokens.
-   ========================================================================== */
 
 .fh-page {
   width: 100%;
@@ -1292,24 +1246,6 @@ body {
   opacity: 0.6;
 }
 
-/* Back to the home from a film's page. */
-.fh-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: none;
-  background: none;
-  padding: 4px 8px;
-  border-radius: var(--r-sm);
-  font: inherit;
-  font-size: var(--text-sm);
-  color: var(--muted);
-  cursor: pointer;
-  transition: color var(--dur-1) var(--ease);
-}
-.fh-back:hover {
-  color: var(--ink);
-}
 
 /* Band labels: FILMS, IDEAS, SCRIPT, DOCUMENTS. */
 .band {
@@ -1331,11 +1267,10 @@ body {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.band-later {
+.band.later {
   margin-top: 38px;
 }
 
-/* ---- Film lines: one per film, the lead simply bigger --------------------- */
 
 .film {
   display: flex;
@@ -1475,7 +1410,6 @@ button.film-name-link:hover {
   margin-bottom: 2px;
 }
 
-/* ---- The desk: sections, cards, shelves ---------------------------------- */
 
 .desk-section {
   display: block;
@@ -1748,7 +1682,6 @@ button.film-name-link:hover {
   margin-top: 2px;
 }
 
-/* ---- What a card holds ---------------------------------------------------- */
 
 
 /* The fold toggle. Quiet until the film is hovered, so a tidy home stays
@@ -1850,7 +1783,6 @@ button.film-name-link:hover {
   opacity: 1;
 }
 
-/* ---- Idea lines and the jot ---------------------------------------------- */
 
 .idea {
   display: flex;
@@ -1907,7 +1839,6 @@ button.film-name-link:hover {
   border-bottom-color: var(--ink);
 }
 
-/* ---- Kebabs on film, idea, and page lines (hover/focus reveal) ----------- */
 
 .fh-kebab {
   display: inline-flex;
@@ -1927,18 +1858,15 @@ button.film-name-link:hover {
 }
 /* Idea and page lines put the timestamp at the far right; the kebab follows. */
 .idea .fh-kebab,
-.sline .fh-kebab,
-.dline .fh-kebab {
+.fh-item .fh-kebab {
   margin-left: 0;
 }
-.film:hover .fh-kebab,
-.film:focus-within .fh-kebab,
 .idea:hover .fh-kebab,
 .idea:focus-within .fh-kebab,
-.sline:hover .fh-kebab,
-.sline:focus-within .fh-kebab,
-.dline:hover .fh-kebab,
-.dline:focus-within .fh-kebab,
+.pcard:hover .fh-kebab,
+.pcard:focus-within .fh-kebab,
+.band:hover .fh-kebab,
+.band:focus-within .fh-kebab,
 .fh-kebab:focus-visible {
   opacity: 1;
 }
@@ -1953,7 +1881,6 @@ button.film-name-link:hover {
   }
 }
 
-/* ---- Search: one flat result list while typing ---------------------------- */
 
 .fh-hits {
   display: flex;
@@ -2006,146 +1933,8 @@ button.film-name-link:hover {
   border-radius: 50%;
 }
 
-/* ---- The project page (Altitude 2) ---------------------------------------- */
 
-.pp-head {
-  margin-bottom: 30px;
-}
-.pp-kicker {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.pp-mark {
-  width: 18px;
-  height: 4px;
-  border-radius: 2px;
-  flex: 0 0 auto;
-}
-.pp-kind {
-  font-size: 12px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-/* The film name, editing in place through the folder rename. */
-.pp-title {
-  width: 100%;
-  font: inherit;
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1.1;
-  margin: 8px 0 6px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--ink);
-}
-.pp-title:focus {
-  outline: none;
-}
-.pp-meta {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.pp-continue {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  font-weight: 600;
-  cursor: pointer;
-}
-.pp-continue:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.pp-sep {
-  opacity: 0.6;
-}
 
-/* The current draft line. */
-.sline {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 12px 8px;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition: background-color var(--dur-1) var(--ease);
-}
-.sline:hover {
-  background: var(--surface);
-}
-.s-title {
-  font-size: 17px;
-  font-weight: 600;
-  flex: 0 0 auto;
-}
-.s-meta {
-  margin-left: auto;
-  flex: 0 0 auto;
-  font-size: var(--text-sm);
-  color: var(--muted);
-  display: flex;
-  gap: 14px;
-  font-variant-numeric: tabular-nums;
-  align-items: baseline;
-}
-/* A film without a script yet: the page's one affordance to begin it. */
-.sline-start {
-  width: 100%;
-  border: none;
-  background: none;
-  text-align: left;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--muted);
-}
-.sline-start:hover {
-  color: var(--ink);
-}
-
-/* Document lines (and expanded earlier drafts). */
-.dline {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 9px 8px;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition:
-    background-color var(--dur-1) var(--ease),
-    opacity var(--dur-1) var(--ease);
-}
-.dline:hover {
-  background: var(--surface);
-}
-.dline.dragging {
-  opacity: 0.4;
-}
-.d-title {
-  font-size: 15px;
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.d-when {
-  margin-left: auto;
-  font-size: var(--text-sm);
-  color: var(--muted);
-  flex: 0 0 auto;
-  white-space: pre;
-}
 /* Inline rename inside a line, on the hairline-underline pattern. */
 .line-rename {
   flex: 1 1 auto;
@@ -2164,36 +1953,8 @@ button.film-name-link:hover {
   outline: none;
 }
 
-/* The quiet expander for earlier drafts. */
-.mline {
-  display: block;
-  border: none;
-  background: none;
-  text-align: left;
-  padding: 8px 8px 2px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--muted);
-  cursor: pointer;
-}
-.mline:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 
-/* The caret-row drop indicator: a 2px ink line at the insertion point. */
-.dline-slot {
-  display: flex;
-  flex-direction: column;
-}
-.drop-caret {
-  height: 2px;
-  border-radius: 1px;
-  background: var(--ink);
-  margin: -1px 8px;
-}
 
-/* ---- The editor's Docs panel (Altitude 3) --------------------------------- */
 
 .docs-list {
   overflow: auto;
@@ -2247,7 +2008,6 @@ button.film-name-link:hover {
   color: var(--muted);
 }
 
-/* ---- Small screens -------------------------------------------------------- */
 
 @media (max-width: 599px) {
   .fh-page {
@@ -2259,12 +2019,8 @@ button.film-name-link:hover {
   .film.lead .film-rename {
     font-size: 26px;
   }
-  .pp-title {
-    font-size: 28px;
-  }
 }
 
-/* ---- Plain document surface --------------------------------------------- */
 
 .pl-doc {
   width: 100%;
@@ -2427,7 +2183,6 @@ button.film-name-link:hover {
   pointer-events: none;
 }
 
-/* ---- Reports panel (Phase 9) -------------------------------------------- */
 
 .report-stats {
   display: grid;
@@ -3003,11 +2758,6 @@ button.film-name-link:hover {
 
 }
 
-/* ============================================================================
-   UI PRIMITIVES (components/ui): modal, toast, menu, tooltip, link popover.
-   These replace every native browser dialog (D9) and are the base surfaces the
-   rebuilt shell composes in later phases.
-   ========================================================================== */
 
 @keyframes ui-fade-in {
   from {
@@ -3033,7 +2783,6 @@ button.film-name-link:hover {
   }
 }
 
-/* ---- Modal --------------------------------------------------------------- */
 
 .ui-modal-scrim {
   position: fixed;
@@ -3089,7 +2838,6 @@ button.film-name-link:hover {
   margin-top: var(--space-5);
 }
 
-/* ---- Buttons (modal actions) --------------------------------------------- */
 
 .ui-btn {
   font: inherit;
@@ -3146,7 +2894,6 @@ button.film-name-link:hover {
   color: var(--muted);
 }
 
-/* ---- Toast ---------------------------------------------------------------- */
 
 .ui-toast {
   position: fixed;
@@ -3169,7 +2916,6 @@ button.film-name-link:hover {
   color: #fff;
 }
 
-/* ---- Anchored menu -------------------------------------------------------- */
 
 .ui-menu {
   position: fixed;
@@ -3224,7 +2970,6 @@ button.film-name-link:hover {
   background: var(--hairline);
 }
 
-/* ---- Tooltip --------------------------------------------------------------- */
 
 .ui-tooltip {
   position: fixed;
@@ -3240,7 +2985,6 @@ button.film-name-link:hover {
   animation: ui-fade-in var(--dur-1) var(--ease);
 }
 
-/* ---- Link popover (plain toolbar) ------------------------------------------ */
 
 .pt-link-pop {
   display: flex;
@@ -3265,12 +3009,7 @@ button.film-name-link:hover {
   gap: var(--space-2);
 }
 
-/* ============================================================================
-   EDITOR SHELL (Superaudit 2, Part 2B): top bar, left rail, dock, status bar.
-   The shell root also carries the legacy .app class (flex column, 100vh).
-   ========================================================================== */
 
-/* ---- Top bar (2B.1: 48px, --surface, hairline bottom) -------------------- */
 
 .editor-topbar-slot {
   flex: 0 0 auto;
@@ -3386,7 +3125,6 @@ button.film-name-link:hover {
   display: none;
 }
 
-/* ---- Slim second row (plain formatting controls) ------------------------- */
 
 .editor-secondrow {
   display: flex;
@@ -3399,7 +3137,6 @@ button.film-name-link:hover {
   flex-wrap: wrap;
 }
 
-/* ---- Body: rail | page | dock -------------------------------------------- */
 
 .editor-body {
   position: relative;
@@ -3419,7 +3156,6 @@ button.film-name-link:hover {
   min-height: 0;
 }
 
-/* ---- Left rail (2B.2: 44px, icon-only) ----------------------------------- */
 
 .editor-rail {
   display: flex;
@@ -3460,7 +3196,6 @@ button.film-name-link:hover {
   background: var(--hairline);
 }
 
-/* ---- Dock (2B.3: 300px, one panel at a time) ----------------------------- */
 
 @keyframes dock-in {
   from {
@@ -3556,7 +3291,6 @@ button.film-name-link:hover {
   opacity: 1;
 }
 
-/* ---- Rail collapse below 900px ------------------------------------------- */
 
 @media (max-width: 899px) {
   .editor-rail {
@@ -3570,7 +3304,6 @@ button.film-name-link:hover {
   }
 }
 
-/* ---- Focus mode (2F) ------------------------------------------------------ */
 
 .focus-mode .editor-rail,
 .focus-mode .editor-secondrow,
@@ -3606,7 +3339,6 @@ button.film-name-link:hover {
   background: rgba(0, 0, 0, 0.08);
 }
 
-/* ---- Menu hint (right-aligned shortcut text) ------------------------------ */
 
 .ui-menu-hint {
   margin-left: auto;
@@ -3615,7 +3347,6 @@ button.film-name-link:hover {
   font-size: var(--text-xs);
 }
 
-/* ---- Onboarding (2D): hint card and ghost line ---------------------------- */
 
 .hint-card {
   position: fixed;
@@ -3671,7 +3402,6 @@ button.film-name-link:hover {
   pointer-events: none;
 }
 
-/* ---- Shortcuts overlay (2D.4) --------------------------------------------- */
 
 .shortcuts-grid {
   display: grid;

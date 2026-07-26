@@ -205,7 +205,6 @@ export function ProjectsHome({
   prefs,
   onPrefsChange,
   onOpen,
-  onOpenFilm,
   onCreate,
   onDelete,
   onRename,
@@ -225,8 +224,6 @@ export function ProjectsHome({
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   onOpen: (id: string, opts?: { focusTitle?: boolean }) => void;
-  /** Opens a folder film's project page (#/f/<folderId>). */
-  onOpenFilm: (folderId: string) => void;
   /** Creates without opening; the home decides whether to open. */
   onCreate: (
     type: ProjectType,
@@ -448,6 +445,18 @@ export function ProjectsHome({
 
   /* ---- Flows ---- */
 
+  /** Make something inside a folder and open it. */
+  const createIn = (type: ProjectType, title: string, folderId: string) => {
+    try {
+      const meta = onCreate(type, title, { folderId });
+      onOpen(meta.id, { focusTitle: true });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not create the project.", {
+        variant: "danger",
+      });
+    }
+  };
+
   const createAndOpen = (type: ProjectType, title: string) => {
     try {
       const meta = onCreate(type, title);
@@ -600,22 +609,29 @@ export function ProjectsHome({
     },
   ];
 
-  /** A card's kebab: it acts on the folder, never on what is inside it. */
-  const cardItems = (card: Card): MenuItem[] => [
-    { label: "Open", onSelect: () => onOpenFilm(card.folder.id) },
-    { label: "Rename", onSelect: () => setRenamingFilm(card.folder.id) },
-    { label: "Color", onSelect: () => setColorTarget(card.folder.id) },
+  /** A folder's kebab, on a card or a shelf: everything you can do to it. */
+  const cardItems = (f: Folder): MenuItem[] => [
     {
-      label: "Move to",
-      onSelect: () => setMoveTarget({ kind: "folder", folder: card.folder }),
+      label: "New script here",
+      onSelect: () => createIn("screenplay", "Untitled screenplay", f.id),
     },
+    { label: "New document here", onSelect: () => createIn("plain", "", f.id) },
     { kind: "divider" },
-    { label: "Delete folder", danger: true, onSelect: () => setConfirmDeleteFilm(card.folder) },
+    { label: "Rename", onSelect: () => setRenamingFilm(f.id) },
+    { label: "Color", onSelect: () => setColorTarget(f.id) },
+    { label: "Move to", onSelect: () => setMoveTarget({ kind: "folder", folder: f }) },
+    { kind: "divider" },
+    { label: "Delete folder", danger: true, onSelect: () => setConfirmDeleteFilm(f) },
   ];
 
   /** A section heading's kebab. */
   const sectionItems = (f: Folder): MenuItem[] => [
     { label: "New project in here", onSelect: () => newProjectIn(f.id) },
+    {
+      label: "New script here",
+      onSelect: () => createIn("screenplay", "Untitled screenplay", f.id),
+    },
+    { label: "New document here", onSelect: () => createIn("plain", "", f.id) },
     { label: "Rename", onSelect: () => setRenamingSection(f.id) },
     { label: "Move to", onSelect: () => setMoveTarget({ kind: "folder", folder: f }) },
     { kind: "divider" },
@@ -689,8 +705,25 @@ export function ProjectsHome({
     return out;
   }, [q, sections, unfiled]);
 
+  /** Open a folder and everything above it, so it is actually on screen. */
+  const revealFolder = (id: string) => {
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    const next: Record<string, boolean> = { ...folds };
+    let cur = byId.get(id);
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur.id)) {
+      next[cur.id] = true;
+      seen.add(cur.id);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    setFolds(next);
+    lsSet(FOLDS_KEY, JSON.stringify(next));
+    setQuery("");
+  };
+
   const openHit = (hit: Hit) => {
-    if (hit.kind === "folder") onOpenFilm(hit.folder.id);
+    // A folder is not a place you go to; it is a thing on this page. Show it.
+    if (hit.kind === "folder") revealFolder(hit.folder.id);
     else onOpen(hit.meta.id);
   };
 
@@ -778,7 +811,7 @@ export function ProjectsHome({
     const draft = card.current;
     const openFolder = (e: React.SyntheticEvent) => {
       e.stopPropagation();
-      if (!renaming) onOpenFilm(f.id);
+      if (!renaming) toggleFold(f.id, isLead);
     };
     return (
       <article
@@ -906,12 +939,21 @@ export function ProjectsHome({
                     className="shelf-name"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onOpenFilm(shelf.folder.id);
+                      toggleFold(shelf.folder.id, false);
                     }}
                   >
                     {shelf.folder.name}
                   </button>
                   <span className="shelf-ct">{shelf.items.length}</span>
+                  <button
+                    type="button"
+                    className="fh-kebab"
+                    aria-label={`Actions for ${shelf.folder.name}`}
+                    aria-haspopup="menu"
+                    onClick={(e) => openMenu(e, { kind: "card", id: shelf.folder.id })}
+                  >
+                    <DotsIcon />
+                  </button>
                 </div>
                 {shelfOpen &&
                   shelf.items.map((p) =>
@@ -956,9 +998,7 @@ export function ProjectsHome({
   );
 
   const menuTargetCard =
-    menu?.kind === "card"
-      ? sections.flatMap((s) => s.cards).find((c) => c.folder.id === menu.id) ?? null
-      : null;
+    menu?.kind === "card" ? folders.find((f) => f.id === menu.id) ?? null : null;
   const menuTargetSection =
     menu?.kind === "section" ? folders.find((f) => f.id === menu.id) ?? null : null;
   const menuTargetIdea =
@@ -1113,7 +1153,7 @@ export function ProjectsHome({
                       <button
                         type="button"
                         className="band-name"
-                        onClick={() => onOpenFilm(sf.id)}
+                        onClick={() => toggleFold(sf.id, true)}
                       >
                         {sf.name}
                       </button>

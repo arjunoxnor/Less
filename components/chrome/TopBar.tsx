@@ -26,7 +26,6 @@ export function TopBar({
   title,
   onRename,
   onBack,
-  backLabel,
   cloudConfigured,
   user,
   syncStatus,
@@ -42,8 +41,6 @@ export function TopBar({
   title: string;
   onRename: (title: string) => void;
   onBack: () => void;
-  /** Names the chevron's destination (the film's page for filed projects). */
-  backLabel?: string;
   cloudConfigured: boolean;
   user: User | null;
   syncStatus: SyncStatus;
@@ -87,8 +84,8 @@ export function TopBar({
         type="button"
         className="tb-icon"
         onClick={onBack}
-        aria-label={backLabel ?? "Back to projects"}
-        title={backLabel ?? "Back to projects"}
+        aria-label="Back to projects"
+        title="Back to projects"
       >
         <ChevronLeftIcon />
       </button>

@@ -48,7 +48,6 @@ export function PlainBody({
   status,
   onStatusChange,
   onBack,
-  backLabel,
   prefs,
   onPrefsChange,
   user,
@@ -62,8 +61,6 @@ export function PlainBody({
   status: ProjectStatus;
   onStatusChange: (status: ProjectStatus) => void;
   onBack: () => void;
-  /** Names where back goes (the film's page for filed documents). */
-  backLabel?: string;
   prefs: Prefs;
   onPrefsChange: (next: Partial<Prefs>) => void;
   user: User | null;
@@ -278,7 +275,7 @@ export function PlainBody({
           ]
         : [{ label: "Sign in", onSelect: () => setShowAuth(true) } as MenuItem]
       : []),
-    { label: backLabel ?? "Back to projects", onSelect: onBack },
+    { label: "Back to projects", onSelect: onBack },
   ];
 
   // A filed document belongs to a folder, so it gets the Docs panel and can
@@ -322,7 +319,6 @@ export function PlainBody({
         title={title}
         onRename={onRename}
         onBack={onBack}
-        backLabel={backLabel}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}
