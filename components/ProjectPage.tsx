@@ -19,7 +19,7 @@ import { Menu, type MenuItem } from "./ui/Menu";
 import { Modal } from "./ui/Modal";
 import { showToast } from "./ui/Toast";
 import { ChevronLeftIcon, DotsIcon } from "./chrome/icons";
-import { firstLine, NameInput, relativeTime, StatusWord } from "./ProjectsHome";
+import { NameInput, relativeTime, StatusWord } from "./ProjectsHome";
 
 /**
  * The project page (films-home build, Altitude 2): everything about one film.
@@ -136,13 +136,6 @@ export function ProjectPage({
   );
   const draft = ownScripts[0] ?? null;
   const earlier = ownScripts.slice(1);
-
-  // The current draft's first scene line, re-read only when its clock moves.
-  const draftLine = useMemo(
-    () => (draft ? firstLine(draft) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [draft?.id, draft?.updatedAt]
-  );
 
   // Documents wear the manual drag order when one exists; the selector's
   // recency order remains the fallback (the sort is stable, so untouched
@@ -559,13 +552,6 @@ export function ProjectPage({
                 />
               ) : (
                 <span className="s-title">{draft.title}</span>
-              )}
-              {draftLine && (
-                <span
-                  className={"s-open" + (draftLine.isScene ? " s-open-scene" : "")}
-                >
-                  {draftLine.text}
-                </span>
               )}
               <span className="s-meta">
                 <StatusWord status={draft.status} />

@@ -33,14 +33,15 @@ function proj(
   title: string,
   folderId: string | undefined,
   day: number,
-  type: ProjectMeta["type"] = "screenplay"
+  type: ProjectMeta["type"] = "screenplay",
+  createdDay = 1
 ): ProjectMeta {
   return {
     id,
     title,
     type,
     status: "writing",
-    createdAt: t(1),
+    createdAt: t(createdDay),
     updatedAt: t(day),
     cloudCreated: true,
     ...(folderId ? { folderId } : {}),
@@ -63,10 +64,10 @@ const FOLDERS: Folder[] = [
 const PROJECTS: ProjectMeta[] = [
   proj("s1", "Midnight Drive", "shorts", 2),
   proj("f1", "The Innocent", "features", 3),
-  proj("g1", "GooA D5", "gooa", 20),
-  proj("g2", "GooA brainstorming", "gooa", 22, "plain"),
-  proj("o1", "GOOA Draft 1", "olddrafts", 5),
-  proj("o2", "GooA draft 4", "olddrafts", 6),
+  proj("g1", "GooA D5", "gooa", 20, "screenplay", 2),
+  proj("g2", "GooA brainstorming", "gooa", 22, "plain", 8),
+  proj("o1", "GOOA Draft 1", "olddrafts", 5, "screenplay", 3),
+  proj("o2", "GooA draft 4", "olddrafts", 6, "screenplay", 4),
   proj("c1", "3.1 One Pager", "onepagers", 10, "plain"),
   proj("j1", "Chapatis", "junk", 4),
   proj("loose1", "Random Brainstorm", "ideafactory", 8, "plain"),
@@ -76,10 +77,11 @@ const PROJECTS: ProjectMeta[] = [
 describe("listLibrary", () => {
   it("makes top-level folders sections and their children cards", () => {
     const { sections } = listLibrary(PROJECTS, FOLDERS);
+    // The writer's own folder order, not a clock: Completed was made first.
     expect(sections.map((s) => s.folder.name)).toEqual([
-      "InProgress", // g2 on day 22 is the newest thing anywhere
-      "IdeaFactory", // day 10 beats Completed's day 3
       "Completed",
+      "InProgress",
+      "IdeaFactory",
     ]);
     const inprogress = sections.find((s) => s.folder.id === "inprogress")!;
     expect(inprogress.cards.map((c) => c.folder.name)).toEqual([
@@ -94,11 +96,12 @@ describe("listLibrary", () => {
       .flatMap((s) => s.cards)
       .find((c) => c.folder.id === "gooa")!;
     // Its own two projects stay direct; Old Drafts becomes a labeled shelf.
-    expect(gooa.items.map((p) => p.title)).toEqual(["GooA brainstorming", "GooA D5"]);
+    // Oldest first. By recency the brainstorming doc (day 22) would lead.
+    expect(gooa.items.map((p) => p.title)).toEqual(["GooA D5", "GooA brainstorming"]);
     expect(gooa.shelves.map((s) => s.folder.name)).toEqual(["Old Drafts"]);
     expect(gooa.shelves[0].items.map((p) => p.title)).toEqual([
-      "GooA draft 4",
       "GOOA Draft 1",
+      "GooA draft 4",
     ]);
     expect(gooa.total).toBe(4);
   });
@@ -148,13 +151,45 @@ describe("listLibrary", () => {
     expect(names).toContain("B");
   });
 
-  it("orders cards inside a section by what was touched last", () => {
+  it("keeps cards in the writer's folder order, not in clock order", () => {
     const { sections } = listLibrary(PROJECTS, FOLDERS);
     const completed = sections.find((s) => s.folder.id === "completed")!;
+    // Shorts was made before Feature Length, and holds the older script, so a
+    // recency order would put Feature Length first.
     expect(completed.cards.map((c) => c.folder.name)).toEqual([
-      "Feature Length", // day 3
-      "Shorts", // day 2
+      "Shorts",
+      "Feature Length",
     ]);
+  });
+
+  it("does not move anything when a project is filed into a folder", () => {
+    // The exact complaint: dragging something into a folder stamps its clock,
+    // and the page must not rearrange itself in response.
+    const before = listLibrary(PROJECTS, FOLDERS);
+    const positions = (lib: ReturnType<typeof listLibrary>) => ({
+      sections: lib.sections.map((s) => s.folder.name),
+      cards: lib.sections.flatMap((s) => s.cards.map((c) => c.folder.name)),
+      shortsItems: lib.sections
+        .flatMap((s) => s.cards)
+        .find((c) => c.folder.id === "shorts")!
+        .items.map((p) => p.title),
+    });
+    // "Midnight Drive" is filed into Shorts and its clock jumps to the newest
+    // moment in the whole library.
+    const moved = PROJECTS.map((p) =>
+      p.id === "s1" ? { ...p, folderId: "shorts", updatedAt: t(28) } : p
+    );
+    expect(positions(listLibrary(moved, FOLDERS))).toEqual(positions(before));
+  });
+
+  it("respects a manual position over the created order", () => {
+    const withOrder = PROJECTS.map((p) =>
+      p.id === "g2" ? { ...p, order: 0 } : p.id === "g1" ? { ...p, order: 1 } : p
+    );
+    const gooa = listLibrary(withOrder, FOLDERS)
+      .sections.flatMap((s) => s.cards)
+      .find((c) => c.folder.id === "gooa")!;
+    expect(gooa.items.map((p) => p.title)).toEqual(["GooA brainstorming", "GooA D5"]);
   });
 });
 
@@ -171,7 +206,7 @@ describe("folderView", () => {
     const v = folderView("olddrafts", PROJECTS, FOLDERS)!;
     expect(v.trail.map((f) => f.name)).toEqual(["InProgress", "GodsOfOurAncestors"]);
     expect(v.depth).toBe(2);
-    expect(v.items.map((p) => p.title)).toEqual(["GooA draft 4", "GOOA Draft 1"]);
+    expect(v.items.map((p) => p.title)).toEqual(["GOOA Draft 1", "GooA draft 4"]);
   });
 
   it("returns null for an unknown folder", () => {

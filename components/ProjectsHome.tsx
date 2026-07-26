@@ -5,14 +5,13 @@ import type { CloudUser as User } from "@/lib/cloud/client";
 import type { JSONContent } from "@tiptap/core";
 import { lsGet, lsSet, type Prefs } from "@/lib/storage/localStore";
 import {
-  loadProjectDoc,
+  getLastOpenedId,
   type ProjectMeta,
   type ProjectStatus,
   type ProjectType,
 } from "@/lib/storage/projects";
 import { FOLDER_COLORS, type Folder } from "@/lib/storage/folders";
 import { listLibrary, type Card } from "@/lib/storage/library";
-import { docText } from "@/lib/editor/docUtils";
 import type { TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
 import { claimSyncCode } from "@/lib/cloud/auth";
@@ -61,8 +60,14 @@ export function StatusWord({ status }: { status: ProjectStatus }) {
   );
 }
 
-/** Films the writer folded shut on the home (ids). Additive, local-only. */
-const COLLAPSED_KEY = "less:home:collapsed:v1";
+/**
+ * Which folders the writer has explicitly opened or shut on the home, as
+ * id -> open. A folder with no entry falls back to its default: stages start
+ * open, projects start shut (except the one being written), sub-folders start
+ * shut. So the home opens as a list of what you are making, not a wall of
+ * every file inside it. Additive and local-only.
+ */
+const FOLDS_KEY = "less:home:folds:v1";
 
 /* Two quiet glyphs so a draft and a note read apart at a glance: a page with
    a folded corner for a script, a lined sheet for a document. */
@@ -190,20 +195,6 @@ export function NameInput({
   );
 }
 
-/** First non-empty line of a stored doc: the lead film's live specimen. */
-export function firstLine(meta: ProjectMeta): { text: string; isScene: boolean } | null {
-  const doc = loadProjectDoc(meta.id);
-  if (!doc?.content) return null;
-  if (meta.type === "screenplay") {
-    const scene = doc.content.find(
-      (l) => l.attrs?.element === "scene_heading" && docText(l)
-    );
-    if (scene) return { text: docText(scene), isScene: true };
-  }
-  const any = doc.content.find((l) => docText(l));
-  return any ? { text: docText(any), isScene: false } : null;
-}
-
 /* ---- The home ------------------------------------------------------------ */
 
 export function ProjectsHome({
@@ -296,15 +287,20 @@ export function ProjectsHome({
   // Which films are folded shut. Everything is OPEN by default: the home is
   // the whole library, not a table of contents, so a script is never more than
   // one click away. Only the films the writer folds by hand are remembered.
-  const [collapsed, setCollapsed] = useState<Set<string>>(
-    () => new Set(JSON.parse(lsGet(COLLAPSED_KEY) ?? "[]") as string[])
-  );
-  const toggleFold = (id: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      lsSet(COLLAPSED_KEY, JSON.stringify([...next]));
+  const [folds, setFolds] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = JSON.parse(lsGet(FOLDS_KEY) ?? "{}");
+      return raw && typeof raw === "object" ? (raw as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
+  });
+  /** Open unless the writer says otherwise, or the default says otherwise. */
+  const isOpenFolder = (id: string, fallback: boolean) => folds[id] ?? fallback;
+  const toggleFold = (id: string, fallback: boolean) => {
+    setFolds((prev) => {
+      const next = { ...prev, [id]: !(prev[id] ?? fallback) };
+      lsSet(FOLDS_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -340,25 +336,28 @@ export function ProjectsHome({
   const library = useMemo(() => listLibrary(projects, folders), [projects, folders]);
   const sections = library.sections;
   const unfiled = library.unfiled;
-  // The desk leads with the most recently touched card THAT HOLDS SOMETHING.
-  // A folder made a moment ago is the newest thing in the library, but there
-  // is nothing in it to continue, so it never gets crowned "Now writing".
+  // "Now writing" is the folder holding whatever was last OPENED, not whatever
+  // was last written to. Filing something stamps its clock, so a recency lead
+  // moved the crown (and the wide card with it) when the writer was only
+  // tidying up. Opening is a deliberate act; moving a file is not.
   const lead = useMemo(() => {
     const withWork = sections.flatMap((s) => s.cards).filter((c) => c.current);
-    withWork.sort((a, b) =>
-      a.lastTouched < b.lastTouched ? 1 : a.lastTouched > b.lastTouched ? -1 : 0
+    const lastId = getLastOpenedId();
+    if (lastId) {
+      const holding = withWork.find(
+        (c) =>
+          c.items.some((p) => p.id === lastId) ||
+          c.shelves.some((sh) => sh.items.some((p) => p.id === lastId))
+      );
+      if (holding) return holding;
+    }
+    // Nothing opened on this device yet: fall back to the newest work.
+    return (
+      [...withWork].sort((a, b) =>
+        a.lastTouched < b.lastTouched ? 1 : a.lastTouched > b.lastTouched ? -1 : 0
+      )[0] ?? null
     );
-    return withWork[0] ?? null;
   }, [sections]);
-
-  // The lead's live specimen: its script's first scene line, re-read only when
-  // that script or its content clock changes.
-  const leadDraft = lead?.current ?? null;
-  const leadLine = useMemo(
-    () => (leadDraft ? firstLine(leadDraft) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [leadDraft?.id, leadDraft?.updatedAt]
-  );
 
   /* ---- Drag: move anything into any folder ---- */
 
@@ -774,7 +773,8 @@ export function ProjectsHome({
   const cardBlock = (card: Card, isLead: boolean) => {
     const f = card.folder;
     const renaming = renamingFilm === f.id;
-    const isOpen = !collapsed.has(f.id);
+    // A project starts shut; the card you are writing in starts open.
+    const isOpen = isOpenFolder(f.id, isLead);
     const draft = card.current;
     const openFolder = (e: React.SyntheticEvent) => {
       e.stopPropagation();
@@ -807,7 +807,7 @@ export function ProjectsHome({
                 }
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleFold(f.id);
+                  toggleFold(f.id, isLead);
                 }}
               >
                 <ChevronDown />
@@ -859,18 +859,13 @@ export function ProjectsHome({
             )}
             <span className="film-when">{relativeTime(card.lastTouched)}</span>
           </div>
-          {isLead && leadLine && (
-            <div className={"film-courier" + (leadLine.isScene ? " film-courier-scene" : "")}>
-              {leadLine.text}
-            </div>
-          )}
         </div>
 
         {isOpen && card.total > 0 && (
           <div className="pcard-list">
             {card.items.map((p) => itemRow(p, 0, isLead && p.id === card.current?.id))}
             {card.shelves.map((shelf) => {
-              const shelfOpen = !collapsed.has(shelf.folder.id);
+              const shelfOpen = isOpenFolder(shelf.folder.id, false);
               return (
               <div key={shelf.folder.id} className="pcard-shelfgroup">
                 <div
@@ -895,7 +890,7 @@ export function ProjectsHome({
                       }
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleFold(shelf.folder.id);
+                        toggleFold(shelf.folder.id, false);
                       }}
                     >
                       <ChevronDown />
@@ -1078,7 +1073,7 @@ export function ProjectsHome({
             {sections.map((section, si) => {
               const sf = section.folder;
               const renamingSec = renamingSection === sf.id;
-              const sectionOpen = !collapsed.has(sf.id);
+              const sectionOpen = isOpenFolder(sf.id, true);
               // What folding this away would hide, so the count is only shown
               // when it is the one clue left.
               const held =
@@ -1100,7 +1095,7 @@ export function ProjectsHome({
                       aria-label={
                         sectionOpen ? `Fold ${sf.name} away` : `Open ${sf.name}`
                       }
-                      onClick={() => toggleFold(sf.id)}
+                      onClick={() => toggleFold(sf.id, true)}
                     >
                       <ChevronDown />
                     </button>

@@ -1424,17 +1424,6 @@ button.film-name-link:hover {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.film-courier {
-  font-family: var(--font-courier-prime), "Courier New", monospace;
-  font-size: 12px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.film-courier-scene {
-  text-transform: uppercase;
-}
 .film-when {
   white-space: nowrap;
 }
@@ -2099,19 +2088,6 @@ button.film-name-link:hover {
   font-weight: 600;
   flex: 0 0 auto;
 }
-.s-open {
-  font-family: var(--font-courier-prime), "Courier New", monospace;
-  font-size: 12px;
-  color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1 1 auto;
-}
-.s-open-scene {
-  text-transform: uppercase;
-}
 .s-meta {
   margin-left: auto;
   flex: 0 0 auto;
@@ -2285,10 +2261,6 @@ button.film-name-link:hover {
   }
   .pp-title {
     font-size: 28px;
-  }
-  /* The Courier specimen gives way first when the line runs out of room. */
-  .film-courier {
-    display: none;
   }
 }
 

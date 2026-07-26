@@ -41,7 +41,7 @@ export interface Shelf {
 /** A depth-1 folder: one object on the desk. */
 export interface Card {
   folder: Folder;
-  /** Projects filed directly in this folder, newest first. */
+  /** Projects filed directly in this folder, in the writer's order. */
   items: ProjectMeta[];
   /** Everything filed deeper, in tree order, each under its folder's name. */
   shelves: Shelf[];
@@ -67,9 +67,18 @@ export interface Library {
   unfiled: ProjectMeta[];
 }
 
-/** Newest first (ISO strings compare correctly as strings). */
-function byRecency(a: ProjectMeta, b: ProjectMeta): number {
-  return a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0;
+/**
+ * The writer's own order, and nothing else: a manual position when one is set,
+ * otherwise oldest first. Deliberately NOT by updatedAt. Filing something into
+ * a folder stamps that project's clock, so a recency order made whatever you
+ * just touched leap to the top of the page, which is disorienting when you are
+ * only tidying up. Things stay where you put them.
+ */
+function byPlace(a: ProjectMeta, b: ProjectMeta): number {
+  const oa = a.order ?? Number.MAX_SAFE_INTEGER;
+  const ob = b.order ?? Number.MAX_SAFE_INTEGER;
+  if (oa !== ob) return oa - ob;
+  return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
 }
 
 function newer(a: string, b: string): string {
@@ -125,8 +134,8 @@ function projectIndex(projects: ProjectMeta[], folders: Folder[]) {
     if (list) list.push(p);
     else inFolder.set(p.folderId, [p]);
   }
-  for (const list of inFolder.values()) list.sort(byRecency);
-  unfiled.sort(byRecency);
+  for (const list of inFolder.values()) list.sort(byPlace);
+  unfiled.sort(byPlace);
   return { inFolder, unfiled };
 }
 
@@ -154,8 +163,12 @@ function buildCard(
   collectShelves(folder, 1, kids, inFolder, shelves);
 
   const all = [...items, ...shelves.flatMap((s) => s.items)];
-  const scripts = all.filter((p) => p.type === "screenplay").sort(byRecency);
-  const current = scripts[0] ?? [...all].sort(byRecency)[0] ?? null;
+  // "Current" is about which draft to continue, so it IS the newest script.
+  // It decides no positions, so nothing on the page moves when it changes.
+  const newestFirst = (a: ProjectMeta, b: ProjectMeta) =>
+    a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0;
+  const scripts = all.filter((p) => p.type === "screenplay").sort(newestFirst);
+  const current = scripts[0] ?? [...all].sort(newestFirst)[0] ?? null;
 
   let lastTouched = folder.updatedAt;
   for (const p of all) lastTouched = newer(lastTouched, p.updatedAt);
@@ -164,9 +177,8 @@ function buildCard(
 }
 
 /**
- * The whole home in one pass: sections newest first, cards newest first inside
- * them. The very first card of the first section is the one the writer touched
- * last, so the home can lead with it.
+ * The whole home in one pass, every list in the writer's own order. Nothing
+ * here is sorted by a clock, so tidying up never rearranges the page.
  */
 export function listLibrary(projects: ProjectMeta[], folders: Folder[]): Library {
   const kids = childIndex(folders);
@@ -181,12 +193,10 @@ export function listLibrary(projects: ProjectMeta[], folders: Folder[]): Library
     for (const c of cards) lastTouched = newer(lastTouched, c.lastTouched);
     for (const p of loose) lastTouched = newer(lastTouched, p.updatedAt);
 
-    cards.sort((a, b) => (a.lastTouched < b.lastTouched ? 1 : a.lastTouched > b.lastTouched ? -1 : 0));
+    // No clock sort here either: childIndex already has these in the writer's
+    // own folder order, and that is the order the page keeps.
     sections.push({ folder: top, cards, loose, lastTouched });
   }
-  sections.sort((a, b) =>
-    a.lastTouched < b.lastTouched ? 1 : a.lastTouched > b.lastTouched ? -1 : 0
-  );
 
   return { sections, unfiled };
 }
