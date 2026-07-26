@@ -382,66 +382,6 @@ export function ProjectsHome({
     setCaret(null);
   };
 
-  /** Rows accept a drop BETWEEN rows: that is what sets the manual order. A
-   *  drop anywhere else on the card just files it, order untouched. */
-  const rowSlotProps = (container: string, items: ProjectMeta[], idx: number) => ({
-    onDragOver: (e: React.DragEvent) => {
-      if (drag.current?.kind !== "item") return;
-      e.preventDefault();
-      e.stopPropagation(); // the card behind this row must not claim the drop
-      const r = e.currentTarget.getBoundingClientRect();
-      const at = e.clientY < r.top + r.height / 2 ? idx : idx + 1;
-      caretRef.current = { container, at };
-      setCaret({ container, at });
-      setDropFilm(null);
-    },
-    onDrop: (e: React.DragEvent) => {
-      const d = drag.current;
-      if (d?.kind !== "item") return;
-      e.preventDefault();
-      e.stopPropagation();
-      const at = caretRef.current?.at ?? items.length;
-      const ids = items.map((p) => p.id);
-      const from = ids.indexOf(d.id);
-      if (from >= 0) {
-        // Reordering within this container.
-        const to = at > from ? at - 1 : at; // removing the row shifts the slot
-        if (to !== from) {
-          ids.splice(from, 1);
-          ids.splice(to, 0, d.id);
-          onReorder(ids);
-        }
-      } else {
-        // Arriving from somewhere else: file it here, then place it.
-        onSetFolder(d.id, container === "unfiled" ? null : container);
-        ids.splice(at, 0, d.id);
-        onReorder(ids);
-      }
-      clearDrag();
-    },
-  });
-
-  /** A list of rows with the drop line drawn between them. */
-  const itemList = (
-    container: string,
-    items: ProjectMeta[],
-    opts: { indent?: number; currentId?: string } = {}
-  ) => (
-    <>
-      {items.map((p, i) => (
-        <div key={p.id} className="row-slot" {...rowSlotProps(container, items, i)}>
-          {caret?.container === container && caret.at === i && (
-            <div className="drop-caret" aria-hidden="true" />
-          )}
-          {itemRow(p, opts.indent ?? 0, !!opts.currentId && p.id === opts.currentId)}
-        </div>
-      ))}
-      {caret?.container === container && caret.at === items.length && (
-        <div className="drop-caret" aria-hidden="true" />
-      )}
-    </>
-  );
-
   /** Is `maybe` inside `folderId` (or the folder itself)? A folder can never be
    *  dropped into its own branch: that would orphan it from the tree. */
   const isSelfOrInside = (folderId: string, maybe: string): boolean => {
@@ -475,13 +415,15 @@ export function ProjectsHome({
     clearDrag();
   };
 
-  /** Anything that accepts a drop wears these. `key` marks the wash target. */
+  /** A folder or heading: drop here to file into it, order untouched. */
   const dropProps = (folderId: string | null, key: string) => ({
     onDragOver: (e: React.DragEvent) => {
       if (!canDropOn(folderId)) return;
       e.preventDefault();
       e.stopPropagation();
       setDropFilm(key);
+      caretRef.current = null;
+      setCaret(null);
     },
     onDragLeave: (e: React.DragEvent) => {
       // Crossing a target's own children also fires dragleave; only a real
@@ -512,6 +454,95 @@ export function ProjectsHome({
     },
     onDragEnd: clearDrag,
   });
+
+  /**
+   * Placing a row is hit-tested across a WHOLE list, not per row. Aiming at
+   * the hairline between two rows is impossible: land a pixel off and the card
+   * behind them used to claim the drop and file the row into the wrong folder.
+   * Now the nearest slot wins, wherever in the list you release, and a row
+   * inside a sub-folder stays in that sub-folder.
+   */
+  const listDropProps = (
+    containers: Record<string, ProjectMeta[]>,
+    fallback: string
+  ) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (drag.current?.kind !== "item") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const slots = [
+        ...e.currentTarget.querySelectorAll<HTMLElement>("[data-slot]"),
+      ];
+      let target: { container: string; at: number } | null = null;
+      for (const el of slots) {
+        const r = el.getBoundingClientRect();
+        if (e.clientY < r.top + r.height / 2) {
+          target = { container: el.dataset.container!, at: Number(el.dataset.index) };
+          break;
+        }
+      }
+      if (!target) {
+        const last = slots[slots.length - 1];
+        target = last
+          ? { container: last.dataset.container!, at: Number(last.dataset.index) + 1 }
+          : { container: fallback, at: 0 };
+      }
+      caretRef.current = target;
+      setCaret(target);
+      setDropFilm(null);
+    },
+    onDrop: (e: React.DragEvent) => {
+      const d = drag.current;
+      const target = caretRef.current;
+      if (d?.kind !== "item" || !target) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const items = containers[target.container] ?? [];
+      const ids = items.map((p) => p.id);
+      const from = ids.indexOf(d.id);
+      if (from >= 0) {
+        const to = target.at > from ? target.at - 1 : target.at; // the row leaves its slot first
+        if (to !== from) {
+          ids.splice(from, 1);
+          ids.splice(to, 0, d.id);
+          onReorder(ids);
+        }
+      } else {
+        // Arriving from another folder: file it here, then place it.
+        onSetFolder(d.id, target.container === "unfiled" ? null : target.container);
+        ids.splice(target.at, 0, d.id);
+        onReorder(ids);
+      }
+      clearDrag();
+    },
+  });
+
+  /** A list of rows, each tagged with where it sits so the list can hit-test. */
+  const itemList = (
+    container: string,
+    items: ProjectMeta[],
+    opts: { indent?: number; currentId?: string } = {}
+  ) => (
+    <>
+      {items.map((p, i) => (
+        <div
+          key={p.id}
+          className="row-slot"
+          data-slot=""
+          data-container={container}
+          data-index={i}
+        >
+          {caret?.container === container && caret.at === i && (
+            <div className="drop-caret" aria-hidden="true" />
+          )}
+          {itemRow(p, opts.indent ?? 0, !!opts.currentId && p.id === opts.currentId)}
+        </div>
+      ))}
+      {caret?.container === container && caret.at === items.length && (
+        <div className="drop-caret" aria-hidden="true" />
+      )}
+    </>
+  );
 
   /* ---- Flows ---- */
 
@@ -965,7 +996,16 @@ export function ProjectsHome({
         </div>
 
         {isOpen && card.total > 0 && (
-          <div className="pcard-list">
+          <div
+            className="pcard-list"
+            {...listDropProps(
+              {
+                [f.id]: card.items,
+                ...Object.fromEntries(card.shelves.map((sh) => [sh.folder.id, sh.items])),
+              },
+              f.id
+            )}
+          >
             {itemList(f.id, card.items, {
               currentId: isLead ? card.current?.id : undefined,
             })}
@@ -1261,7 +1301,10 @@ export function ProjectsHome({
                       </div>
 
                       {section.loose.length > 0 && (
-                        <div className="desk-loose">
+                        <div
+                          className="desk-loose"
+                          {...listDropProps({ [sf.id]: section.loose }, sf.id)}
+                        >
                           {itemList(sf.id, section.loose)}
                         </div>
                       )}
