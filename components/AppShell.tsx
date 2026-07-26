@@ -89,6 +89,7 @@ export function AppShell() {
     setFolder,
     reorder,
     createFolder,
+    reorderFolders,
     updateFolder,
     deleteFolder,
   } = useProjects(user);
@@ -371,6 +372,7 @@ export function AppShell() {
         onRename={rename}
         onSetFolder={setFolder}
         onReorder={reorder}
+        onReorderFolders={reorderFolders}
         folders={folders}
         onCreateFolder={createFolder}
         onUpdateFolder={updateFolder}

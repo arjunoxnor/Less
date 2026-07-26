@@ -1770,6 +1770,22 @@ button.film-name-link:hover {
 .row-slot {
   position: relative;
 }
+.caret-section {
+  margin: 10px 8px 6px;
+}
+.band.dragging {
+  opacity: 0.4;
+}
+/* A heading can be picked up and rearranged; its own buttons still click. */
+.band {
+  cursor: grab;
+}
+.band:active {
+  cursor: grabbing;
+}
+.band button {
+  cursor: pointer;
+}
 .drop-caret {
   height: 2px;
   margin: 0 8px;

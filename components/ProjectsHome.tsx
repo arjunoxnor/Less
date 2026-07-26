@@ -210,6 +210,7 @@ export function ProjectsHome({
   onRename,
   onSetFolder,
   onReorder,
+  onReorderFolders,
   onCreateFolder,
   onUpdateFolder,
   onDeleteFolder,
@@ -240,6 +241,8 @@ export function ProjectsHome({
   onSetFolder: (id: string, folderId: string | null) => void;
   /** Commit a new manual order for the ids of one container. */
   onReorder: (orderedIds: string[]) => void;
+  /** Commit a new manual order for folders. */
+  onReorderFolders: (orderedIds: string[]) => void;
   onCreateFolder: (parentId?: string) => Folder;
   onUpdateFolder: (
     id: string,
@@ -414,6 +417,71 @@ export function ProjectsHome({
     else onUpdateFolder(d.id, { parentId: folderId });
     clearDrag();
   };
+
+  /**
+   * A heading is both a destination and a thing you can rearrange. Carrying a
+   * TOP-LEVEL folder onto another heading reorders the headings; carrying
+   * anything else onto it files that thing into the folder. Same level means
+   * arrange, different level means put inside.
+   */
+  const isTopLevel = (id: string) => {
+    const f = folders.find((x) => x.id === id);
+    if (!f) return false;
+    // An orphan parent means the folder already reads as top level.
+    return !f.parentId || !folders.some((x) => x.id === f.parentId);
+  };
+
+  const headingDropProps = (sectionId: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      const d = drag.current;
+      if (!d) return;
+      const reordering = d.kind === "folder" && isTopLevel(d.id);
+      if (!reordering) {
+        if (!canDropOn(sectionId)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setDropFilm(sectionId);
+        caretRef.current = null;
+        setCaret(null);
+        return;
+      }
+      if (d.id === sectionId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const tops = sections.map((sec) => sec.folder.id);
+      const r = e.currentTarget.getBoundingClientRect();
+      const idx = tops.indexOf(sectionId);
+      const at = e.clientY < r.top + r.height / 2 ? idx : idx + 1;
+      caretRef.current = { container: "sections", at };
+      setCaret({ container: "sections", at });
+      setDropFilm(null);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        setDropFilm((f) => (f === sectionId ? null : f));
+      }
+    },
+    onDrop: (e: React.DragEvent) => {
+      const d = drag.current;
+      if (!d) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const target = caretRef.current;
+      if (d.kind === "folder" && isTopLevel(d.id) && target?.container === "sections") {
+        const ids = sections.map((sec) => sec.folder.id);
+        const from = ids.indexOf(d.id);
+        const to = target.at > from ? target.at - 1 : target.at;
+        if (from >= 0 && to !== from) {
+          ids.splice(from, 1);
+          ids.splice(to, 0, d.id);
+          onReorderFolders(ids);
+        }
+        clearDrag();
+        return;
+      }
+      dropInto(sectionId);
+    },
+  });
 
   /** A folder or heading: drop here to file into it, order untouched. */
   const dropProps = (folderId: string | null, key: string) => ({
@@ -1233,13 +1301,18 @@ export function ProjectsHome({
                 section.cards.reduce((n, c) => n + c.total, 0) + section.loose.length;
               return (
                 <section key={sf.id} className="desk-section">
+                  {caret?.container === "sections" && caret.at === si && (
+                    <div className="drop-caret caret-section" aria-hidden="true" />
+                  )}
                   <div
                     className={
                       "band" +
                       (si > 0 ? " later" : "") +
-                      (dropFilm === sf.id ? " dropping" : "")
+                      (dropFilm === sf.id ? " dropping" : "") +
+                      (dragging === sf.id ? " dragging" : "")
                     }
-                    {...dropProps(sf.id, sf.id)}
+                    {...dragProps("folder", sf.id)}
+                    {...headingDropProps(sf.id)}
                   >
                     <button
                       type="button"
@@ -1310,6 +1383,11 @@ export function ProjectsHome({
                       )}
                     </>
                   )}
+                  {caret?.container === "sections" &&
+                    caret.at === sections.length &&
+                    si === sections.length - 1 && (
+                      <div className="drop-caret caret-section" aria-hidden="true" />
+                    )}
                 </section>
               );
             })}
