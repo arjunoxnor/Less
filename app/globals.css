@@ -1766,6 +1766,16 @@ button.film-name-link:hover {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* The line that shows where a dragged row will land. */
+.row-slot {
+  position: relative;
+}
+.drop-caret {
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--ink);
+}
 .fh-item-current {
   font-size: 10px;
   letter-spacing: 0.08em;

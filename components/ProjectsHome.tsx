@@ -209,6 +209,7 @@ export function ProjectsHome({
   onDelete,
   onRename,
   onSetFolder,
+  onReorder,
   onCreateFolder,
   onUpdateFolder,
   onDeleteFolder,
@@ -237,6 +238,8 @@ export function ProjectsHome({
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onSetFolder: (id: string, folderId: string | null) => void;
+  /** Commit a new manual order for the ids of one container. */
+  onReorder: (orderedIds: string[]) => void;
   onCreateFolder: (parentId?: string) => Folder;
   onUpdateFolder: (
     id: string,
@@ -366,11 +369,78 @@ export function ProjectsHome({
   // The folder id currently under the pointer, or "unfiled" for the last band.
   const [dropFilm, setDropFilm] = useState<string | null>(null);
 
+  // Where the row would land: which container, and the slot within it. The ref
+  // is the authority (drop can fire before a render); the state draws the line.
+  const caretRef = useRef<{ container: string; at: number } | null>(null);
+  const [caret, setCaret] = useState<{ container: string; at: number } | null>(null);
+
   const clearDrag = () => {
     drag.current = null;
+    caretRef.current = null;
     setDragging(null);
     setDropFilm(null);
+    setCaret(null);
   };
+
+  /** Rows accept a drop BETWEEN rows: that is what sets the manual order. A
+   *  drop anywhere else on the card just files it, order untouched. */
+  const rowSlotProps = (container: string, items: ProjectMeta[], idx: number) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (drag.current?.kind !== "item") return;
+      e.preventDefault();
+      e.stopPropagation(); // the card behind this row must not claim the drop
+      const r = e.currentTarget.getBoundingClientRect();
+      const at = e.clientY < r.top + r.height / 2 ? idx : idx + 1;
+      caretRef.current = { container, at };
+      setCaret({ container, at });
+      setDropFilm(null);
+    },
+    onDrop: (e: React.DragEvent) => {
+      const d = drag.current;
+      if (d?.kind !== "item") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const at = caretRef.current?.at ?? items.length;
+      const ids = items.map((p) => p.id);
+      const from = ids.indexOf(d.id);
+      if (from >= 0) {
+        // Reordering within this container.
+        const to = at > from ? at - 1 : at; // removing the row shifts the slot
+        if (to !== from) {
+          ids.splice(from, 1);
+          ids.splice(to, 0, d.id);
+          onReorder(ids);
+        }
+      } else {
+        // Arriving from somewhere else: file it here, then place it.
+        onSetFolder(d.id, container === "unfiled" ? null : container);
+        ids.splice(at, 0, d.id);
+        onReorder(ids);
+      }
+      clearDrag();
+    },
+  });
+
+  /** A list of rows with the drop line drawn between them. */
+  const itemList = (
+    container: string,
+    items: ProjectMeta[],
+    opts: { indent?: number; currentId?: string } = {}
+  ) => (
+    <>
+      {items.map((p, i) => (
+        <div key={p.id} className="row-slot" {...rowSlotProps(container, items, i)}>
+          {caret?.container === container && caret.at === i && (
+            <div className="drop-caret" aria-hidden="true" />
+          )}
+          {itemRow(p, opts.indent ?? 0, !!opts.currentId && p.id === opts.currentId)}
+        </div>
+      ))}
+      {caret?.container === container && caret.at === items.length && (
+        <div className="drop-caret" aria-hidden="true" />
+      )}
+    </>
+  );
 
   /** Is `maybe` inside `folderId` (or the folder itself)? A folder can never be
    *  dropped into its own branch: that would orphan it from the tree. */
@@ -896,7 +966,9 @@ export function ProjectsHome({
 
         {isOpen && card.total > 0 && (
           <div className="pcard-list">
-            {card.items.map((p) => itemRow(p, 0, isLead && p.id === card.current?.id))}
+            {itemList(f.id, card.items, {
+              currentId: isLead ? card.current?.id : undefined,
+            })}
             {card.shelves.map((shelf) => {
               const shelfOpen = isOpenFolder(shelf.folder.id, false);
               return (
@@ -956,9 +1028,10 @@ export function ProjectsHome({
                   </button>
                 </div>
                 {shelfOpen &&
-                  shelf.items.map((p) =>
-                    itemRow(p, shelf.depth, isLead && p.id === card.current?.id)
-                  )}
+                  itemList(shelf.folder.id, shelf.items, {
+                    indent: shelf.depth,
+                    currentId: isLead ? card.current?.id : undefined,
+                  })}
               </div>
               );
             })}
@@ -1189,7 +1262,7 @@ export function ProjectsHome({
 
                       {section.loose.length > 0 && (
                         <div className="desk-loose">
-                          {section.loose.map((p) => itemRow(p))}
+                          {itemList(sf.id, section.loose)}
                         </div>
                       )}
                     </>

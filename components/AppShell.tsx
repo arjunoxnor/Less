@@ -370,6 +370,7 @@ export function AppShell() {
         onDelete={remove}
         onRename={rename}
         onSetFolder={setFolder}
+        onReorder={reorder}
         folders={folders}
         onCreateFolder={createFolder}
         onUpdateFolder={updateFolder}
