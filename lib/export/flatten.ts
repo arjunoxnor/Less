@@ -41,6 +41,17 @@ export function lineText(node: JSONContent): string {
   return text;
 }
 
+/** Elements that screenplay format prints in capitals. On screen these are
+ *  uppercased by CSS, and the stored text deliberately keeps whatever case the
+ *  writer typed so that changing a line's element type is lossless. Output has
+ *  to be correct regardless, so the capitals are applied here, at the one
+ *  bridge every exporter crosses. */
+const UPPERCASE_ELEMENTS: ReadonlySet<ElementType> = new Set<ElementType>([
+  "scene_heading",
+  "character",
+  "transition",
+]);
+
 /**
  * Flatten a ProseMirror doc into one ScriptLine per screenplayLine node.
  *
@@ -48,6 +59,10 @@ export function lineText(node: JSONContent): string {
  * preserves the spacing inside an action paragraph or a line of dialogue.
  * Unknown / missing element attributes coerce to the default so a malformed
  * document can never produce an invalid element type downstream.
+ *
+ * Every caller is a read-only consumer (export, the breakdown, the page lock),
+ * so applying the format's capitals here never writes back into the document.
+ * Uppercasing cannot change wrapping either: the script face is monospace.
  */
 export function docToLines(doc: JSONContent): ScriptLine[] {
   const lines: ScriptLine[] = [];
@@ -55,7 +70,11 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
     const raw = node.attrs?.element;
     const element = isElementType(raw) ? raw : DEFAULT_ELEMENT;
     // Carry the dual + revised flags, omitting them when false so lines stay minimal.
-    const line: ScriptLine = { element, text: lineText(node) };
+    const raw_text = lineText(node);
+    const line: ScriptLine = {
+      element,
+      text: UPPERCASE_ELEMENTS.has(element) ? raw_text.toUpperCase() : raw_text,
+    };
     if (node.attrs?.dual === true) line.dual = true;
     if (node.attrs?.revised === true) line.revised = true;
     lines.push(line);

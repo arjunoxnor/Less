@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AcItem } from "@/lib/editor/autocomplete";
+import { positionAutocompleteMenu } from "@/lib/editor/autocompletePosition";
 
 /**
  * The caret-anchored suggestion dropdown. Purely presentational: the plugin
@@ -32,12 +33,13 @@ export function AutocompleteMenu({
     const el = ref.current;
     if (!el) return;
     const { height, width } = el.getBoundingClientRect();
-    let top = coords.bottom + 2;
-    if (coords.bottom + height > window.innerHeight - 8) {
-      top = coords.top - height - 2;
-    }
-    const left = Math.max(8, Math.min(coords.left, window.innerWidth - width - 8));
-    setPos({ left, top });
+    setPos(
+      positionAutocompleteMenu(
+        coords,
+        { width, height },
+        { width: window.innerWidth, height: window.innerHeight }
+      )
+    );
   }, [coords, items]);
 
   // Keep the keyboard-selected row visible inside the scrolling list (the

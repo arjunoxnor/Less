@@ -4,7 +4,14 @@ import { closeHistory } from "@tiptap/pm/history";
 import { acceptAutocomplete, autocompleteKey } from "./autocomplete";
 import { runEnterFlow } from "./keymap";
 import { EMPTY_OUTLINE } from "./outline";
-import { docOf, line, linesOf, makeEditor, typeText } from "./testKit";
+import {
+  docOf,
+  line,
+  linesOf,
+  makeEditor,
+  setCaretAtLineEnd,
+  typeText,
+} from "./testKit";
 
 /**
  * The B1 property test: undo must only ever visit document states that
@@ -60,6 +67,58 @@ function mulberry32(seed: number) {
 }
 
 describe("undo inverse-consistency (B1)", () => {
+  it("one undo removes a typed character and its AutoCaps rewrite together", () => {
+    const ed = (editor = makeEditor(docOf(line("character", "")), OUTLINE));
+    ed.commands.setTextSelection(1);
+    typeText(ed, "a");
+    expect(linesOf(ed)[0].text).toBe("A");
+    expect(ed.commands.undo()).toBe(true);
+    expect(linesOf(ed)[0].text).toBe("");
+  });
+
+  it("one undo removes an AutoElement conversion with its trigger", () => {
+    const ed = (editor = makeEditor(docOf(line("action", "")), OUTLINE));
+    ed.commands.setTextSelection(1);
+    typeText(ed, "int");
+    ed.view.dispatch(closeHistory(ed.state.tr));
+    typeText(ed, ".");
+    expect(linesOf(ed)[0].element).toBe("scene_heading");
+    expect(ed.commands.undo()).toBe(true);
+    expect(linesOf(ed)[0]).toEqual({
+      element: "action",
+      text: "int",
+      dual: false,
+      note: "",
+    });
+  });
+
+  it("one undo removes a character autocomplete accept and its Enter flow", () => {
+    const ed = (editor = makeEditor(docOf(line("character", "")), OUTLINE));
+    ed.commands.setTextSelection(1);
+    typeText(ed, "an");
+    ed.view.dispatch(closeHistory(ed.state.tr));
+    const st = autocompleteKey.getState(ed.state)!;
+    const index = st.items.findIndex((item) => item.text === "ANNA");
+    expect(acceptAutocomplete(ed.view, index, { enterFlow: true })).toBe(true);
+    expect(linesOf(ed)).toHaveLength(2);
+    expect(ed.commands.undo()).toBe(true);
+    expect(linesOf(ed)).toEqual([
+      { element: "character", text: "AN", dual: false, note: "" },
+    ]);
+  });
+
+  it("one undo reverses an empty-line Enter conversion", () => {
+    const ed = (editor = makeEditor(
+      docOf(line("character", "ANNA"), line("dialogue", ""))
+    ));
+    setCaretAtLineEnd(ed, 1);
+    ed.view.dispatch(closeHistory(ed.state.tr));
+    runEnterFlow(ed);
+    expect(linesOf(ed)[1].element).toBe("action");
+    expect(ed.commands.undo()).toBe(true);
+    expect(linesOf(ed)[1].element).toBe("dialogue");
+  });
+
   it("the scripted sequence undoes through recorded states only, no phantom text", () => {
     const ed = (editor = makeEditor(docOf(line("character", "")), OUTLINE));
     ed.commands.setTextSelection(1);

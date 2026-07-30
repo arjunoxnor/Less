@@ -11,7 +11,16 @@ import {
   type ProjectType,
 } from "@/lib/storage/projects";
 import { FOLDER_COLORS, type Folder } from "@/lib/storage/folders";
-import { listLibrary, type Card } from "@/lib/storage/library";
+import {
+  canMoveFolderTo,
+  canMoveProjectTo,
+  listFolderMoveTargets,
+  listLibrary,
+  pruneFolderFolds,
+  reorderIdsAtSlot,
+  type Card,
+} from "@/lib/storage/library";
+import { canStartLibraryDrag } from "@/lib/storage/libraryInteraction";
 import type { TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
 import { claimSyncCode } from "@/lib/cloud/auth";
@@ -298,6 +307,7 @@ export function ProjectsHome({
       return {};
     }
   });
+  const foldersLoadedRef = useRef(folders.length > 0);
   /** Open unless the writer says otherwise, or the default says otherwise. */
   const isOpenFolder = (id: string, fallback: boolean) => folds[id] ?? fallback;
   const toggleFold = (id: string, fallback: boolean) => {
@@ -307,6 +317,23 @@ export function ProjectsHome({
       return next;
     });
   };
+  useEffect(() => {
+    // useProjects hydrates folders after the first render. An initial empty
+    // array is not proof that every saved folder was deleted.
+    if (folders.length === 0 && !foldersLoadedRef.current) return;
+    if (folders.length > 0) foldersLoadedRef.current = true;
+    setFolds((prev) => {
+      const next = pruneFolderFolds(prev, folders);
+      if (
+        Object.keys(next).length === Object.keys(prev).length &&
+        Object.keys(next).every((id) => next[id] === prev[id])
+      ) {
+        return prev;
+      }
+      lsSet(FOLDS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [folders]);
 
   // Relative times refresh once a minute while the home is on screen.
   const [, setTick] = useState(0);
@@ -384,37 +411,40 @@ export function ProjectsHome({
     setDropFilm(null);
     setCaret(null);
   };
-
-  /** Is `maybe` inside `folderId` (or the folder itself)? A folder can never be
-   *  dropped into its own branch: that would orphan it from the tree. */
-  const isSelfOrInside = (folderId: string, maybe: string): boolean => {
-    if (folderId === maybe) return true;
-    const byId = new Map(folders.map((f) => [f.id, f]));
-    let cur = byId.get(folderId);
-    const seen = new Set<string>();
-    while (cur?.parentId && byId.has(cur.parentId) && !seen.has(cur.parentId)) {
-      if (cur.parentId === maybe) return true;
-      seen.add(cur.parentId);
-      cur = byId.get(cur.parentId);
-    }
-    return false;
-  };
+  useEffect(() => {
+    const current = drag.current;
+    if (!current) return;
+    const exists =
+      current.kind === "item"
+        ? projects.some((project) => project.id === current.id)
+        : folders.some((folder) => folder.id === current.id);
+    if (!exists) clearDrag();
+  }, [folders, projects]);
 
   /** Can what is being dragged land here? null means the unfiled band. */
   const canDropOn = (folderId: string | null): boolean => {
     const d = drag.current;
     if (!d) return false;
-    if (d.kind === "item") return true;
+    if (d.kind === "item") {
+      return canMoveProjectTo(d.id, folderId, projects, folders);
+    }
     // A folder cannot go into itself or into anything already inside it.
-    return folderId === null ? true : !isSelfOrInside(folderId, d.id);
+    return canMoveFolderTo(d.id, folderId, folders);
   };
 
   /** Do the move, through the existing handlers so clocks stamp correctly. */
   const dropInto = (folderId: string | null) => {
     const d = drag.current;
     if (!d || !canDropOn(folderId)) return clearDrag();
-    if (d.kind === "item") onSetFolder(d.id, folderId);
-    else onUpdateFolder(d.id, { parentId: folderId });
+    if (d.kind === "item") {
+      const project = projects.find((candidate) => candidate.id === d.id);
+      if ((project?.folderId ?? null) !== folderId) onSetFolder(d.id, folderId);
+    } else {
+      const folder = folders.find((candidate) => candidate.id === d.id);
+      if ((folder?.parentId ?? null) !== folderId) {
+        onUpdateFolder(d.id, { parentId: folderId });
+      }
+    }
     clearDrag();
   };
 
@@ -466,16 +496,15 @@ export function ProjectsHome({
       if (!d) return;
       e.preventDefault();
       e.stopPropagation();
+      if (d.kind === "folder" && d.id === sectionId) {
+        clearDrag();
+        return;
+      }
       const target = caretRef.current;
       if (d.kind === "folder" && isTopLevel(d.id) && target?.container === "sections") {
         const ids = sections.map((sec) => sec.folder.id);
-        const from = ids.indexOf(d.id);
-        const to = target.at > from ? target.at - 1 : target.at;
-        if (from >= 0 && to !== from) {
-          ids.splice(from, 1);
-          ids.splice(to, 0, d.id);
-          onReorderFolders(ids);
-        }
+        const next = reorderIdsAtSlot(ids, d.id, target.at);
+        if (next) onReorderFolders(next);
         clearDrag();
         return;
       }
@@ -512,6 +541,10 @@ export function ProjectsHome({
   const dragProps = (kind: "item" | "folder", id: string) => ({
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
+      if (!canStartLibraryDrag(e.target)) {
+        e.preventDefault();
+        return;
+      }
       // The innermost draggable wins: a row inside a card must not start the
       // card dragging as well.
       e.stopPropagation();
@@ -569,12 +602,8 @@ export function ProjectsHome({
       const ids = items.map((p) => p.id);
       const from = ids.indexOf(d.id);
       if (from >= 0) {
-        const to = target.at > from ? target.at - 1 : target.at; // the row leaves its slot first
-        if (to !== from) {
-          ids.splice(from, 1);
-          ids.splice(to, 0, d.id);
-          onReorder(ids);
-        }
+        const next = reorderIdsAtSlot(ids, d.id, target.at);
+        if (next) onReorder(next);
       } else {
         // Arriving from another folder: file it here, then place it.
         onSetFolder(d.id, target.container === "unfiled" ? null : target.container);
@@ -616,6 +645,7 @@ export function ProjectsHome({
 
   /** Make something inside a folder and open it. */
   const createIn = (type: ProjectType, title: string, folderId: string) => {
+    clearDrag();
     try {
       const meta = onCreate(type, title, { folderId });
       onOpen(meta.id, { focusTitle: true });
@@ -627,6 +657,7 @@ export function ProjectsHome({
   };
 
   const createAndOpen = (type: ProjectType, title: string) => {
+    clearDrag();
     try {
       const meta = onCreate(type, title);
       onOpen(meta.id, { focusTitle: true });
@@ -643,6 +674,7 @@ export function ProjectsHome({
   const jotIdea = () => {
     const title = jot.trim();
     if (!title) return;
+    clearDrag();
     try {
       onCreate("plain", title);
       setJot("");
@@ -656,6 +688,7 @@ export function ProjectsHome({
   // A new project inside a section: the folder appears on the desk as an empty
   // card, named on the spot.
   const newProjectIn = (sectionId: string) => {
+    clearDrag();
     const f = onCreateFolder(sectionId);
     onUpdateFolder(f.id, { name: "Untitled project" });
     setRenamingFilm(f.id);
@@ -663,6 +696,7 @@ export function ProjectsHome({
 
   // A new top-level folder: a new heading on the home.
   const newSection = () => {
+    clearDrag();
     const f = onCreateFolder();
     onUpdateFolder(f.id, { name: "Untitled folder" });
     setRenamingSection(f.id);
@@ -717,15 +751,7 @@ export function ProjectsHome({
   // telling apart. Drag does the same job with the mouse; this is the way that
   // works from the keyboard.
   const moveTargets = useMemo(() => {
-    const out: { folder: Folder; path: string }[] = [];
-    const walk = (parentId: string | undefined, path: string) => {
-      for (const f of folders.filter((c) => (c.parentId ?? undefined) === parentId)) {
-        out.push({ folder: f, path });
-        walk(f.id, path ? `${path} / ${f.name}` : f.name);
-      }
-    };
-    walk(undefined, "");
-    return out;
+    return listFolderMoveTargets(folders);
   }, [folders]);
 
   /* ---- Menu item builders ---- */
@@ -1559,7 +1585,7 @@ export function ProjectsHome({
               .filter(
                 ({ folder: f }) =>
                   moveTarget.kind === "item" ||
-                  !isSelfOrInside(f.id, moveTarget.folder.id)
+                  canMoveFolderTo(moveTarget.folder.id, f.id, folders)
               )
               .map(({ folder: f, path }) => {
                 const here =

@@ -65,6 +65,7 @@ export interface AcState {
 }
 
 export const autocompleteKey = new PluginKey<AcPluginState>("screenplayAutocomplete");
+const RESCAN = "rescan";
 
 const CLOSED: AcPluginState = {
   open: false,
@@ -83,9 +84,6 @@ const TIME_SEP = /\s+-{1,2}\s+/g;
 // The standard slugline openers suggested as you start a scene heading, so
 // typing "i" offers INT. and "e" offers EXT., the way the pros do it.
 const SLUG_OPENERS = ["INT. ", "EXT. ", "INT./EXT. ", "EST. ", "I/E. "];
-
-// The seed shown the instant you switch to an empty transition line.
-const TRANSITION_SEED = ["CUT TO:", "DISSOLVE TO:", "SMASH CUT TO:"];
 
 /* --- Candidate ranking ---------------------------------------------------- */
 
@@ -187,9 +185,10 @@ function computeCharacter(
   }
 
   // Name mode: complete a previously-used character, ranked by how much they
-  // speak (and recency) so the leads surface first. On an EMPTY cue the query
-  // is "" and the whole cast is offered at once (the way Arc Studio does it).
+  // speak (and recency) so the leads surface first. Choosing the Character
+  // format alone must stay quiet; suggestions begin after the writer types.
   const query = cueBaseName(upToCaret);
+  if (!query) return closed(lineStart);
   const ownName = cueBaseName(fullText).toUpperCase();
   const pool: Cand[] = outline.characters
     // Hygiene: a stray one-letter cue (a typo) never pollutes suggestions.
@@ -216,13 +215,9 @@ function computeTransition(
   const typed = upToCaret.trimStart();
   const lead = upToCaret.length - typed.length;
 
-  // Seed the common transitions when a doc-changing action (the Enter flow or
-  // a retype) leaves the caret on an empty transition line. A mere caret visit
-  // never reaches here: the plugin only recomputes on document changes.
-  if (!typed) {
-    const items = TRANSITION_SEED.map((t) => ({ text: t, hint: "" }));
-    return open(items, lineStart + lead, lineStart + caretOffset, lineStart);
-  }
+  // Tab and the number shortcuts choose a format, not content. Keep an empty
+  // transition quiet until the writer types a query.
+  if (!typed) return closed(lineStart);
 
   const pool: Cand[] = TRANSITIONS.map((t) => ({ text: t, hint: "" }));
   for (const tr of outline.transitions) {
@@ -467,6 +462,19 @@ export function acceptAutocomplete(
 }
 
 /**
+ * Refresh an already-open menu after the debounced outline catches up with a
+ * document change. A closed menu stays closed, so outline work cannot reopen
+ * suggestions after the writer moves the caret away.
+ */
+export function rescanAutocomplete(view: EditorView): void {
+  view.dispatch(
+    view.state.tr
+      .setMeta(autocompleteKey, { [RESCAN]: true })
+      .setMeta("addToHistory", false)
+  );
+}
+
+/**
  * Build the autocomplete extension. priority 200 puts its keydown handler ahead
  * of the screenplay keymap, but it only consumes keys while the menu is open,
  * so Enter / Tab / Mod-number keep their normal behavior otherwise.
@@ -490,7 +498,12 @@ export function buildAutocomplete(
           state: {
             init: () => CLOSED,
             apply(tr, prev, _old, newState) {
-              const meta = tr.getMeta(autocompleteKey) as Partial<AcPluginState> | undefined;
+              const meta = tr.getMeta(autocompleteKey) as
+                | (Partial<AcPluginState> & { [RESCAN]?: boolean })
+                | undefined;
+              if (meta?.[RESCAN]) {
+                return prev.open ? compute(newState, getOutline) : prev;
+              }
               if (meta) return { ...prev, ...meta };
               // Typing gate: only a transaction that changed the document may
               // open or refresh the menu. A caret that merely lands somewhere
@@ -500,7 +513,13 @@ export function buildAutocomplete(
               // open menu instead. Transactions that touch neither the doc nor
               // the selection (decoration passes from other plugins) leave the
               // state alone.
-              if (tr.docChanged) return compute(newState, getOutline);
+              if (tr.docChanged) {
+                // Attribute-only edits such as Tab and Mod-number retype a line
+                // without typing. They must dismiss suggestions rather than
+                // opening a menu for text the writer did not just enter.
+                if (newState.doc.textContent === _old.doc.textContent) return CLOSED;
+                return compute(newState, getOutline);
+              }
               if (tr.selectionSet) return CLOSED;
               return prev;
             },

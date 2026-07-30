@@ -18,7 +18,11 @@ import {
 } from "@/lib/editor/elements";
 import { useOutline } from "@/lib/editor/useOutline";
 import { EMPTY_OUTLINE } from "@/lib/editor/outline";
-import { acceptAutocomplete, type AcState } from "@/lib/editor/autocomplete";
+import {
+  acceptAutocomplete,
+  rescanAutocomplete,
+  type AcState,
+} from "@/lib/editor/autocomplete";
 import { getSpeller } from "@/lib/editor/spellEngine";
 import { rescanSpelling, type SpellState } from "@/lib/editor/spellcheck";
 import { rescanContd } from "@/lib/editor/contd";
@@ -294,6 +298,9 @@ export function ScreenplayBody({
 
   const outline = useOutline(editor);
   outlineRef.current = outline;
+  useEffect(() => {
+    if (editor) rescanAutocomplete(editor.view);
+  }, [editor, outline]);
 
   const currentSceneNumber = useMemo(() => {
     let n: number | null = null;

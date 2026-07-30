@@ -31,8 +31,12 @@ export const AutoCaps = Extension.create({
         // appendTransaction runs after the user's change is applied. We inspect
         // the new document, and if any uppercase-element line contains lowercase
         // characters, we append a follow-up transaction that fixes them.
-        appendTransaction: (transactions, _oldState, newState) => {
+        appendTransaction: (transactions, oldState, newState) => {
           if (!transactions.some((t) => t.docChanged)) return null;
+          // Changing only a line's element type must not rewrite its content.
+          // Otherwise one full Tab cycle through Character permanently turns
+          // an action sentence into uppercase even though it ends as Action.
+          if (oldState.doc.textContent === newState.doc.textContent) return null;
           // Never rewrite the text while an IME composition is in flight:
           // replacing the composing text node cancels composition and eats
           // CJK / accented input. AutoCaps re-runs on compositionend anyway.

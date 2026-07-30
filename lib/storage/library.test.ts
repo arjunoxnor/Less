@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { listLibrary, folderView, cardForProject } from "./library";
+import {
+  canMoveFolderTo,
+  canMoveProjectTo,
+  listLibrary,
+  listFolderMoveTargets,
+  folderView,
+  cardForProject,
+  pruneFolderFolds,
+  reorderIdsAtSlot,
+} from "./library";
 import type { ProjectMeta } from "./projects";
 import type { Folder } from "./folders";
 
@@ -228,5 +237,60 @@ describe("cardForProject", () => {
 
   it("is null for an unfiled project", () => {
     expect(cardForProject("free1", PROJECTS, FOLDERS)).toBeNull();
+  });
+});
+
+describe("library interaction guards", () => {
+  it("rejects moving a folder into itself or any descendant", () => {
+    expect(canMoveFolderTo("inprogress", "inprogress", FOLDERS)).toBe(false);
+    expect(canMoveFolderTo("inprogress", "olddrafts", FOLDERS)).toBe(false);
+    expect(canMoveFolderTo("gooa", "olddrafts", FOLDERS)).toBe(false);
+    expect(canMoveFolderTo("olddrafts", "completed", FOLDERS)).toBe(true);
+  });
+
+  it("rejects a drop when the dragged folder was deleted mid-drag", () => {
+    expect(canMoveFolderTo("gooa", "completed", FOLDERS.filter((f) => f.id !== "gooa"))).toBe(
+      false
+    );
+  });
+
+  it("rejects a project drop when the source or target was deleted mid-drag", () => {
+    expect(canMoveProjectTo("g1", "gooa", PROJECTS, FOLDERS)).toBe(true);
+    expect(canMoveProjectTo("missing", "gooa", PROJECTS, FOLDERS)).toBe(false);
+    expect(canMoveProjectTo("g1", "missing", PROJECTS, FOLDERS)).toBe(false);
+  });
+
+  it("treats a self-drop and a single-item reorder as no-ops", () => {
+    expect(reorderIdsAtSlot(["a", "b", "c"], "b", 1)).toBeNull();
+    expect(reorderIdsAtSlot(["a", "b", "c"], "b", 2)).toBeNull();
+    expect(reorderIdsAtSlot(["only"], "only", 0)).toBeNull();
+    expect(reorderIdsAtSlot(["only"], "only", 1)).toBeNull();
+  });
+
+  it("reorders at a valid slot without mutating the input list", () => {
+    const ids = ["a", "b", "c"];
+    expect(reorderIdsAtSlot(ids, "a", 3)).toEqual(["b", "c", "a"]);
+    expect(ids).toEqual(["a", "b", "c"]);
+  });
+
+  it("prunes fold state for folders that no longer exist", () => {
+    expect(
+      pruneFolderFolds(
+        { completed: false, deleted: true, malformed: "yes" },
+        FOLDERS
+      )
+    ).toEqual({ completed: false });
+  });
+
+  it("keeps orphaned and cyclic folders available in the Move to list", () => {
+    const orphan = folder("orphan", "Orphan", "missing");
+    const a = { ...folder("a", "A"), parentId: "b" };
+    const b = { ...folder("b", "B"), parentId: "a" };
+    const targets = listFolderMoveTargets([...FOLDERS, orphan, a, b]);
+    const ids = targets.map((target) => target.folder.id);
+    expect(ids).toContain("orphan");
+    expect(ids).toContain("a");
+    expect(ids).toContain("b");
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

@@ -67,6 +67,73 @@ export interface Library {
   unfiled: ProjectMeta[];
 }
 
+/** Whether a folder may be moved to a target without creating a cycle. */
+export function canMoveFolderTo(
+  sourceId: string,
+  targetId: string | null,
+  folders: Folder[]
+): boolean {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  if (!byId.has(sourceId)) return false;
+  if (targetId === null) return true;
+  if (!byId.has(targetId)) return false;
+
+  const seen = new Set<string>();
+  let current: Folder | undefined = byId.get(targetId);
+  while (current) {
+    if (current.id === sourceId) return false;
+    if (seen.has(current.id)) return false;
+    seen.add(current.id);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return true;
+}
+
+/** Whether a live project may be dropped on a live folder or the unfiled band. */
+export function canMoveProjectTo(
+  projectId: string,
+  targetId: string | null,
+  projects: ProjectMeta[],
+  folders: Folder[]
+): boolean {
+  if (!projects.some((project) => project.id === projectId)) return false;
+  return targetId === null || folders.some((folder) => folder.id === targetId);
+}
+
+/** Drop fold entries for folders that no longer exist or invalid old values. */
+export function pruneFolderFolds(
+  folds: Record<string, unknown>,
+  folders: Folder[]
+): Record<string, boolean> {
+  const known = new Set(folders.map((folder) => folder.id));
+  return Object.fromEntries(
+    Object.entries(folds).filter(
+      (entry): entry is [string, boolean] =>
+        known.has(entry[0]) && typeof entry[1] === "boolean"
+    )
+  );
+}
+
+/**
+ * Reorder one id at a list slot. null means the drop was a no-op or invalid,
+ * so callers do not stamp placement clocks for a row dropped on itself.
+ */
+export function reorderIdsAtSlot(
+  ids: string[],
+  sourceId: string,
+  slot: number
+): string[] | null {
+  const from = ids.indexOf(sourceId);
+  if (from < 0) return null;
+  const bounded = Math.max(0, Math.min(slot, ids.length));
+  const to = bounded > from ? bounded - 1 : bounded;
+  if (to === from) return null;
+  const next = [...ids];
+  next.splice(from, 1);
+  next.splice(to, 0, sourceId);
+  return next;
+}
+
 /**
  * The writer's own order, and nothing else: a manual position when one is set,
  * otherwise oldest first. Deliberately NOT by updatedAt. Filing something into
@@ -119,6 +186,25 @@ function childIndex(folders: Folder[]): Map<string | null, Folder[]> {
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }
   return kids;
+}
+
+/** Every folder and its visible path for keyboard-accessible move controls. */
+export function listFolderMoveTargets(
+  folders: Folder[]
+): { folder: Folder; path: string }[] {
+  const kids = childIndex(folders);
+  const out: { folder: Folder; path: string }[] = [];
+  const seen = new Set<string>();
+  const walk = (parentId: string | null, path: string) => {
+    for (const folder of kids.get(parentId) ?? []) {
+      if (seen.has(folder.id)) continue;
+      seen.add(folder.id);
+      out.push({ folder, path });
+      walk(folder.id, path ? `${path} / ${folder.name}` : folder.name);
+    }
+  };
+  walk(null, "");
+  return out;
 }
 
 function projectIndex(projects: ProjectMeta[], folders: Folder[]) {

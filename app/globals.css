@@ -447,10 +447,11 @@ body {
 
 .sp-prose .is-empty::before {
   content: attr(data-placeholder);
+  display: block;
   color: var(--placeholder);
   pointer-events: none;
   height: 0;
-  float: left;
+  text-align: inherit;
 }
 
 /* Selection color */
@@ -899,9 +900,9 @@ body {
 
 .ac-menu {
   z-index: var(--z-menus);
-  min-width: 180px;
-  max-width: 320px;
-  max-height: 240px;
+  min-width: min(180px, calc(100vw - 16px));
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: min(240px, calc(100vh - 16px));
   overflow: auto;
   padding: 4px;
   background: var(--toolbar-bg);
@@ -2085,6 +2086,9 @@ button.film-name-link:hover {
   margin: 0.6em 0 0.3em;
 }
 .pl-prose p {
+  margin: 0;
+}
+.pl-prose > p {
   margin: 0 0 0.8em;
 }
 .pl-prose ul,
@@ -2100,6 +2104,12 @@ button.film-name-link:hover {
   padding-left: 1em;
   border-left: 3px solid var(--border);
   color: var(--muted);
+}
+.pl-prose > :first-child {
+  margin-top: 0;
+}
+.pl-prose > :last-child {
+  margin-bottom: 0;
 }
 .pl-prose hr {
   border: none;
