@@ -94,6 +94,22 @@ describe("export edge cases", () => {
       lines
     );
   });
+
+  it("adds missing parenthetical brackets to PDF line data and Fountain output", () => {
+    const stored = docOf(
+      line("character", "ANNA"),
+      line("parenthetical", "quietly"),
+      line("dialogue", "Stay here.")
+    );
+    const lines = docToLines(stored);
+    expect(lines[1]).toEqual({ element: "parenthetical", text: "(quietly)" });
+
+    const printed = paginate(lines).pages
+      .flatMap((page) => page.ops.map((op) => op.text))
+      .join("\n");
+    expect(printed).toContain("(quietly)");
+    expect(toFountain(lines)).toContain("ANNA\n(quietly)\nStay here.");
+  });
 });
 
 describe("format capitals are applied on the way out", () => {

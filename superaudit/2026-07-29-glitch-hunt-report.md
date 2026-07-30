@@ -425,3 +425,71 @@ change and passes after it.
 
 None. Every real interaction or export defect found in the scoped paths was
 fixed and given regression coverage.
+
+## Added mid-run: BUG 3
+
+### 15. High: a parenthetical does not bring its own parentheses
+
+Reproduction:
+
+1. Type a character cue and press Enter.
+2. Press Tab or Mod+5 to make the dialogue line a Parenthetical.
+3. Type `quietly`.
+4. The stored line and PDF output read `quietly` instead of `(quietly)`.
+
+Root cause:
+
+`setElement` at `lib/editor/screenplayLine.ts:114-150` previously changed only
+the line attribute. It supplied neither the punctuation nor a caret position.
+The empty-line branch at `lib/editor/keymap.ts:61-70` recognized only
+whitespace, so an automatic `()` pair would not have participated in the
+existing empty-line flow. Fountain had a private output repair, while
+`docToLines` and `paginate` passed bracket-less Parenthetical text through to
+the PDF draw operations.
+
+Fix:
+
+`lib/editor/screenplayLine.ts:152-203` now wraps text in the same transaction
+that changes the element and places a caret before the close. It records only
+editor-added punctuation in ephemeral plugin state, so a full Tab cycle can
+remove that formatting punctuation without removing parentheses the writer
+already supplied. No ProseMirror node or stored attribute was added.
+
+`lib/editor/parenthetical.ts:16-193` supplies the shared empty and wrapping
+rules, protects the closing bracket during typing, End, Backspace, and Delete,
+and renders the Parenthetical placeholder between an untouched pair.
+`lib/editor/keymap.ts:64-95` treats `()` as empty and removes it during the
+existing in-place Enter conversion.
+
+`lib/export/flatten.ts:55-94` supplies missing punctuation on the read-only
+document export bridge. `lib/export/paginate.ts:175-188` applies the same
+idempotent tolerance to callers that already hold flat line data, and Fountain
+uses the shared helper. Old and imported bracket-less Parentheticals therefore
+print correctly without rewriting storage.
+
+Required behavior coverage:
+
+1. Tab, Shift+Tab, Mod+5, and the character-cue Enter-then-Tab flow insert `()`
+   with the caret between the brackets.
+2. Existing text is wrapped and the caret lands before the close.
+3. Already wrapped text is not wrapped again.
+4. Typing, End, Backspace, and Delete preserve one final closing bracket.
+5. `()` is empty for Enter, placeholder, autocomplete, and lossless Tab-cycle
+   behavior.
+6. One undo removes the element change and both inserted brackets.
+7. Bracket-less stored text is corrected in PDF line data and Fountain output.
+
+Regression:
+
+- `lib/editor/keymap.test.ts:67-215`
+- `lib/editor/enterFlow.test.ts:61-70`
+- `lib/editor/undoIntegrity.test.ts:122-140`
+- `lib/editor/autocomplete.test.ts:239-248`
+- `lib/export/exportEdges.test.ts:98-112`
+
+Gate:
+
+`npx tsc --noEmit` passes. `npm test` passes all 180 tests in 18 files.
+`npm run build` reaches Next.js compilation, then fails because the sandbox
+cannot fetch Montserrat and Jost through `next/font/google`. The font setup was
+left unchanged as required.

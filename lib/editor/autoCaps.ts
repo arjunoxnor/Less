@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { UPPERCASE_ELEMENTS, type ElementType } from "./elements";
+import { parentheticalEditingKey } from "./parenthetical";
 
 /**
  * Auto-uppercase plugin.
@@ -33,6 +34,9 @@ export const AutoCaps = Extension.create({
         // characters, we append a follow-up transaction that fixes them.
         appendTransaction: (transactions, oldState, newState) => {
           if (!transactions.some((t) => t.docChanged)) return null;
+          // Adding or removing the parenthetical scaffold is part of an
+          // element-format change, not newly typed prose.
+          if (transactions.some((t) => t.getMeta(parentheticalEditingKey))) return null;
           // Changing only a line's element type must not rewrite its content.
           // Otherwise one full Tab cycle through Character permanently turns
           // an action sentence into uppercase even though it ends as Action.

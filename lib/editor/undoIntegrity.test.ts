@@ -119,6 +119,26 @@ describe("undo inverse-consistency (B1)", () => {
     expect(linesOf(ed)[1].element).toBe("dialogue");
   });
 
+  it("one undo removes both automatically inserted parenthetical brackets", () => {
+    const ed = (editor = makeEditor(docOf(line("dialogue", ""))));
+    ed.commands.setTextSelection(1);
+    ed.view.dispatch(closeHistory(ed.state.tr));
+    expect(ed.commands.keyboardShortcut("Mod-5")).toBe(true);
+    expect(linesOf(ed)[0]).toEqual({
+      element: "parenthetical",
+      text: "()",
+      dual: false,
+      note: "",
+    });
+    expect(ed.commands.undo()).toBe(true);
+    expect(linesOf(ed)[0]).toEqual({
+      element: "dialogue",
+      text: "",
+      dual: false,
+      note: "",
+    });
+  });
+
   it("the scripted sequence undoes through recorded states only, no phantom text", () => {
     const ed = (editor = makeEditor(docOf(line("character", "")), OUTLINE));
     ed.commands.setTextSelection(1);

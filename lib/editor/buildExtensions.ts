@@ -16,6 +16,10 @@ import { FindReplace } from "./findPlugin";
 import { buildSpellcheck, type SpellState } from "./spellcheck";
 import { buildRevisionTracker } from "./revisions";
 import { buildGhostHint } from "./ghostHint";
+import {
+  ParentheticalEditing,
+  PARENTHETICAL_PLACEHOLDER,
+} from "./parenthetical";
 import { EMPTY_OUTLINE } from "./outline";
 import type { ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
@@ -29,7 +33,7 @@ function placeholderFor(element: ElementType): string {
     case "character":
       return "CHARACTER NAME";
     case "parenthetical":
-      return "(how they say it)";
+      return `(${PARENTHETICAL_PLACEHOLDER})`;
     case "dialogue":
       return "What they say…";
     case "transition":
@@ -84,6 +88,7 @@ export function buildExtensions(opts?: {
     Document.extend({ content: "screenplayLine+" }),
     Text,
     ScreenplayLine,
+    ParentheticalEditing,
     ScreenplayKeymap,
     AutoCaps,
     SmartCaps,

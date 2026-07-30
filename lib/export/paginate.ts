@@ -15,6 +15,7 @@ import {
 } from "./layout";
 import { cueBaseName } from "@/lib/editor/outline";
 import { computeContinuations, CONTD } from "@/lib/editor/contd";
+import { ensureParentheticalParens } from "./flatten";
 
 /**
  * Rule-aware screenplay pagination.
@@ -176,10 +177,14 @@ function buildBlocks(
     const el = LAYOUT[kind] ?? LAYOUT.action;
     // Auto (CONT'D): a continuation cue prints NAME (CONT'D); the base name is
     // still recovered by cueBaseName, so currentCue and the cast stay correct.
-    const rawText =
+    const sourceText =
       kind === "character" && contdFlags?.[li]
         ? (line.text ?? "") + CONTD
         : line.text ?? "";
+    const rawText =
+      kind === "parenthetical"
+        ? ensureParentheticalParens(sourceText)
+        : sourceText;
     const text = clean(rawText);
     const rows: Row[] = wrap(text, el.maxChars).map((s) => ({
       text: s,

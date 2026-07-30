@@ -58,6 +58,17 @@ describe("Enter on an empty line converts in place", () => {
     expect(linesOf(ed)).toHaveLength(2);
   });
 
+  it("a parenthetical containing only its automatic brackets becomes empty dialogue", () => {
+    const ed = setup(line("character", "ANNA"), line("parenthetical", "()"));
+    ed.commands.setTextSelection(lineStartPos(ed, 1) + 2);
+    expect(runEnterFlow(ed)).toBe(true);
+    expect(linesOf(ed)).toEqual([
+      { element: "character", text: "ANNA", dual: false, note: "" },
+      { element: "dialogue", text: "", dual: false, note: "" },
+    ]);
+    expect(ed.state.selection.$from.index(0)).toBe(1);
+  });
+
   it("empty scene heading becomes action", () => {
     const ed = setup(line("scene_heading", ""));
     setCaretAtLineEnd(ed, 0);

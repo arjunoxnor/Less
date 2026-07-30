@@ -52,6 +52,14 @@ const UPPERCASE_ELEMENTS: ReadonlySet<ElementType> = new Set<ElementType>([
   "transition",
 ]);
 
+/** Supply screenplay punctuation without changing the stored editor document. */
+export function ensureParentheticalParens(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.startsWith("(") && trimmed.endsWith(")")
+    ? trimmed
+    : `(${trimmed})`;
+}
+
 /**
  * Flatten a ProseMirror doc into one ScriptLine per screenplayLine node.
  *
@@ -73,7 +81,11 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
     const raw_text = lineText(node);
     const line: ScriptLine = {
       element,
-      text: UPPERCASE_ELEMENTS.has(element) ? raw_text.toUpperCase() : raw_text,
+      text: UPPERCASE_ELEMENTS.has(element)
+        ? raw_text.toUpperCase()
+        : element === "parenthetical"
+          ? ensureParentheticalParens(raw_text)
+          : raw_text,
     };
     if (node.attrs?.dual === true) line.dual = true;
     if (node.attrs?.revised === true) line.revised = true;

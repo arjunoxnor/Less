@@ -4,7 +4,14 @@ import {
   DEFAULT_ELEMENT,
   type ElementType,
 } from "./elements";
+import {
+  isEmptyParentheticalText,
+  parentheticalEditingKey,
+  type ParentheticalEditingMeta,
+  wrapParentheticalText,
+} from "./parenthetical";
 import { SKIP_REVISION_META } from "./revisions";
+import { TextSelection } from "@tiptap/pm/state";
 
 /**
  * The one and only block node in our schema.
@@ -110,12 +117,21 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
           const { from, to } = state.selection;
           let changed = false;
           const tr = state.tr;
+          const activeLinePos =
+            state.selection.$head.depth > 0 ? state.selection.$head.before(1) : -1;
+          let parentheticalCaret: number | null = null;
+          const automaticLines = parentheticalEditingKey.getState(state);
+          const addAutomatic: number[] = [];
+          const removeAutomatic: number[] = [];
 
           // Walk every block in the selected range and retype it. This makes
           // selecting several lines and pressing Cmd+3 turn them all into
           // character cues, which is what writers expect.
           state.doc.nodesBetween(from, to, (node, pos) => {
             if (node.type.name === this.name) {
+              const mappedPos = tr.mapping.map(pos);
+              const currentNode = tr.doc.nodeAt(mappedPos);
+              if (!currentNode) return;
               // Retyping a line out of a dialogue cluster drops the dual
               // (side-by-side) flag: an action line half-indented to the right
               // column is never what the writer meant, and the flag exports.
@@ -125,16 +141,66 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
                   type === "parenthetical" ||
                   type === "character");
               if (node.attrs.element !== type || node.attrs.dual !== keepDual) {
-                tr.setNodeMarkup(pos, undefined, {
+                tr.setNodeMarkup(mappedPos, undefined, {
                   ...node.attrs,
                   element: type,
                   dual: keepDual,
                 });
                 changed = true;
               }
+
+              const oldText = currentNode.textContent;
+              let nextText = oldText;
+              if (type === "parenthetical") {
+                nextText = wrapParentheticalText(oldText);
+                if (nextText !== oldText) addAutomatic.push(mappedPos);
+              } else if (
+                node.attrs.element === "parenthetical" &&
+                automaticLines?.has(pos) &&
+                oldText.startsWith("(") &&
+                oldText.endsWith(")")
+              ) {
+                // Formatting punctuation added during this editing session
+                // leaves with the format. Parentheses already supplied by the
+                // writer are not tracked and remain untouched.
+                nextText = oldText.slice(1, -1);
+                removeAutomatic.push(mappedPos);
+              } else if (
+                node.attrs.element === "parenthetical" &&
+                isEmptyParentheticalText(oldText)
+              ) {
+                nextText = "";
+              }
+
+              if (nextText !== oldText) {
+                const textFrom = mappedPos + 1;
+                const textTo = textFrom + currentNode.content.size;
+                if (nextText) tr.insertText(nextText, textFrom, textTo);
+                else tr.delete(textFrom, textTo);
+                changed = true;
+              }
+
+              if (
+                state.selection.empty &&
+                type === "parenthetical" &&
+                pos === activeLinePos
+              ) {
+                // The last editable position is immediately before the close.
+                parentheticalCaret = mappedPos + nextText.length;
+              }
             }
           });
 
+          if (parentheticalCaret != null) {
+            tr.setSelection(TextSelection.create(tr.doc, parentheticalCaret));
+            changed = true;
+          }
+          if (addAutomatic.length > 0 || removeAutomatic.length > 0) {
+            tr.setMeta(parentheticalEditingKey, {
+              ...(addAutomatic.length > 0 ? { add: addAutomatic } : {}),
+              ...(removeAutomatic.length > 0 ? { remove: removeAutomatic } : {}),
+            } satisfies ParentheticalEditingMeta);
+          }
           if (changed && dispatch) dispatch(tr);
           return changed;
         },

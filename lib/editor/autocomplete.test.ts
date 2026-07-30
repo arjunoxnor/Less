@@ -243,7 +243,7 @@ describe("autocomplete keyboard ownership", () => {
     markMenuRendered(ed);
     expect(press(ed, "Tab", { shiftKey: true })).toBe(true);
     expect(linesOf(ed)[0].element).toBe("parenthetical");
-    expect(linesOf(ed)[0].text).toBe("CUT");
+    expect(linesOf(ed)[0].text).toBe("(CUT)");
     expect(menuState(ed)?.open).toBe(false);
   });
 

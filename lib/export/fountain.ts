@@ -1,5 +1,6 @@
 import type { ElementType } from "@/lib/editor/elements";
 import type { ScriptLine } from "@/types/screenplay";
+import { ensureParentheticalParens } from "./flatten";
 import { hasTitlePage, type TitlePage } from "./titlePage";
 
 /**
@@ -73,12 +74,6 @@ function stripInline(text: string): string {
   return out;
 }
 
-/** Wrap parenthetical text in parentheses if it is not already wrapped. */
-function ensureParens(text: string): string {
-  const t = text.trim();
-  return /^\(.*\)$/.test(t) ? t : `(${t})`;
-}
-
 /**
  * An action line whose text would be misread on re-import needs the "!" force
  * prefix: an all-caps line reads as a character cue, and a line starting with a
@@ -140,7 +135,9 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       ) {
         const l = lines[i];
         cluster.push(
-          l.element === "parenthetical" ? escapeInline(ensureParens(l.text)) : escapeInline(l.text)
+          l.element === "parenthetical"
+            ? escapeInline(ensureParentheticalParens(l.text))
+            : escapeInline(l.text)
         );
         i++;
       }
@@ -159,7 +156,7 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       }
       case "parenthetical":
         // Orphaned parenthetical (no preceding cue): keep it as its own block.
-        blocks.push(escapeInline(ensureParens(text)));
+        blocks.push(escapeInline(ensureParentheticalParens(text)));
         break;
       case "dialogue":
         // Orphaned dialogue: keep it so nothing is lost.

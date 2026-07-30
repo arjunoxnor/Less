@@ -9,6 +9,10 @@ import {
   prevElement,
   type ElementType,
 } from "./elements";
+import {
+  isEmptyParentheticalText,
+  isScreenplayLineEmpty,
+} from "./parenthetical";
 
 /**
  * All the smart typing behavior lives here:
@@ -62,7 +66,7 @@ export function runEnterFlow(editor: Editor): boolean {
     editor.state.selection.empty &&
     emptyLine &&
     fromType !== "action" &&
-    emptyLine.node.textContent.trim() === ""
+    isScreenplayLineEmpty(fromType, emptyLine.node.textContent)
   ) {
     // An abandoned empty cue means "never mind the speech", so it becomes
     // action rather than the dialogue the flow map would give. Every other
@@ -77,6 +81,12 @@ export function runEnterFlow(editor: Editor): boolean {
         !!a.dual &&
         (target === "dialogue" || target === "parenthetical" || target === "character");
       if (dispatch) {
+        if (isEmptyParentheticalText(emptyLine.node.textContent)) {
+          tr.delete(
+            emptyLine.pos + 1,
+            emptyLine.pos + 1 + emptyLine.node.content.size
+          );
+        }
         tr.setNodeMarkup(emptyLine.pos, undefined, {
           ...a,
           element: target,

@@ -453,6 +453,13 @@ body {
   height: 0;
   text-align: inherit;
 }
+.sp-prose .sp-parenthetical.is-empty::before {
+  content: none;
+}
+.parenthetical-placeholder {
+  color: var(--placeholder);
+  pointer-events: none;
+}
 
 /* Selection color */
 .sp-prose ::selection {
