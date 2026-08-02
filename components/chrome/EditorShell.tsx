@@ -8,6 +8,7 @@ import { showToast } from "../ui/Toast";
 import { TopBar } from "./TopBar";
 import { LeftRail, type PanelId, type RailItem } from "./LeftRail";
 import type { ThemeChoice } from "@/lib/storage/localStore";
+import type { DuetConnectionStatus, DuetParticipant } from "@/lib/collab/duet";
 
 export type { PanelId, RailItem };
 
@@ -41,6 +42,8 @@ export function EditorShell({
   cloudConfigured,
   user,
   syncStatus,
+  collaborationStatus,
+  participants,
   sessionExpired,
   onSignIn,
   modLabel,
@@ -69,6 +72,8 @@ export function EditorShell({
   cloudConfigured: boolean;
   user: User | null;
   syncStatus: SyncStatus;
+  collaborationStatus?: DuetConnectionStatus;
+  participants?: DuetParticipant[];
   sessionExpired: boolean;
   onSignIn: () => void;
   modLabel: string;
@@ -172,6 +177,8 @@ export function EditorShell({
           cloudConfigured={cloudConfigured}
           user={user}
           syncStatus={syncStatus}
+          collaborationStatus={collaborationStatus}
+          participants={participants}
           sessionExpired={sessionExpired}
           onSignIn={onSignIn}
           modLabel={modLabel}

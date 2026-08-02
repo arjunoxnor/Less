@@ -17,6 +17,8 @@
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
     "@tiptap/core": "3.27.1",
+    "@tiptap/extension-collaboration": "^3.27.1",
+    "@tiptap/extension-collaboration-caret": "^3.27.1",
     "@tiptap/extension-color": "3.27.1",
     "@tiptap/extension-document": "3.27.1",
     "@tiptap/extension-highlight": "3.27.1",
@@ -31,11 +33,16 @@
     "@tiptap/starter-kit": "3.27.1",
     "dictionary-en": "^4.0.0",
     "fflate": "^0.8.3",
+    "lib0": "^0.2.117",
     "next": "16.2.9",
     "nspell": "^2.1.5",
     "pdf-lib": "^1.17.1",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "y-prosemirror": "^1.3.7",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

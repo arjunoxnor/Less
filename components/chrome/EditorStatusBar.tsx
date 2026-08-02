@@ -30,6 +30,7 @@ export function EditorStatusBar({
   wordCount,
   saved,
   saveError,
+  collaborative,
   locked,
   lockRevision,
 }: {
@@ -45,6 +46,7 @@ export function EditorStatusBar({
   wordCount: number;
   saved: boolean;
   saveError: boolean;
+  collaborative?: boolean;
   locked: boolean;
   lockRevision?: string;
 }) {
@@ -110,6 +112,12 @@ export function EditorStatusBar({
       )}
 
       <span className="status-spacer" />
+
+      {collaborative && (
+        <span className="status-item status-duet" title="Yjs is syncing this script. Account cloud sync is paused.">
+          Cloud sync off while shared
+        </span>
+      )}
 
       {locked && (
         <span

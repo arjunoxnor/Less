@@ -7,6 +7,7 @@ import { Menu, type MenuItem } from "../ui/Menu";
 import { ChevronLeftIcon, DotsIcon, SidebarIcon } from "./icons";
 import type { ThemeChoice } from "@/lib/storage/localStore";
 import { ThemeToggle } from "./ThemeToggle";
+import type { DuetConnectionStatus, DuetParticipant } from "@/lib/collab/duet";
 
 /**
  * The single 48px top bar (Superaudit 2, 2B.1): back chevron, borderless
@@ -24,6 +25,12 @@ const SYNC_WORD: Record<SyncStatus, string> = {
   error: "Error",
 };
 
+const DUET_WORD: Record<DuetConnectionStatus, string> = {
+  connected: "Connected",
+  reconnecting: "Reconnecting",
+  offline: "Offline",
+};
+
 export function TopBar({
   title,
   onRename,
@@ -31,6 +38,8 @@ export function TopBar({
   cloudConfigured,
   user,
   syncStatus,
+  collaborationStatus,
+  participants,
   sessionExpired,
   onSignIn,
   modLabel,
@@ -48,6 +57,8 @@ export function TopBar({
   cloudConfigured: boolean;
   user: User | null;
   syncStatus: SyncStatus;
+  collaborationStatus?: DuetConnectionStatus;
+  participants?: DuetParticipant[];
   sessionExpired: boolean;
   onSignIn: () => void;
   modLabel: string;
@@ -111,7 +122,15 @@ export function TopBar({
         aria-label="Project title"
       />
 
-      {cloudConfigured &&
+      {collaborationStatus ? (
+        <span
+          className="topbar-sync"
+          title="Duet collaboration is active. Account cloud sync is off while this script is shared."
+        >
+          <span className={"sync-dot sync-" + collaborationStatus} aria-hidden="true" />
+          {DUET_WORD[collaborationStatus]}
+        </span>
+      ) : cloudConfigured &&
         (sessionExpired ? (
           <button type="button" className="topbar-sync-btn" onClick={onSignIn}>
             Session expired: sign in
@@ -131,6 +150,26 @@ export function TopBar({
             Sign in to back up
           </button>
         ))}
+
+      {participants && participants.length > 0 && (
+        <div className="duet-presence" aria-label="People in this script">
+          {participants.slice(0, 3).map((participant) => (
+            <span className="duet-person" key={participant.clientId} title={`${participant.name} is here`}>
+              <span
+                className="duet-person-dot"
+                style={{ backgroundColor: participant.color }}
+                aria-hidden="true"
+              />
+              {participant.name}
+            </span>
+          ))}
+          {participants.length > 3 && (
+            <span className="duet-person" title={`${participants.length - 3} more people are here`}>
+              +{participants.length - 3}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="toolbar-spacer" />
 

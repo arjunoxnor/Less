@@ -1,6 +1,9 @@
 import Document from "@tiptap/extension-document";
 import Text from "@tiptap/extension-text";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { UndoRedo, Gapcursor, Dropcursor, Placeholder } from "@tiptap/extensions";
+import type { AnyExtension } from "@tiptap/core";
 
 import { ScreenplayLine } from "./screenplayLine";
 import { ScreenplayKeymap } from "./keymap";
@@ -24,6 +27,7 @@ import { EMPTY_OUTLINE } from "./outline";
 import type { ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
 import type { NSpell } from "nspell";
+import type { DuetSession } from "@/lib/collab/duet";
 
 /** Hint shown on the current empty line, tailored to its element type. */
 function placeholderFor(element: ElementType): string {
@@ -56,7 +60,7 @@ function placeholderFor(element: ElementType): string {
  *   ScreenplayLine  the one block node (carries the element type)
  *   ScreenplayKeymap  Enter/Tab/Cmd-number behavior
  *   AutoCaps     uppercases scene headings, character cues, transitions
- *   UndoRedo     history (Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z)
+ *   UndoRedo     local history, replaced by Yjs history while collaborative
  *   Gapcursor/Dropcursor  standard editing niceties
  */
 export function buildExtensions(opts?: {
@@ -80,9 +84,11 @@ export function buildExtensions(opts?: {
   isBreakdownEnabled?: () => boolean;
   /** Show the onboarding ghost line on a brand-new empty screenplay (2D.3). */
   showGhostHint?: boolean;
+  /** A shared Yjs binding. Its presence replaces local history and adds carets. */
+  collaboration?: Pick<DuetSession, "doc" | "provider" | "user">;
 }) {
   const getOutline = opts?.getOutline ?? (() => EMPTY_OUTLINE);
-  const extensions = [
+  const extensions: AnyExtension[] = [
     // Override the document's content rule so the only thing allowed at the top
     // level is one-or-more screenplay lines. Nothing else can sneak in.
     Document.extend({ content: "screenplayLine+" }),
@@ -98,7 +104,6 @@ export function buildExtensions(opts?: {
     // keymap; it only consumes keys while its menu is open.
     buildAutocomplete(getOutline, opts?.onAutocompleteState),
     FindReplace,
-    UndoRedo,
     Gapcursor,
     Dropcursor,
     Placeholder.configure({
@@ -107,6 +112,23 @@ export function buildExtensions(opts?: {
         placeholderFor((node.attrs.element as ElementType) ?? "action"),
     }),
   ];
+  if (opts?.collaboration) {
+    extensions.push(
+      Collaboration.configure({
+        document: opts.collaboration.doc,
+        field: "default",
+        provider: opts.collaboration.provider,
+      }),
+      CollaborationCaret.configure({
+        provider: opts.collaboration.provider,
+        user: opts.collaboration.user,
+      })
+    );
+  } else {
+    // Collaboration owns undo/redo through Yjs. Installing both history
+    // systems produces incorrect undo boundaries and can replay remote work.
+    extensions.push(UndoRedo);
+  }
   // Spell check is decorations + click only (no keydown priority needed).
   if (opts?.getSpeller) {
     extensions.push(

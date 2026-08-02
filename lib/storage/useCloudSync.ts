@@ -37,6 +37,9 @@ const SNAPSHOT_THROTTLE_MS = 3 * 60 * 1000; // at most one snapshot per 3 min
 
 /** Everything the per-project sync engine needs, injected by the editor body. */
 export interface CloudSyncOpts {
+  /** A shared Yjs document has its own authority. When true, every LWW cloud
+   *  read, write, reconcile, and cross-tab replacement path stays inert. */
+  disabled?: boolean;
   projectId: string;
   type: ProjectType;
   status: ProjectStatus;
@@ -127,6 +130,7 @@ export function useCloudSync(
   // title. Cleared only when the value that landed is still the current title.
   const flushTitle = useCallback(async () => {
     const o = optsRef.current;
+    if (o.disabled) return;
     if (!o.isTitleDirty()) return;
     const ed = editor;
     if (!ed) return;
@@ -137,6 +141,7 @@ export function useCloudSync(
 
   // Push the current document to the cloud (with a throttled snapshot).
   const pushNow = useCallback(async () => {
+    if (optsRef.current.disabled) return;
     const u = userRef.current;
     const ed = editor;
     if (!u || !ed) return;
@@ -205,6 +210,10 @@ export function useCloudSync(
   // reset the key and bump a tick so the full reconcile re-runs.
   const [restoredTick, setRestoredTick] = useState(0);
   useEffect(() => {
+    if (optsRef.current.disabled) {
+      setStatus("local");
+      return;
+    }
     const onRestored = () => {
       reconciledFor.current = null;
       setRestoredTick((t) => t + 1);
@@ -215,6 +224,10 @@ export function useCloudSync(
 
   // --- Reconcile this project once when a signed-in user + editor are ready ---
   useEffect(() => {
+    if (optsRef.current.disabled) {
+      setStatus("local");
+      return;
+    }
     if (!editor || !user) {
       if (!user) setStatus("local");
       return;
@@ -228,6 +241,7 @@ export function useCloudSync(
     const key = `${user.id}:${projectId}`;
     if (reconciledFor.current === key) return;
     reconciledFor.current = key;
+    let cancelled = false;
 
     (async () => {
       const o = optsRef.current;
@@ -235,6 +249,7 @@ export function useCloudSync(
       const localDoc = editor.getJSON();
       try {
         const cloud = await fetchScript(projectId);
+        if (cancelled) return;
         if (cloud) {
           const lastSaved = o.getLastSavedAt();
           const cloudNewer =
@@ -255,6 +270,7 @@ export function useCloudSync(
               live,
               tpDirty ? titlePageRef.current : undefined
             );
+            if (cancelled) return;
             // Keep dirty if the save did not actually land (null = 401/offline),
             // so it retries instead of being lost.
             if (ts) {
@@ -280,6 +296,7 @@ export function useCloudSync(
             status: o.status,
             titlePage: titlePageRef.current,
           });
+          if (cancelled) return;
           if (row) {
             o.setLastSavedAt(row.updated_at);
             o.onCloudCreated?.(projectId);
@@ -295,11 +312,15 @@ export function useCloudSync(
             : "synced"
         );
       } catch (e) {
+        if (cancelled) return;
         console.error("reconcile failed", e);
         reconciledFor.current = null; // allow a retry
         setStatus("error");
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [editor, user, projectId, pullInto, restoredTick]);
 
   // --- Cross-tab: adopt a sibling tab's newer save of THIS project ---------
@@ -308,6 +329,7 @@ export function useCloudSync(
   // later autosave a stale copy over it. If we ARE dirty, we keep our edits
   // (cloud last-write-wins reconciles later) rather than clobber them here.
   useEffect(() => {
+    if (optsRef.current.disabled) return;
     if (!editor) return;
     return onBroadcast((msg) => {
       if (msg.type !== "docSaved" || msg.id !== projectId) return;
@@ -323,6 +345,7 @@ export function useCloudSync(
 
   // --- Subscribe to edits: mark dirty + schedule a background push ---------
   useEffect(() => {
+    if (optsRef.current.disabled) return;
     if (!editor) return;
     const onUpdate = () => {
       if (!userRef.current) return;
@@ -338,6 +361,7 @@ export function useCloudSync(
 
   // --- Flush pending edits when the connection returns ---------------------
   useEffect(() => {
+    if (optsRef.current.disabled) return;
     const onOnline = () => {
       if (optsRef.current.isDirty()) void pushNow();
     };
@@ -352,13 +376,16 @@ export function useCloudSync(
 
   // Signed out: stop syncing (the host unmounts to home, so no editor reset here).
   useEffect(() => {
+    if (optsRef.current.disabled) return;
     if (!user) setStatus("local");
   }, [user]);
 
   /** For the history panel: cloud snapshots (when signed in) merged with the
    *  on-device ring, newest first, so a signed-out writer still has rollback. */
   const getVersions = useCallback(async (): Promise<VersionRow[]> => {
-    const cloud = userRef.current ? await listVersions(projectId) : [];
+    const cloud = !optsRef.current.disabled && userRef.current
+      ? await listVersions(projectId)
+      : [];
     const local: VersionRow[] = listLocalVersions(projectId).map((v) => ({
       id: `local:${v.at}`,
       content: v.content,
@@ -379,7 +406,7 @@ export function useCloudSync(
     setTitlePageState(next);
     optsRef.current.setDirty(true);
     optsRef.current.setTitlePageDirty(true); // a real local title-page edit
-    if (userRef.current) debouncedPush.current();
+    if (!optsRef.current.disabled && userRef.current) debouncedPush.current();
   }, []);
 
   // Take an immediate, unthrottled snapshot of the CURRENT (pre-replacement)
@@ -394,7 +421,7 @@ export function useCloudSync(
         force: true,
       });
       const u = userRef.current;
-      if (!u) return;
+      if (!u || optsRef.current.disabled) return;
       createSnapshot(optsRef.current.projectId, u.id, ed.getJSON(), titlePageRef.current, label).catch(
         (e) => console.error("pre-action snapshot failed", e)
       );
@@ -431,6 +458,7 @@ export function useCloudSync(
    *  cloud before local cloud-backed copies are cleared. */
   const flush = useCallback(async () => {
     debouncedPush.current.cancel();
+    if (optsRef.current.disabled) return;
     if (userRef.current && optsRef.current.isDirty()) await pushNow();
   }, [pushNow]);
 
@@ -444,6 +472,7 @@ export function useCloudSync(
     const u = userRef.current;
     const ed = editor;
     const o = optsRef.current;
+    if (o.disabled) return;
     if (!u || !ed || !o.isDirty()) return;
     if (isSessionExpired()) return; // would only 401; local save already ran
     if (typeof navigator !== "undefined" && !navigator.onLine) return;

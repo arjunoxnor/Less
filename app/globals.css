@@ -249,6 +249,34 @@ body {
   position: relative;
   z-index: 1;
 }
+.duet-editor-loading {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3in;
+  color: var(--muted);
+  background: var(--page-bg);
+  font-family: system-ui, sans-serif;
+  font-size: var(--text-sm);
+}
+.duet-initializing-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--ink);
+  text-align: center;
+}
+.duet-initializing-overlay p {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-md);
+}
 /* The transparent spacer the pagination plugin inserts at each page boundary. */
 .pm-page-gap {
   display: block;
@@ -318,6 +346,10 @@ body {
   font-weight: 600;
   font-size: var(--text-xs);
   line-height: 16px;
+}
+.status-duet {
+  color: var(--accent);
+  white-space: nowrap;
 }
 
 /* The element pill: current line type, opens the upward element menu. */
@@ -489,6 +521,35 @@ body {
 }
 .sync-error {
   background: var(--danger);
+}
+.sync-connected {
+  background: var(--ok);
+}
+.sync-reconnecting {
+  background: var(--warn);
+}
+
+.collaboration-carets__caret {
+  position: relative;
+  border-left: 2px solid;
+  border-right: 2px solid transparent;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+}
+.collaboration-carets__label {
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 4px;
+  white-space: nowrap;
+  z-index: 2;
 }
 
 
@@ -2889,6 +2950,27 @@ button.film-name-link:hover {
   margin-top: var(--space-5);
 }
 
+.duet-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.duet-link-row input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+.duet-name-field {
+  margin-top: var(--space-4);
+}
+
 
 .ui-btn {
   font: inherit;
@@ -3147,6 +3229,43 @@ button.film-name-link:hover {
 }
 .topbar-sync-btn:hover {
   color: var(--ink);
+}
+
+.duet-presence {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.duet-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 120px;
+  padding: 3px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.duet-person-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+@media (max-width: 900px) {
+  .duet-person:not(:first-child) {
+    display: none;
+  }
+  .status-duet {
+    display: none;
+  }
 }
 
 /* The palette hint chip. */

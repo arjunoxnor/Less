@@ -28,6 +28,7 @@ import { AuthModal } from "./AuthModal";
 import { SessionExpiredBanner } from "./SessionExpiredBanner";
 import { importFile } from "@/lib/export";
 import { getFolder, type Stage } from "@/lib/storage/folders";
+import { getProjectShare } from "@/lib/collab/duet";
 
 /**
  * Two places, and no third: the home, and a document. A folder is not a place
@@ -36,6 +37,7 @@ import { getFolder, type Stage } from "@/lib/storage/folders";
  */
 type View =
   | { kind: "home" }
+  | { kind: "duet"; token: string }
   | {
       kind: "editor";
       id: string;
@@ -55,9 +57,11 @@ type ImportManifest = {
   order?: string[];
 };
 
-/** The one routed destination: a project (#/p/<id>). */
-function parseHash(): { kind: "editor"; id: string } | null {
+/** The routed destinations: a local project or a link-only Duet room. */
+function parseHash(): { kind: "editor"; id: string } | { kind: "duet"; token: string } | null {
   if (typeof window === "undefined") return null;
+  const duet = window.location.hash.match(/^#\/duet\/([A-Za-z0-9_-]{43})$/);
+  if (duet) return { kind: "duet", token: duet[1] };
   const p = window.location.hash.match(/^#\/p\/(.+)$/);
   if (p) return { kind: "editor", id: decodeURIComponent(p[1]) };
   return null;
@@ -67,6 +71,7 @@ function parseHash(): { kind: "editor"; id: string } | null {
 function resolveHash(): View | null {
   const h = parseHash();
   if (!h) return null;
+  if (h.kind === "duet") return h;
   return getProjectMeta(h.id) ? h : null;
 }
 
@@ -171,6 +176,9 @@ export function AppShell() {
       if (next?.kind === "editor") {
         const id = next.id;
         setView((v) => (v.kind === "editor" && v.id === id ? v : { kind: "editor", id }));
+      } else if (next?.kind === "duet") {
+        const token = next.token;
+        setView((v) => (v.kind === "duet" && v.token === token ? v : next));
       } else {
         // Landing on the home via browser back must re-read the index
         // (same-tab writes do not broadcast), or times and page counts go stale.
@@ -324,6 +332,29 @@ export function AppShell() {
     if (view.kind === "editor" && !getProjectMeta(view.id)) goHome();
   }, [view, projects, goHome]);
 
+  if (view.kind === "duet") {
+    return (
+      <>
+        <EditorHost
+          key={`duet:${view.token}`}
+          projectId={`duet:${view.token}`}
+          type="screenplay"
+          title="Shared screenplay"
+          onRename={() => {}}
+          status="writing"
+          onStatusChange={() => {}}
+          onBack={goHome}
+          prefs={prefs}
+          onPrefsChange={onPrefsChange}
+          user={user}
+          sessionExpired={sessionExpired}
+          duet={{ token: view.token, owner: false }}
+        />
+        {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      </>
+    );
+  }
+
   if (view.kind === "editor" && current) {
     // The instant-create title focus (2C): only for a project that still has
     // its placeholder name and was created moments ago, so a hint that somehow
@@ -332,6 +363,7 @@ export function AppShell() {
       view.focusTitle === true &&
       (current.title === "Untitled screenplay" || current.title === "Untitled") &&
       Date.now() - new Date(current.createdAt).getTime() < 10_000;
+    const duetShare = getProjectShare(current.id);
     return (
       <>
         <EditorHost
@@ -350,6 +382,11 @@ export function AppShell() {
           onImportAsNew={(file) => importScreenplays([file])}
           onOpenProject={openProject}
           autoFocusTitle={autoFocusTitle}
+          duet={
+            duetShare
+              ? { token: duetShare.token, owner: true, ownerKey: duetShare.ownerKey }
+              : undefined
+          }
         />
         {/* Inside the editor the top bar's sync indicator carries the expired
             state (2B.1); the banner stays for the dashboard only. */}

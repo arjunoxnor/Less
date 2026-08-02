@@ -12,6 +12,7 @@ import {
 import { fetchScript } from "@/lib/cloud/scripts";
 import { ScreenplayBody } from "./ScreenplayBody";
 import { PlainBody } from "./PlainBody";
+import type { DuetAccess } from "./ScreenplayBody";
 
 /**
  * Picks the editor body by project type. Mounted by AppShell with key={id} so
@@ -45,6 +46,8 @@ export function EditorHost({
   onOpenProject?: (id: string) => void;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
+  /** Screenplay-only link collaboration. Guests have no local project row. */
+  duet?: DuetAccess;
 }) {
   const { projectId, onBack } = rest;
   const [hydration, setHydration] = useState<"checking" | "ready" | "failed">(() =>

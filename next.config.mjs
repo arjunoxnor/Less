@@ -13,6 +13,7 @@ const nextConfig = {
   // and is a public identifier, not a secret.
   env: {
     NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "",
+    NEXT_PUBLIC_DUET_URL: process.env.NEXT_PUBLIC_DUET_URL ?? "",
   },
 };
 

@@ -101,22 +101,29 @@ import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import { Modal } from "./ui/Modal";
 import { showToast } from "./ui/Toast";
 import type { TitlePage } from "@/lib/export/titlePage";
+import {
+  clearProjectShare,
+  colorForName,
+  createDuetSession,
+  createProjectShare,
+  loadDuetDisplayName,
+  makeGuestName,
+  revokeDuetRoom,
+  saveDuetDisplayName,
+  type DuetConnectionStatus,
+  type DuetParticipant,
+  type DuetSession,
+  type DuetShareRecord,
+} from "@/lib/collab/duet";
+import { DuetShareModal } from "./DuetShareModal";
 
-export function ScreenplayBody({
-  projectId,
-  title,
-  onRename,
-  status,
-  onStatusChange,
-  onBack,
-  prefs,
-  onPrefsChange,
-  user,
-  sessionExpired,
-  onImportAsNew,
-  onOpenProject,
-  autoFocusTitle,
-}: {
+export interface DuetAccess {
+  token: string;
+  owner: boolean;
+  ownerKey?: string;
+}
+
+interface ScreenplayBodyProps {
   projectId: string;
   title: string;
   onRename: (title: string) => void;
@@ -132,10 +139,204 @@ export function ScreenplayBody({
   onOpenProject?: (id: string) => void;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
+  duet?: DuetAccess;
+}
+
+export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
+  const [access, setAccess] = useState<DuetAccess | null>(() => duet ?? null);
+  const [session, setSession] = useState<DuetSession | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [showShare, setShowShare] = useState(false);
+  const [participants, setParticipants] = useState<DuetParticipant[]>([]);
+  const [duetStatus, setDuetStatus] = useState<DuetConnectionStatus>("reconnecting");
+  const [duetReady, setDuetReady] = useState(false);
+  const guestFallback = useRef(makeGuestName());
+  const [displayName, setDisplayName] = useState(() =>
+    duet?.owner
+      ? props.user?.name?.trim() || "You"
+      : loadDuetDisplayName() || guestFallback.current
+  );
+
+  useEffect(() => {
+    if (!access) {
+      setSession(null);
+      setParticipants([]);
+      setDuetReady(false);
+      return;
+    }
+    let created: DuetSession | null = null;
+    try {
+      const cleanName = displayName.trim() || (access.owner ? "You" : guestFallback.current);
+      created = createDuetSession({
+        projectId: props.projectId,
+        token: access.token,
+        owner: access.owner,
+        ownerKey: access.ownerKey,
+        user: { name: cleanName, color: colorForName(cleanName) },
+      });
+      setSessionError(null);
+      setDuetReady(false);
+      setSession(created);
+    } catch {
+      setSessionError("This shared script could not connect just now.");
+      setSession(null);
+    }
+    return () => created?.destroy();
+    // A name change updates awareness below and must not replace the document.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access?.token, access?.owner, access?.ownerKey, props.projectId]);
+
+  useEffect(() => {
+    if (!session) return;
+    const cleanName = displayName.trim() || (session.owner ? "You" : guestFallback.current);
+    session.setUser({ name: cleanName, color: colorForName(cleanName) });
+    if (!session.owner) saveDuetDisplayName(displayName);
+  }, [displayName, session]);
+
+  useEffect(() => {
+    if (!session) return;
+    const offPresence = session.subscribePresence(setParticipants);
+    const offStatus = session.subscribeStatus(setDuetStatus);
+    const offReady = session.subscribeReady(setDuetReady);
+    return () => {
+      offPresence();
+      offStatus();
+      offReady();
+    };
+  }, [session]);
+
+  const openShare = () => {
+    if (!access) {
+      try {
+        const record = createProjectShare(props.projectId);
+        setAccess({ token: record.token, owner: true, ownerKey: record.ownerKey });
+      } catch (cause) {
+        showToast(cause instanceof Error ? cause.message : "Sharing could not start.", {
+          variant: "danger",
+        });
+        return;
+      }
+    }
+    setShowShare(true);
+  };
+
+  const stopSharing = async () => {
+    if (!access?.owner || !access.ownerKey || !session) return;
+    const shared = session.getContent();
+    const safeShared = shared.content?.length ? shared : EMPTY_SCREENPLAY;
+    if (!saveProjectDoc(props.projectId, safeShared)) {
+      throw new Error(
+        "The latest shared text could not be saved on this device, so sharing was left on."
+      );
+    }
+    // The local copy must win the first post-Duet cloud reconcile. Otherwise a
+    // stale LWW row could replace text that was written in the shared room.
+    projSetDirty(props.projectId, true);
+    const record: DuetShareRecord = { token: access.token, ownerKey: access.ownerKey };
+    await revokeDuetRoom(record, session);
+    const finalShared = session.getContent();
+    const safeFinal = finalShared.content?.length ? finalShared : EMPTY_SCREENPLAY;
+    if (!saveProjectDoc(props.projectId, safeFinal)) {
+      throw new Error(
+        "The link was stopped, but the final shared text could not be saved on this device. Free some storage, then try again."
+      );
+    }
+    const finalTitle = session.getTitle()?.trim();
+    if (finalTitle && finalTitle !== props.title) props.onRename(finalTitle);
+    clearProjectShare(props.projectId);
+    setShowShare(false);
+    setSession(null);
+    setAccess(null);
+  };
+
+  const modal =
+    showShare && access ? (
+      <DuetShareModal
+        record={{ token: access.token, ownerKey: access.ownerKey ?? "" }}
+        owner={access.owner}
+        displayName={displayName}
+        onDisplayNameChange={setDisplayName}
+        onStop={stopSharing}
+        onClose={() => setShowShare(false)}
+      />
+    ) : null;
+
+  if (access && !session) {
+    return (
+      <>
+        <div className="host-hydrate">
+          <p>{sessionError ?? "Opening the shared script…"}</p>
+          {sessionError && (
+            <button type="button" className="tb-btn" onClick={props.onBack}>
+              Back to projects
+            </button>
+          )}
+        </div>
+        {modal}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ScreenplayEditor
+        key={session ? `duet:${session.token}` : "local"}
+        {...props}
+        duetSession={session}
+        duetStatus={duetStatus}
+        participants={participants}
+        duetReady={duetReady}
+        onOpenShare={openShare}
+      />
+      {modal}
+    </>
+  );
+}
+
+function ScreenplayEditor({
+  projectId,
+  title,
+  onRename,
+  status,
+  onStatusChange,
+  onBack,
+  prefs,
+  onPrefsChange,
+  user,
+  sessionExpired,
+  onImportAsNew,
+  onOpenProject,
+  autoFocusTitle,
+  duetSession,
+  duetStatus,
+  participants,
+  duetReady,
+  onOpenShare,
+}: Omit<ScreenplayBodyProps, "duet"> & {
+  duetSession: DuetSession | null;
+  duetStatus: DuetConnectionStatus;
+  participants: DuetParticipant[];
+  duetReady: boolean;
+  onOpenShare: () => void;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_SCREENPLAY,
     [projectId]
+  );
+  const [sharedTitle, setSharedTitle] = useState<string | null>(
+    () => duetSession?.getTitle() ?? null
+  );
+  const activeTitle = duetSession ? sharedTitle || title : title;
+  const renameActiveTitle = useCallback(
+    (next: string) => {
+      if (duetSession) {
+        duetSession.setTitle(next);
+        if (duetSession.owner) onRename(next);
+      } else {
+        onRename(next);
+      }
+    },
+    [duetSession, onRename]
   );
   const [pageTarget, setPageTarget] = useState<number | undefined>(
     () => getProjectMeta(projectId)?.pageTarget
@@ -254,16 +455,20 @@ export function ScreenplayBody({
         getBreakdownItems: () => breakdownItemsRef.current,
         isBreakdownEnabled: () => breakdownEnabledRef.current,
         showGhostHint,
+        collaboration: duetSession ?? undefined,
       }),
       Pagination.configure({ onPages: setPages }),
     ],
-    [showGhostHint]
+    [showGhostHint, duetSession]
   );
 
   const editor = useEditor({
     immediatelyRender: false,
     extensions,
-    content: initialContent,
+    editable: duetSession ? false : true,
+    // A Yjs-bound editor must never also receive content. Doing both imports
+    // the local script into the shared fragment and duplicates whole drafts.
+    ...(duetSession ? {} : { content: initialContent }),
     editorProps: {
       attributes: { class: "sp-prose", spellcheck: "false" },
     },
@@ -278,9 +483,11 @@ export function ScreenplayBody({
       }
     },
     onUpdate: ({ editor }) => {
-      unsavedRef.current = true;
-      setSaved(false);
-      debouncedSave(editor.getJSON());
+      if (!duetSession) {
+        unsavedRef.current = true;
+        setSaved(false);
+        debouncedSave(editor.getJSON());
+      }
       measure(editor);
       // Retyping a line (setElement) changes the doc without moving the
       // selection, so the element pill must refresh here too, not only on
@@ -295,6 +502,36 @@ export function ScreenplayBody({
       setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
     },
   });
+
+  useEffect(() => {
+    if (!editor || !duetSession) return;
+    duetSession.seedWhenSynced(editor.schema, initialContent, title);
+  }, [editor, duetSession, initialContent, title]);
+
+  useEffect(() => {
+    if (editor) editor.setEditable(!duetSession || duetReady);
+  }, [editor, duetSession, duetReady]);
+
+  useEffect(() => {
+    if (!duetSession) {
+      setSharedTitle(null);
+      return;
+    }
+    return duetSession.subscribeTitle(setSharedTitle);
+  }, [duetSession]);
+
+  useEffect(() => {
+    if (!duetSession) return;
+    // Offline typing stays in the Y.Doc and merges on reconnect. The local
+    // autosave is a mirror of that state, never a second source writing back.
+    return duetSession.subscribeDocument(() => {
+      const shared = duetSession.getContent();
+      const safeShared = shared.content?.length ? shared : EMPTY_SCREENPLAY;
+      unsavedRef.current = true;
+      setSaved(false);
+      debouncedSave(safeShared);
+    });
+  }, [duetSession, debouncedSave]);
 
   const outline = useOutline(editor);
   outlineRef.current = outline;
@@ -313,11 +550,12 @@ export function ScreenplayBody({
 
   // The live project title, read through a ref so the memoized sync opts always
   // see the current value (e.g. after a rename) without re-creating.
-  const titleRef = useRef(title);
-  titleRef.current = title;
+  const titleRef = useRef(activeTitle);
+  titleRef.current = activeTitle;
 
   const syncOpts = useMemo(
     () => ({
+      disabled: duetSession != null,
       projectId,
       type: "screenplay" as const,
       status,
@@ -337,7 +575,7 @@ export function ScreenplayBody({
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
       onCloudCreated: (id: string) => markCloudCreated(id),
     }),
-    [projectId, status]
+    [projectId, status, duetSession]
   );
 
   const {
@@ -362,10 +600,13 @@ export function ScreenplayBody({
       debouncedSave.cancel();
       const ed = editorRef.current;
       // Only a real pending edit gets written on the way out; see unsavedRef.
-      if (ed && unsavedRef.current) saveProjectDoc(projectId, ed.getJSON());
+      if (ed && unsavedRef.current) {
+        const current = duetSession?.getContent() ?? ed.getJSON();
+        saveProjectDoc(projectId, current.content?.length ? current : EMPTY_SCREENPLAY);
+      }
       flushRef.current();
     };
-  }, [projectId, debouncedSave]);
+  }, [projectId, debouncedSave, duetSession]);
 
   // The unmount cleanup above does NOT run when the tab is closed, refreshed, or
   // backgrounded. These handlers force the pending edit to localStorage (a
@@ -376,7 +617,11 @@ export function ScreenplayBody({
       const ed = editorRef.current;
       if (!ed || !unsavedRef.current) return;
       debouncedSave.cancel();
-      const ok = saveProjectDoc(projectId, ed.getJSON());
+      const current = duetSession?.getContent() ?? ed.getJSON();
+      const ok = saveProjectDoc(
+        projectId,
+        current.content?.length ? current : EMPTY_SCREENPLAY
+      );
       if (ok) unsavedRef.current = false;
       setSaveError(!ok);
     };
@@ -398,7 +643,7 @@ export function ScreenplayBody({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [projectId, debouncedSave]);
+  }, [projectId, debouncedSave, duetSession]);
 
   useEffect(() => {
     if (editor && pulledTick > 0) {
@@ -508,11 +753,11 @@ export function ScreenplayBody({
 
   const exportBreakdown = useCallback(() => {
     downloadBlob(
-      breakdownToText(breakdownResult, title),
-      safeFilename(title + " breakdown", "txt"),
+      breakdownToText(breakdownResult, activeTitle),
+      safeFilename(activeTitle + " breakdown", "txt"),
       "text/plain;charset=utf-8"
     );
-  }, [breakdownResult, title]);
+  }, [breakdownResult, activeTitle]);
 
   const clearRevisions = useCallback(() => {
     editor?.chain().focus().clearRevisions().run();
@@ -877,6 +1122,8 @@ export function ScreenplayBody({
 
   // The overflow menu, exactly the 2B.1 groups and order.
   const overflowItems: MenuItem[] = [
+    { label: "Share…", onSelect: onOpenShare },
+    { kind: "divider" },
     { label: "Import into this project…", onSelect: () => importInputRef.current?.click() },
     { label: "Title page…", onSelect: () => setShowTitlePage(true) },
     { kind: "divider" },
@@ -989,7 +1236,7 @@ export function ScreenplayBody({
         outline={outline}
         pageCount={pages}
         wordCount={wordCount}
-        title={title}
+        title={activeTitle}
         onJump={jumpToScene}
         onClose={closePanel}
       />
@@ -1031,12 +1278,14 @@ export function ScreenplayBody({
         onExitFocus={() => onPrefsChange({ focusMode: false })}
         onEnterFocus={() => onPrefsChange({ focusMode: true })}
         autoFocusTitle={autoFocusTitle}
-        title={title}
-        onRename={onRename}
+        title={activeTitle}
+        onRename={renameActiveTitle}
         onBack={onBack}
         cloudConfigured={isCloudConfigured}
         user={user}
         syncStatus={syncStatus}
+        collaborationStatus={duetSession ? duetStatus : undefined}
+        participants={duetSession ? participants : undefined}
         sessionExpired={!!sessionExpired}
         onSignIn={() => setShowAuth(true)}
         modLabel={mod}
@@ -1067,6 +1316,7 @@ export function ScreenplayBody({
             wordCount={wordCount}
             saved={saved}
             saveError={saveError}
+            collaborative={duetSession != null}
             locked={pageLock != null}
             lockRevision={pageLock?.revision}
           />
@@ -1079,12 +1329,28 @@ export function ScreenplayBody({
               style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
             >
               <PageBackdrop pages={pages} />
+              {duetSession && !duetReady && (
+                <div className="duet-editor-loading" role="status">
+                  Connecting to the shared script…
+                </div>
+              )}
               <EditorContent editor={editor} className="sp-editor" />
             </div>
           </div>
         </div>
         <HintCard modLabel={mod} />
       </EditorShell>
+
+      {duetSession && !duetReady && (
+        <div className="duet-initializing-overlay" role="status">
+          <div>
+            <p>Connecting before the shared script opens…</p>
+            <button type="button" className="ui-btn ui-btn-text" onClick={onBack}>
+              Back to projects
+            </button>
+          </div>
+        </div>
+      )}
 
       <input
         ref={importInputRef}
