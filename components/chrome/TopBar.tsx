@@ -5,6 +5,8 @@ import type { CloudUser as User } from "@/lib/cloud/client";
 import type { SyncStatus } from "@/lib/storage/useCloudSync";
 import { Menu, type MenuItem } from "../ui/Menu";
 import { ChevronLeftIcon, DotsIcon, SidebarIcon } from "./icons";
+import type { ThemeChoice } from "@/lib/storage/localStore";
+import { ThemeToggle } from "./ThemeToggle";
 
 /**
  * The single 48px top bar (Superaudit 2, 2B.1): back chevron, borderless
@@ -35,6 +37,8 @@ export function TopBar({
   onOpenPalette,
   exportItems,
   overflowItems,
+  theme,
+  onThemeChange,
   onToggleRail,
   autoFocusTitle,
 }: {
@@ -50,6 +54,8 @@ export function TopBar({
   onOpenPalette?: () => void;
   exportItems: MenuItem[];
   overflowItems: MenuItem[];
+  theme: ThemeChoice;
+  onThemeChange: (theme: ThemeChoice) => void;
   onToggleRail: () => void;
   /** Instant-create flow (2C): focus and select the title on first open so a
    *  brand-new "Untitled screenplay" can be named by just typing. */
@@ -158,6 +164,8 @@ export function TopBar({
           ariaLabel="Export"
         />
       )}
+
+      <ThemeToggle theme={theme} onChange={onThemeChange} />
 
       <button
         type="button"

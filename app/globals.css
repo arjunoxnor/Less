@@ -1463,6 +1463,7 @@ button.film-name-link:hover {
 }
 
 .desk-grid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
   /* Each card is as tall as what it holds: a short project next to a long one
@@ -1470,6 +1471,13 @@ button.film-name-link:hover {
   align-items: start;
   gap: 14px;
   margin-bottom: 6px;
+}
+.card-drop-caret {
+  position: absolute;
+  z-index: 2;
+  border-radius: 1px;
+  background: var(--ink);
+  pointer-events: none;
 }
 
 .pcard {
@@ -3209,7 +3217,7 @@ button.film-name-link:hover {
   flex: 0 0 44px;
   padding: 8px 0;
   background: var(--surface);
-  border-right: 1px solid var(--hairline);
+  border-left: 1px solid var(--hairline);
 }
 .rail-btn {
   display: inline-flex;
@@ -3264,6 +3272,16 @@ button.film-name-link:hover {
 
 /* Below 1280px the dock overlays the page with a scrim. */
 @media (max-width: 1279px) {
+  .editor-rail {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-dock);
+  }
+  .dock-open .editor-rail {
+    right: 300px;
+  }
   .dock-open .editor-dock {
     display: block;
     position: absolute;
@@ -3300,11 +3318,11 @@ button.film-name-link:hover {
 @media (min-width: 1280px) {
   .editor-body {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) 0px;
+    grid-template-columns: minmax(0, 1fr) 44px 0px;
     transition: grid-template-columns var(--dur-2) var(--ease-io);
   }
   .editor-body.dock-open {
-    grid-template-columns: 44px minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr) 44px 300px;
   }
   .editor-dock {
     display: block;
@@ -3358,8 +3376,7 @@ button.film-name-link:hover {
 .focus-mode .dock-scrim {
   display: none;
 }
-/* With the rail and dock gone, the grid columns would re-slot the page into
-   the 44px rail track; fall back to flex so the page takes the full width. */
+/* With the rail and dock gone, flex lets the page take the full width. */
 .focus-mode .editor-body {
   display: flex;
 }

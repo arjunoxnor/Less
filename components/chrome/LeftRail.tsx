@@ -14,7 +14,7 @@ import {
 } from "./icons";
 
 /**
- * The 44px icon-only left rail (Superaudit 2, 2B.2). One button per dock
+ * The 44px icon-only right rail (Superaudit 2, 2B.2). One button per dock
  * panel, 32px hit targets, tooltips naming each with its shortcut where one
  * exists. A click sets or clears the single active panel. The Focus button
  * sits last, after the divider group.

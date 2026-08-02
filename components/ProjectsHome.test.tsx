@@ -143,7 +143,7 @@ describe("ProjectsHome drag lifecycle", () => {
     const setFolder = vi.fn();
     renderHome([folder, card], { projects: [project], onSetFolder: setFolder });
     const row = host!.querySelector<HTMLElement>(".fh-item")!;
-    const cardNode = host!.querySelector<HTMLElement>(".pcard")!;
+    const cardNode = host!.querySelector<HTMLElement>(".pcard-head")!;
 
     act(() => dragStart(row));
     const drop = new Event("drop", { bubbles: true, cancelable: true });

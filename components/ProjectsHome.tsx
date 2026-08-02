@@ -20,7 +20,11 @@ import {
   reorderIdsAtSlot,
   type Card,
 } from "@/lib/storage/library";
-import { canStartLibraryDrag } from "@/lib/storage/libraryInteraction";
+import {
+  canStartLibraryDrag,
+  nearestCardGridGap,
+  planFolderCardDrop,
+} from "@/lib/storage/libraryInteraction";
 import type { TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
 import { claimSyncCode } from "@/lib/cloud/auth";
@@ -28,6 +32,7 @@ import { Menu, type MenuItem } from "./ui/Menu";
 import { Modal } from "./ui/Modal";
 import { showToast } from "./ui/Toast";
 import { DotsIcon, PersonIcon } from "./chrome/icons";
+import { ThemeToggle } from "./chrome/ThemeToggle";
 
 /**
  * The home (films-home build, Altitude 1): one question, "what am I working
@@ -401,8 +406,13 @@ export function ProjectsHome({
 
   // Where the row would land: which container, and the slot within it. The ref
   // is the authority (drop can fire before a render); the state draws the line.
-  const caretRef = useRef<{ container: string; at: number } | null>(null);
-  const [caret, setCaret] = useState<{ container: string; at: number } | null>(null);
+  type DropCaret = {
+    container: string;
+    at: number;
+    cardLine?: { left: number; top: number; width: number; height: number };
+  };
+  const caretRef = useRef<DropCaret | null>(null);
+  const [caret, setCaret] = useState<DropCaret | null>(null);
 
   const clearDrag = () => {
     drag.current = null;
@@ -440,9 +450,20 @@ export function ProjectsHome({
       const project = projects.find((candidate) => candidate.id === d.id);
       if ((project?.folderId ?? null) !== folderId) onSetFolder(d.id, folderId);
     } else {
-      const folder = folders.find((candidate) => candidate.id === d.id);
-      if ((folder?.parentId ?? null) !== folderId) {
-        onUpdateFolder(d.id, { parentId: folderId });
+      if (folderId === null) {
+        const folder = folders.find((candidate) => candidate.id === d.id);
+        if ((folder?.parentId ?? null) !== null) {
+          onUpdateFolder(d.id, { parentId: null });
+        }
+      } else {
+        const plan = planFolderCardDrop(
+          d.id,
+          { kind: "body", folderId },
+          folders
+        );
+        if (plan && "parentId" in plan) {
+          onUpdateFolder(d.id, { parentId: plan.parentId });
+        }
       }
     }
     clearDrag();
@@ -515,7 +536,18 @@ export function ProjectsHome({
   /** A folder or heading: drop here to file into it, order untouched. */
   const dropProps = (folderId: string | null, key: string) => ({
     onDragOver: (e: React.DragEvent) => {
-      if (!canDropOn(folderId)) return;
+      if (!canDropOn(folderId)) {
+        // An invalid folder body still owns its space. Letting the event reach
+        // the grid would draw a reorder line behind a blocked nesting drop.
+        if (drag.current?.kind === "folder" && folderId !== null) {
+          e.preventDefault();
+          e.stopPropagation();
+          caretRef.current = null;
+          setCaret(null);
+          setDropFilm(null);
+        }
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       setDropFilm(key);
@@ -614,6 +646,90 @@ export function ProjectsHome({
     },
   });
 
+  /**
+   * Card headers keep the nesting gesture. Everywhere else in the grid finds
+   * the nearest two-dimensional insertion gap and arranges that section.
+   */
+  const cardGridDropProps = (sectionId: string, cards: Card[]) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (drag.current?.kind !== "folder" || !canDropOn(sectionId)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const gridRect = e.currentTarget.getBoundingClientRect();
+      const cardRects = [
+        ...e.currentTarget.querySelectorAll<HTMLElement>("[data-card-slot]"),
+      ].map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          id: element.dataset.cardSlot!,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        };
+      });
+      const gap = nearestCardGridGap(e.clientX, e.clientY, cardRects) ?? {
+        at: 0,
+        line: {
+          left: gridRect.left,
+          top: gridRect.top,
+          width: gridRect.width,
+          height: 2,
+        },
+      };
+      const target: DropCaret = {
+        container: sectionId,
+        at: gap.at,
+        cardLine: {
+          left: gap.line.left - gridRect.left,
+          top: gap.line.top - gridRect.top,
+          width: gap.line.width,
+          height: gap.line.height,
+        },
+      };
+      caretRef.current = target;
+      setCaret(target);
+      setDropFilm(null);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        const target = caretRef.current;
+        if (target?.cardLine && target.container === sectionId) {
+          caretRef.current = null;
+          setCaret(null);
+        }
+      }
+    },
+    onDrop: (e: React.DragEvent) => {
+      const d = drag.current;
+      const target = caretRef.current;
+      if (
+        d?.kind !== "folder" ||
+        !target?.cardLine ||
+        target.container !== sectionId
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      const plan = planFolderCardDrop(
+        d.id,
+        {
+          kind: "gap",
+          parentId: sectionId,
+          siblingIds: cards.map((card) => card.folder.id),
+          slot: target.at,
+        },
+        folders
+      );
+      if (plan && "parentId" in plan) {
+        onUpdateFolder(d.id, { parentId: plan.parentId });
+      }
+      if (plan?.orderedIds) onReorderFolders(plan.orderedIds);
+      clearDrag();
+    },
+  });
+
   /** A list of rows, each tagged with where it sits so the list can hit-test. */
   const itemList = (
     container: string,
@@ -629,15 +745,17 @@ export function ProjectsHome({
           data-container={container}
           data-index={i}
         >
-          {caret?.container === container && caret.at === i && (
+          {!caret?.cardLine && caret?.container === container && caret.at === i && (
             <div className="drop-caret" aria-hidden="true" />
           )}
           {itemRow(p, opts.indent ?? 0, !!opts.currentId && p.id === opts.currentId)}
         </div>
       ))}
-      {caret?.container === container && caret.at === items.length && (
-        <div className="drop-caret" aria-hidden="true" />
-      )}
+      {!caret?.cardLine &&
+        caret?.container === container &&
+        caret.at === items.length && (
+          <div className="drop-caret" aria-hidden="true" />
+        )}
     </>
   );
 
@@ -758,24 +876,7 @@ export function ProjectsHome({
 
   const overflowItems: MenuItem[] = [
     {
-      kind: "radio",
-      group: "theme",
-      label: "Light",
-      checked: prefs.theme === "light",
-      onSelect: () => onPrefsChange({ theme: "light" }),
-    },
-    {
-      kind: "radio",
-      group: "theme",
-      label: "Dark",
-      checked: prefs.theme === "dark",
-      onSelect: () => onPrefsChange({ theme: "dark" }),
-    },
-    {
-      kind: "radio",
-      group: "theme",
-      label: "System",
-      checked: prefs.theme === "system",
+      label: "Use system theme",
       onSelect: () => onPrefsChange({ theme: "system" }),
     },
   ];
@@ -1011,6 +1112,7 @@ export function ProjectsHome({
     return (
       <article
         key={f.id}
+        data-card-slot={f.id}
         className={
           "pcard" +
           (isLead ? " lead" : "") +
@@ -1019,10 +1121,9 @@ export function ProjectsHome({
         }
         style={{ ["--fc" as string]: f.color }}
         {...dragProps("folder", f.id)}
-        {...dropProps(f.id, f.id)}
       >
         <div className="pcard-spine" aria-hidden="true" />
-        <div className="pcard-head">
+        <div className="pcard-head" {...dropProps(f.id, f.id)}>
           {isLead && <div className="lead-label">Now writing</div>}
           <div className="pcard-top">
             {card.total > 0 && (
@@ -1238,6 +1339,10 @@ export function ProjectsHome({
           }}
         />
         <div className="toolbar-spacer" />
+        <ThemeToggle
+          theme={prefs.theme}
+          onChange={(theme) => onPrefsChange({ theme })}
+        />
         <button
           type="button"
           className="tb-icon"
@@ -1388,7 +1493,17 @@ export function ProjectsHome({
 
                   {sectionOpen && (
                     <>
-                      <div className="desk-grid">
+                      <div
+                        className="desk-grid"
+                        {...cardGridDropProps(sf.id, section.cards)}
+                      >
+                        {caret?.container === sf.id && caret.cardLine && (
+                          <div
+                            className="card-drop-caret"
+                            style={caret.cardLine}
+                            aria-hidden="true"
+                          />
+                        )}
                         {section.cards.map((card) => cardBlock(card, card === lead))}
                         <button
                           type="button"

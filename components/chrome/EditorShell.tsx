@@ -7,12 +7,13 @@ import type { MenuItem } from "../ui/Menu";
 import { showToast } from "../ui/Toast";
 import { TopBar } from "./TopBar";
 import { LeftRail, type PanelId, type RailItem } from "./LeftRail";
+import type { ThemeChoice } from "@/lib/storage/localStore";
 
 export type { PanelId, RailItem };
 
 /**
- * The editor shell (Superaudit 2, 2B): one top bar, the icon rail, the single
- * right dock, and the status bar, arranged around the page column. Both
+ * The editor shell (Superaudit 2, 2B): one top bar, the right icon rail, the
+ * single right dock, and the status bar, arranged around the page column. Both
  * editor bodies (screenplay and plain) mount their page inside it. The shell
  * owns the chrome-level interaction rules:
  *
@@ -46,6 +47,8 @@ export function EditorShell({
   onOpenPalette,
   exportItems,
   overflowItems,
+  theme,
+  onThemeChange,
   railItems,
   activePanel,
   onPanelChange,
@@ -72,6 +75,8 @@ export function EditorShell({
   onOpenPalette?: () => void;
   exportItems: MenuItem[];
   overflowItems: MenuItem[];
+  theme: ThemeChoice;
+  onThemeChange: (theme: ThemeChoice) => void;
   railItems: RailItem[];
   activePanel: PanelId | null;
   onPanelChange: (panel: PanelId | null) => void;
@@ -173,6 +178,8 @@ export function EditorShell({
           onOpenPalette={onOpenPalette}
           exportItems={exportItems}
           overflowItems={overflowItems}
+          theme={theme}
+          onThemeChange={onThemeChange}
           onToggleRail={() => setRailOpen((v) => !v)}
           autoFocusTitle={autoFocusTitle}
         />
@@ -181,6 +188,8 @@ export function EditorShell({
       {secondRow && <div className="editor-secondrow">{secondRow}</div>}
 
       <div className={"editor-body" + (activePanel ? " dock-open" : "")}>
+        <div className="editor-page-col">{children}</div>
+
         <LeftRail
           items={railItems}
           activePanel={activePanel}
@@ -190,8 +199,6 @@ export function EditorShell({
           }}
           onEnterFocus={onEnterFocus}
         />
-
-        <div className="editor-page-col">{children}</div>
 
         {activePanel && (
           <div

@@ -493,3 +493,47 @@ Gate:
 `npm run build` reaches Next.js compilation, then fails because the sandbox
 cannot fetch Montserrat and Jost through `next/font/google`. The font setup was
 left unchanged as required.
+
+## Added 2026-08-02: card order and shared chrome
+
+Implemented all three sections of `2026-07-30-chrome-and-reorder.md`.
+
+Card order:
+
+- Card headers remain nesting targets.
+- The surrounding grid resolves the nearest insertion gap across rows and
+  columns, then shows a 2px insertion line.
+- Same-section drops reorder only when the order changes. Cross-section drops
+  update the parent and persist the chosen target slot through folder order.
+- Drop planning uses the existing slot helper and descendant guard.
+
+Theme:
+
+- Home and editor top bars use one shared light and dark toggle.
+- The control names and depicts the theme it will switch to.
+- A system choice flips away from the currently resolved system theme.
+- Each overflow menu now has one `Use system theme` item.
+
+Editor rail:
+
+- The rail follows the page in visual and keyboard order, directly before the
+  right dock.
+- Wide layouts use page, rail, and dock columns in that order.
+- Overlay layouts keep the page size stable and place the rail on the right.
+- Focus mode still hides the rail and dock. The narrow top-bar toggle opens the
+  rail as a right-edge overlay.
+
+Coverage:
+
+- Added pure tests for before and after placement, nesting, cross-section slot
+  placement, no-op suppression, the descendant guard, two-dimensional gap
+  selection, and all light, dark, and system toggle decisions.
+- Browser verification was left for the requested review handoff because this
+  sandbox must not start a development server or bind a local port.
+
+Gate:
+
+`npx tsc --noEmit` passes. `npm test` passes all 190 tests in 18 files.
+`npm run build` reaches Next.js compilation, then fails only because the
+sandbox cannot fetch Montserrat and Jost through `next/font/google`. The font
+setup remains unchanged.

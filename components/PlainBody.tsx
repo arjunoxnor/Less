@@ -253,9 +253,7 @@ export function PlainBody({
   ];
 
   const overflowItems: MenuItem[] = [
-    { kind: "radio", group: "theme", label: "Light", checked: prefs.theme === "light", onSelect: () => onPrefsChange({ theme: "light" }) },
-    { kind: "radio", group: "theme", label: "Dark", checked: prefs.theme === "dark", onSelect: () => onPrefsChange({ theme: "dark" }) },
-    { kind: "radio", group: "theme", label: "System", checked: prefs.theme === "system", onSelect: () => onPrefsChange({ theme: "system" }) },
+    { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },
     { kind: "divider" },
     ...STATUS_ROWS.map(
       (s): MenuItem => ({
@@ -327,6 +325,8 @@ export function PlainBody({
         modLabel={mod}
         exportItems={exportItems}
         overflowItems={overflowItems}
+        theme={prefs.theme}
+        onThemeChange={(theme) => onPrefsChange({ theme })}
         railItems={railItems}
         activePanel={activePanel}
         onPanelChange={setActivePanel}

@@ -891,9 +891,7 @@ export function ScreenplayBody({
     { kind: "divider" },
     { kind: "radio", group: "font", label: "Courier Prime", checked: prefs.font === "courier-prime", onSelect: () => onPrefsChange({ font: "courier-prime" }) },
     { kind: "radio", group: "font", label: "Courier", checked: prefs.font === "courier", onSelect: () => onPrefsChange({ font: "courier" }) },
-    { kind: "radio", group: "theme", label: "Light", checked: prefs.theme === "light", onSelect: () => onPrefsChange({ theme: "light" }) },
-    { kind: "radio", group: "theme", label: "Dark", checked: prefs.theme === "dark", onSelect: () => onPrefsChange({ theme: "dark" }) },
-    { kind: "radio", group: "theme", label: "System", checked: prefs.theme === "system", onSelect: () => onPrefsChange({ theme: "system" }) },
+    { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },
     {
       label: "Page target…",
       onSelect: () => {
@@ -1045,6 +1043,8 @@ export function ScreenplayBody({
         onOpenPalette={() => setShowPalette(true)}
         exportItems={exportItems}
         overflowItems={overflowItems}
+        theme={prefs.theme}
+        onThemeChange={(theme) => onPrefsChange({ theme })}
         railItems={railItems}
         activePanel={activePanel}
         onPanelChange={setActivePanel}
