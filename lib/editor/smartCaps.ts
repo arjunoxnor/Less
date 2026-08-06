@@ -30,18 +30,22 @@ export const SmartCaps = Extension.create({
   name: "screenplaySmartCaps",
 
   addInputRules() {
-    // NOTE on positions: TipTap runs an input rule BEFORE the triggering
-    // character is in the document, and `range` spans only the text already
-    // present (everything in the match except the just-typed char). So we insert
-    // the replacement at the cursor (range.to) rather than overwriting what is
-    // there, which would eat the separating space.
+    // TipTap runs an input rule before the triggering character enters the
+    // document. Insert that replacement across the current selection so normal
+    // typing and typing over selected text have the same result.
     return [
-      // First letter typed on an empty prose line (range is empty, at the caret).
+      // First letter typed on an empty prose line or after a hard break. The
+      // hard break is part of the match, so insert at the caret and leave that
+      // existing node untouched.
       new InputRule({
-        find: /^([a-z])$/,
-        handler: ({ state, range, match }) => {
+        find: /(?:^|\n)([a-z])$/,
+        handler: ({ state, match }) => {
           if (!isProse(state)) return null;
-          state.tr.insertText(match[1].toUpperCase(), range.from, range.to);
+          state.tr.insertText(
+            match[1].toUpperCase(),
+            state.selection.from,
+            state.selection.to
+          );
         },
       }),
       // First letter after sentence-ending punctuation (". ", "? ", "! ", with
@@ -49,20 +53,30 @@ export const SmartCaps = Extension.create({
       // just-typed char, so insert its uppercase at the caret; the punctuation
       // and space already in the doc are left untouched.
       new InputRule({
-        find: /[.!?]['")\]]*\s+([a-z])$/,
-        handler: ({ state, range, match }) => {
+        find: /[.!?]['"’”)\]}]*\s+([a-z])$/,
+        handler: ({ state, match }) => {
           if (!isProse(state)) return null;
-          state.tr.insertText(match[1].toUpperCase(), range.to);
+          state.tr.insertText(
+            match[1].toUpperCase(),
+            state.selection.from,
+            state.selection.to
+          );
         },
       }),
       // A standalone lowercase "i" (the pronoun) once a boundary follows it. The
-      // boundary is the just-typed char; the "i" sits at range.to - 1. Replace it
-      // with "I" and re-add the boundary the rule consumed.
+      // boundary is the just-typed char; the "i" sits immediately before the
+      // selection. Replace it with "I" and add the boundary. Newlines are
+      // deliberately excluded because TipTap also runs input rules for Enter;
+      // consuming that key would insert raw text instead of splitting the block.
       new InputRule({
-        find: /(^|[^A-Za-z])i([.,!?;:'")\]\s])$/,
-        handler: ({ state, range, match }) => {
+        find: /(^|[^A-Za-z])i((?:[.,!?;:'"’”)\]}]|[^\S\r\n]))$/,
+        handler: ({ state, match }) => {
           if (!isProse(state)) return null;
-          state.tr.insertText("I" + match[2], range.to - 1, range.to);
+          state.tr.insertText(
+            "I" + match[2],
+            state.selection.from - 1,
+            state.selection.to
+          );
         },
       }),
     ];

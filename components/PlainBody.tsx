@@ -31,8 +31,6 @@ import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { modKeyLabel } from "@/lib/platform";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { PlainToolbar } from "./PlainToolbar";
-import { PageBackdrop } from "./PageBackdrop";
-import { Pagination, STRIDE, PAGE_H } from "@/lib/editor/pagination";
 import { AuthModal } from "./AuthModal";
 import { DocsPanel } from "./DocsPanel";
 import { HistoryPanel } from "./HistoryPanel";
@@ -117,11 +115,7 @@ export function PlainBody({
     setChars(text.length);
   }, []);
 
-  const [pages, setPages] = useState(1);
-  const extensions = useMemo(
-    () => [...buildPlainExtensions(), Pagination.configure({ onPages: setPages })],
-    []
-  );
+  const extensions = useMemo(() => buildPlainExtensions(), []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -158,6 +152,7 @@ export function PlainBody({
       saveLocalDoc: (d: JSONContent) => saveProjectDoc(projectId, d),
       loadLocalTitlePage: () => null,
       saveLocalTitlePage: () => {},
+      hasUnsavedLocalEdits: () => unsavedRef.current,
       isDirty: () => projIsDirty(projectId),
       setDirty: (b: boolean) => projSetDirty(projectId, b),
       isTitlePageDirty: () => projIsTpDirty(projectId),
@@ -399,11 +394,8 @@ export function PlainBody({
           style={{ ["--doc-font-size" as string]: `${prefs.docFontSize ?? 16}px` }}
         >
           <div className="page-wrap">
-            <div
-              className="page-host page-host-pl"
-              style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
-            >
-              <PageBackdrop pages={pages} />
+            <div className="page-host page-host-pl">
+              <div className="plain-sheet" aria-hidden="true" />
               <EditorContent editor={editor} className="pl-doc" />
             </div>
           </div>

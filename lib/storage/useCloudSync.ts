@@ -50,6 +50,8 @@ export interface CloudSyncOpts {
   saveLocalDoc: (doc: JSONContent) => void;
   loadLocalTitlePage: () => TitlePage | null;
   saveLocalTitlePage: (tp: TitlePage | null) => void;
+  /** True while the editor has changes newer than its debounced local write. */
+  hasUnsavedLocalEdits?: () => boolean;
   isDirty: () => boolean;
   setDirty: (dirty: boolean) => void;
   /** Title-page-specific dirty flag (persisted), so a pending title-page edit is
@@ -259,7 +261,7 @@ export function useCloudSync(
           const live = editor.getJSON();
           const typedDuringFetch =
             JSON.stringify(live) !== JSON.stringify(localDoc);
-          if (o.isDirty() || typedDuringFetch) {
+          if (o.isDirty() || o.hasUnsavedLocalEdits?.() || typedDuringFetch) {
             // Push the dirty content. For the title page, push it only when it
             // was actually edited locally (tpDirty); otherwise pass undefined so
             // a newer cloud title page is neither clobbered (audit #17) nor a
@@ -333,7 +335,7 @@ export function useCloudSync(
     if (!editor) return;
     return onBroadcast((msg) => {
       if (msg.type !== "docSaved" || msg.id !== projectId) return;
-      if (optsRef.current.isDirty()) return;
+      if (optsRef.current.isDirty() || optsRef.current.hasUnsavedLocalEdits?.()) return;
       const fresh = loadProjectDoc(projectId);
       if (!fresh) return;
       // Write straight into the editor (no re-save, so no broadcast echo); the

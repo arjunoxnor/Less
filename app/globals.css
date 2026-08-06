@@ -207,15 +207,23 @@ body {
 }
 
 
-/* Relative host. The screenplay host is sized to its 8.5in content (centered by
-   page-wrap); the plain host is full width and centers the page itself. The
-   white sheets are drawn behind; the editor text sits on top (transparent), and
-   the pagination plugin's spacers keep the inter-page gaps empty. */
+/* Relative host. The screenplay host is sized to its 8.5in content and the
+   plain host is full width so it can center its continuous sheet. */
 .page-host {
   position: relative;
 }
 .page-host-pl {
   width: 100%;
+}
+.plain-sheet {
+  position: absolute;
+  inset: 0;
+  width: 8.5in;
+  max-width: 100%;
+  margin-inline: auto;
+  background: var(--page-bg);
+  box-shadow: var(--shadow);
+  pointer-events: none;
 }
 .page-backdrop {
   position: absolute;
@@ -2131,10 +2139,11 @@ button.film-name-link:hover {
   justify-content: center;
 }
 .pl-prose {
-  /* A real US-Letter page (8.5x11in) with 1in margins, like a document editor.
-     The white page sheet behind it (PageBackdrop) provides the background. */
+  /* The 6.5in text measure and 1in side margins match the former page layout.
+     The surrounding continuous sheet follows this element's intrinsic height. */
   width: 8.5in;
   max-width: 100%;
+  min-width: 0;
   min-height: 11in;
   background: transparent;
   color: var(--page-fg);
@@ -2142,6 +2151,7 @@ button.film-name-link:hover {
   font-family: var(--doc-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   font-size: var(--doc-font-size, 16px);
   line-height: 1.7;
+  overflow-wrap: anywhere;
   outline: none;
 }
 .pl-prose:focus {
@@ -2150,36 +2160,55 @@ button.film-name-link:hover {
 .pl-prose h1 {
   font-size: 1.75em;
   line-height: 1.25;
-  margin: 0.6em 0 0.3em;
+  margin: 0;
 }
 .pl-prose h2 {
   font-size: 1.4em;
   line-height: 1.3;
-  margin: 0.6em 0 0.3em;
+  margin: 0;
 }
 .pl-prose h3 {
   font-size: 1.15em;
-  margin: 0.6em 0 0.3em;
+  line-height: 1.4;
+  margin: 0;
 }
 .pl-prose p {
   margin: 0;
 }
-.pl-prose > p {
-  margin: 0 0 0.8em;
-}
 .pl-prose ul,
 .pl-prose ol {
-  margin: 0 0 0.8em;
+  margin: 0;
   padding-left: 1.5em;
 }
 .pl-prose li {
   margin: 0.2em 0;
 }
 .pl-prose blockquote {
-  margin: 0 0 0.8em;
+  margin: 0;
   padding-left: 1em;
   border-left: 3px solid var(--border);
   color: var(--muted);
+}
+.pl-prose > p,
+.pl-prose > h1,
+.pl-prose > h2,
+.pl-prose > h3,
+.pl-prose > ul,
+.pl-prose > ol,
+.pl-prose > blockquote,
+.pl-prose > pre {
+  margin-bottom: 0.8em;
+}
+.pl-prose blockquote > * + *,
+.pl-prose li > p + p,
+.pl-prose li > div > p + p {
+  margin-top: 0.8em;
+}
+.pl-prose li > ul,
+.pl-prose li > ol,
+.pl-prose li > div > ul,
+.pl-prose li > div > ol {
+  margin-top: 0.2em;
 }
 .pl-prose > :first-child {
   margin-top: 0;
@@ -2190,7 +2219,10 @@ button.film-name-link:hover {
 .pl-prose hr {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 1.2em 0;
+  margin: 0.8em 0;
+}
+.pl-prose > hr {
+  margin: 0.8em 0;
 }
 .pl-prose a {
   color: var(--accent);
@@ -2215,8 +2247,9 @@ button.film-name-link:hover {
   background: var(--btn-bg);
   border-radius: var(--r-md);
   padding: 12px 14px;
+  max-width: 100%;
   overflow-x: auto;
-  margin: 0 0 0.8em;
+  margin-top: 0;
 }
 .pl-prose pre code {
   background: none;
@@ -2238,6 +2271,7 @@ button.film-name-link:hover {
 }
 .pl-prose ul[data-type="taskList"] li > div {
   flex: 1 1 auto;
+  min-width: 0;
 }
 .pl-prose ul[data-type="taskList"] input[type="checkbox"] {
   width: 16px;
@@ -2790,11 +2824,9 @@ button.film-name-link:hover {
 }
 
 /* ============================ Mobile / tablet ============================= */
-/* Under 720px the fixed 8.5in page becomes a full-width sheet with percentage
-   indents (a reflowed page, like mobile word processors). The pagination
-   engine measures the real rendered heights, so page breaks stay correct for
-   the narrower measure. Toolbars become swipeable strips, panels go full
-   screen, and touch targets get room. */
+/* Under 720px the 8.5in sheet becomes full width with percentage indents.
+   Screenplay pagination measures the narrower rendered page. Toolbars become
+   swipeable strips, panels go full screen, and touch targets get room. */
 @media (max-width: 720px) {
   /* The plain formatting row: one swipeable strip instead of a tall stack. */
   .editor-secondrow {
@@ -2856,7 +2888,7 @@ button.film-name-link:hover {
     margin-left: 48%;
   }
 
-  /* Plain documents reflow the same way (.pl-prose is the 8.5in page). */
+  /* Plain documents keep their continuous sheet and reflow the text measure. */
   .pl-prose {
     width: 100%;
     padding: 40px 6% 56px;

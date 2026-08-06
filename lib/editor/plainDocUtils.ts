@@ -7,23 +7,36 @@ import { deriveTitle, isMeaningfulDoc } from "./docUtils";
  * schemas never share derivation logic.
  */
 
-/** Concatenate all text in a plain-doc ProseMirror doc. */
+const STRUCTURAL_CONTAINERS = new Set([
+  "doc",
+  "blockquote",
+  "bulletList",
+  "orderedList",
+  "taskList",
+  "listItem",
+  "taskItem",
+]);
+
+/** Concatenate text without adding spaces at inline mark boundaries. */
 function plainText(node: JSONContent): string {
-  const parts: string[] = [];
-  const walk = (n?: JSONContent) => {
-    if (!n) return;
-    if (n.type === "text" && n.text) parts.push(n.text);
-    n.content?.forEach(walk);
+  const read = (current?: JSONContent): string => {
+    if (!current) return "";
+    if (current.type === "text") return current.text ?? "";
+    if (current.type === "hardBreak") return "\n";
+    const separator = STRUCTURAL_CONTAINERS.has(current.type ?? "") ? "\n" : "";
+    return (current.content ?? []).map(read).join(separator);
   };
-  walk(node);
-  return parts.join(" ").replace(/\s+/g, " ").trim();
+  return read(node).replace(/\s+/g, " ").trim();
 }
 
 /** Title from a plain doc: the first non-empty block's text, else "Untitled". */
 export function derivePlainTitle(doc: JSONContent): string {
   for (const block of doc.content ?? []) {
     const t = plainText(block);
-    if (t) return t.length > 80 ? t.slice(0, 80) + "…" : t;
+    if (t) {
+      const characters = Array.from(t);
+      return characters.length > 80 ? characters.slice(0, 80).join("") + "…" : t;
+    }
   }
   return "Untitled";
 }
