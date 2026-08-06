@@ -96,7 +96,9 @@ export function EditorShell({
 }) {
   const [railOpen, setRailOpen] = useState(false);
   const [peek, setPeek] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
+  const previousPanel = useRef<PanelId | null>(activePanel);
 
   // The single ordered Escape handler (2B.3 / 2F): dock closes before focus
   // mode exits. Menus, modals, and the palette stop propagation themselves,
@@ -104,6 +106,10 @@ export function EditorShell({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (railOpen) {
+        setRailOpen(false);
+        return;
+      }
       if (activePanel) {
         onPanelChange(null);
         return;
@@ -112,7 +118,7 @@ export function EditorShell({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activePanel, focusMode, onPanelChange, onExitFocus]);
+  }, [activePanel, focusMode, onPanelChange, onExitFocus, railOpen]);
 
   // Focus-mode entry side effects: close the dock (2F hides it anyway, and a
   // leftover panel would silently eat the first Esc) and the once-per-session
@@ -120,6 +126,7 @@ export function EditorShell({
   // stable and this runs only on the focusMode flip.
   useEffect(() => {
     if (focusMode) {
+      setRailOpen(false);
       onPanelChange(null);
       if (!focusToastShown) {
         focusToastShown = true;
@@ -128,6 +135,25 @@ export function EditorShell({
     }
     if (!focusMode) setPeek(false);
   }, [focusMode, onPanelChange]);
+
+  // A dock close button or Escape removes the focused panel contents. Put
+  // focus back on the control that opened that panel instead of losing it to
+  // the document body.
+  useEffect(() => {
+    const previous = previousPanel.current;
+    previousPanel.current = activePanel;
+    if (!previous || activePanel || focusMode) return;
+    const timer = setTimeout(() => {
+      const compact =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(max-width: 899px)").matches;
+      const selector = compact
+        ? "[data-rail-toggle]"
+        : `[data-panel-id="${previous}"]`;
+      rootRef.current?.querySelector<HTMLElement>(selector)?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activePanel, focusMode]);
 
   // Focus-mode top-bar reveal: pointer into the top 8px shows the bar; typing
   // hides it again. Leaving the bar itself also hides it (onMouseLeave below).
@@ -155,6 +181,7 @@ export function EditorShell({
 
   return (
     <div
+      ref={rootRef}
       className={
         "editor-shell" +
         (rootClassName ? " " + rootClassName : "") +
@@ -188,6 +215,7 @@ export function EditorShell({
           theme={theme}
           onThemeChange={onThemeChange}
           onToggleRail={() => setRailOpen((v) => !v)}
+          railOpen={railOpen}
           autoFocusTitle={autoFocusTitle}
         />
       </div>

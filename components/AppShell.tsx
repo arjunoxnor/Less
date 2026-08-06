@@ -65,7 +65,13 @@ function parseHash(): { kind: "editor"; id: string } | { kind: "duet"; token: st
   const duet = window.location.hash.match(/^#\/duet\/([A-Za-z0-9_-]{43})$/);
   if (duet) return { kind: "duet", token: duet[1] };
   const p = window.location.hash.match(/^#\/p\/(.+)$/);
-  if (p) return { kind: "editor", id: decodeURIComponent(p[1]) };
+  if (p) {
+    try {
+      return { kind: "editor", id: decodeURIComponent(p[1]) };
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 
@@ -109,11 +115,6 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    // Never write the compile-time defaults over stored prefs. Until loadPrefs
-    // lands, `prefs` IS the DEFAULT_PREFS object; saving it here would clobber
-    // the stored theme before the load effect's state update applies (React
-    // StrictMode's double-run made that a reliable reset on every reload).
-    if (prefs !== DEFAULT_PREFS) savePrefs(prefs);
     if (typeof document === "undefined") return;
     const apply = () => {
       const resolved =
@@ -133,9 +134,26 @@ export function AppShell() {
   }, [prefs]);
 
   const onPrefsChange = useCallback(
-    (next: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...next })),
+    (next: Partial<Prefs>) =>
+      setPrefs((current) => {
+        const changed = { ...current, ...next };
+        savePrefs(changed);
+        return changed;
+      }),
     []
   );
+
+  // Storage-derived state must not be written back by an effect. Otherwise
+  // two tabs can echo the same preference change forever.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "less:prefs" || event.key === null) {
+        setPrefs(loadPrefs());
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   // Escape handling for focus mode now lives in the editor shell, which owns
   // the single ordered handler (dock closes first, then focus exits).

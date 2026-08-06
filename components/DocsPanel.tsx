@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { listProjects, type ProjectMeta } from "@/lib/storage/projects";
 import { listFolders } from "@/lib/storage/folders";
 import { cardForProject } from "@/lib/storage/library";
@@ -22,12 +21,9 @@ export function DocsPanel({
   onOpen: (id: string) => void;
   onClose: () => void;
 }) {
-  // A fresh storage read per open. The panel mounts each time it is shown, so
-  // this stays current without threading the whole library into the editor.
-  const film = useMemo(
-    () => cardForProject(projectId, listProjects(), listFolders()),
-    [projectId]
-  );
+  // Read on every shell render. Renames and folder changes can arrive while
+  // the panel stays mounted, including from another tab.
+  const film = cardForProject(projectId, listProjects(), listFolders());
 
   // Everything the folder holds, however deep, split by kind: from any draft
   // you can reach every other draft and note of the same project.

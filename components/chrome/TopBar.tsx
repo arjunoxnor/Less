@@ -6,6 +6,10 @@ import type { SyncStatus } from "@/lib/storage/useCloudSync";
 import { Menu, type MenuItem } from "../ui/Menu";
 import { ChevronLeftIcon, DotsIcon, SidebarIcon } from "./icons";
 import type { ThemeChoice } from "@/lib/storage/localStore";
+import {
+  MAX_LIBRARY_NAME_LENGTH,
+  normalizeLibraryName,
+} from "@/lib/storage/library";
 import { ThemeToggle } from "./ThemeToggle";
 import type { DuetConnectionStatus, DuetParticipant } from "@/lib/collab/duet";
 
@@ -49,6 +53,7 @@ export function TopBar({
   theme,
   onThemeChange,
   onToggleRail,
+  railOpen,
   autoFocusTitle,
 }: {
   title: string;
@@ -68,16 +73,19 @@ export function TopBar({
   theme: ThemeChoice;
   onThemeChange: (theme: ThemeChoice) => void;
   onToggleRail: () => void;
+  railOpen: boolean;
   /** Instant-create flow (2C): focus and select the title on first open so a
    *  brand-new "Untitled screenplay" can be named by just typing. */
   autoFocusTitle?: boolean;
 }) {
-  const [draft, setDraft] = useState(title);
-  useEffect(() => setDraft(title), [title]);
+  const safeTitle = normalizeLibraryName(title, "Untitled");
+  const [draft, setDraft] = useState(safeTitle);
+  useEffect(() => setDraft(safeTitle), [safeTitle]);
   const [menu, setMenu] = useState<null | "export" | "overflow">(null);
   const exportRef = useRef<HTMLButtonElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const cancelTitleCommit = useRef(false);
 
   // Consume the hint once, on mount only; later prop flips must not re-focus.
   const focusOnce = useRef(autoFocusTitle);
@@ -90,9 +98,14 @@ export function TopBar({
   }, []);
 
   const commit = () => {
-    const next = draft.trim();
-    if (next && next !== title) onRename(next);
-    else setDraft(title);
+    if (cancelTitleCommit.current) {
+      cancelTitleCommit.current = false;
+      setDraft(safeTitle);
+      return;
+    }
+    const next = normalizeLibraryName(draft, "");
+    if (next && next !== safeTitle) onRename(next);
+    else setDraft(safeTitle);
   };
 
   return (
@@ -111,11 +124,18 @@ export function TopBar({
         ref={titleRef}
         className="topbar-title"
         value={draft}
+        maxLength={MAX_LIBRARY_NAME_LENGTH}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelTitleCommit.current = true;
+            setDraft(safeTitle);
             (e.target as HTMLInputElement).blur();
           }
         }}
@@ -209,8 +229,10 @@ export function TopBar({
       <button
         type="button"
         className="tb-icon topbar-railtoggle"
+        data-rail-toggle=""
         onClick={onToggleRail}
         aria-label="Panels"
+        aria-expanded={railOpen}
         title="Panels"
       >
         <SidebarIcon />

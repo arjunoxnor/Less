@@ -3,41 +3,35 @@ import {
   awarenessRemovalMessage,
   encodeSnapshot,
   handleProtocolMessage,
-  loadDocument,
+  PersistedDocument,
   queryAwarenessMessage,
-  saveDocument,
+  roomHasHistory,
   type AwarenessEntry,
 } from "./protocol";
-import type * as Y from "yjs";
+import {
+  MAX_ROOM_CONNECTIONS,
+  RATE_STATE_KEY,
+  TOKEN_PATTERN,
+  authorizeRoom,
+  checkConnectionRate,
+  parseClientId,
+  validSessionId,
+  type ConnectionRateState,
+} from "./security";
 
 interface Env {
   ROOMS: DurableObjectNamespace;
 }
 
 interface SocketAttachment {
-  awareness: AwarenessEntry[];
+  clientId: number;
+  sessionId: string;
+  owner: boolean;
+  closed?: boolean;
 }
 
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX_CONNECTIONS = 30;
-const SNAPSHOT_DEBOUNCE_MS = 2_000;
 const OWNER_KEY = "owner-key";
 const REVOKED_KEY = "revoked";
-
-const connectionAttempts = new Map<string, number[]>();
-
-function allowConnection(ip: string, now = Date.now()): boolean {
-  const cutoff = now - RATE_WINDOW_MS;
-  const recent = (connectionAttempts.get(ip) ?? []).filter((at) => at > cutoff);
-  if (recent.length >= RATE_MAX_CONNECTIONS) {
-    connectionAttempts.set(ip, recent);
-    return false;
-  }
-  recent.push(now);
-  connectionAttempts.set(ip, recent);
-  return true;
-}
 
 function parseRoomPath(pathname: string): { token: string; action?: "revoke" } | null {
   const match = pathname.match(/^\/room\/([^/]+)(?:\/(revoke))?$/);
@@ -91,17 +85,6 @@ export default {
       );
     }
 
-    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-    if (!allowConnection(ip)) {
-      return withCors(
-        new Response("Too many connection attempts", {
-          status: 429,
-          headers: { "retry-after": "60" },
-        }),
-        request
-      );
-    }
-
     const stub = env.ROOMS.getByName(route.token);
     if (route.action === "revoke") {
       if (request.method !== "POST") {
@@ -121,19 +104,13 @@ export default {
 };
 
 export class DuetRoom extends DurableObject<Env> {
-  private docPromise: Promise<Y.Doc> | null = null;
-  private snapshotTimer: ReturnType<typeof setTimeout> | null = null;
-  private changeVersion = 0;
-  private persistedVersion = 0;
+  private readonly document = new PersistedDocument(this.ctx.storage);
+  private readonly awareness = new WeakMap<WebSocket, AwarenessEntry>();
+  private revoked: boolean | null = null;
   private revoking = false;
 
-  private getDocument(): Promise<Y.Doc> {
-    if (!this.docPromise) this.docPromise = loadDocument(this.ctx.storage);
-    return this.docPromise;
-  }
-
   private openSockets(): WebSocket[] {
-    return this.ctx.getWebSockets().filter((socket) => socket.readyState === 1);
+    return this.ctx.getWebSockets().filter((socket) => socket.readyState === WebSocket.OPEN);
   }
 
   private relay(message: Uint8Array, except?: WebSocket): void {
@@ -142,130 +119,195 @@ export class DuetRoom extends DurableObject<Env> {
       try {
         socket.send(message);
       } catch {
-        // A close event will perform the final persistence check.
+        // The client retains its Yjs update and will resend after reconnecting.
       }
     }
   }
 
-  private scheduleSnapshot(): void {
-    if (this.snapshotTimer) return;
-    this.snapshotTimer = setTimeout(() => {
-      this.snapshotTimer = null;
-      void this.flushSnapshot();
-    }, SNAPSHOT_DEBOUNCE_MS);
+  private async roomIsRevoked(): Promise<boolean> {
+    if (this.revoking) return true;
+    if (this.revoked === null) {
+      this.revoked = (await this.ctx.storage.get<boolean>(REVOKED_KEY)) === true;
+    }
+    return this.revoked;
   }
 
-  private markDocumentChanged(): void {
-    this.changeVersion++;
-    this.scheduleSnapshot();
+  private attachment(socket: WebSocket): SocketAttachment | null {
+    return socket.deserializeAttachment() as SocketAttachment | null;
   }
 
-  private async flushSnapshot(): Promise<void> {
-    if (this.persistedVersion === this.changeVersion) return;
-    const version = this.changeVersion;
-    const doc = await this.getDocument();
-    await saveDocument(this.ctx.storage, doc);
-    this.persistedVersion = version;
-    if (this.persistedVersion !== this.changeVersion) this.scheduleSnapshot();
-  }
-
-  private async closeSocket(socket: WebSocket): Promise<void> {
-    const attachment = socket.deserializeAttachment() as SocketAttachment | null;
-    const removal = awarenessRemovalMessage(attachment?.awareness ?? []);
+  private closeSocket(socket: WebSocket): void {
+    const attachment = this.attachment(socket);
+    if (!attachment || attachment.closed) return;
+    socket.serializeAttachment({ ...attachment, closed: true } satisfies SocketAttachment);
+    const removal = awarenessRemovalMessage(this.awareness.get(socket));
+    this.awareness.delete(socket);
     if (removal) this.relay(removal, socket);
-    if (this.openSockets().filter((peer) => peer !== socket).length === 0) {
-      if (this.snapshotTimer) {
-        clearTimeout(this.snapshotTimer);
-        this.snapshotTimer = null;
-      }
-      await this.flushSnapshot();
-    }
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname.endsWith("/revoke")) {
-      const storedOwner = await this.ctx.storage.get<string>(OWNER_KEY);
-      const suppliedOwner = request.headers.get("x-duet-owner");
-      if (!storedOwner || !suppliedOwner || suppliedOwner !== storedOwner) {
-        return new Response("Not allowed", { status: 403 });
-      }
-      const snapshot = await this.ctx.blockConcurrencyWhile(async () => {
-        this.revoking = true;
-        await this.flushSnapshot();
-        const doc = await this.getDocument();
+    return this.document.run(async (doc) => {
+      if (url.pathname.endsWith("/revoke")) {
+        const storedOwner = await this.ctx.storage.get<string>(OWNER_KEY);
+        const suppliedOwner = request.headers.get("x-duet-owner");
+        if (!storedOwner || !suppliedOwner || suppliedOwner !== storedOwner) {
+          return new Response("Not allowed", { status: 403 });
+        }
+
         const finalSnapshot = encodeSnapshot(doc);
         await this.ctx.storage.put(REVOKED_KEY, true);
+        this.revoked = true;
+        this.revoking = true;
         for (const socket of this.openSockets()) {
           socket.close(4001, "Sharing stopped");
         }
-        return finalSnapshot;
-      });
-      return new Response(snapshot.slice().buffer as ArrayBuffer, {
-        status: 200,
-        headers: { "content-type": "application/octet-stream" },
-      });
-    }
+        return new Response(finalSnapshot.slice().buffer as ArrayBuffer, {
+          status: 200,
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
 
-    if (await this.ctx.storage.get<boolean>(REVOKED_KEY)) {
-      return new Response("This sharing link has been stopped", { status: 410 });
-    }
+      if (await this.roomIsRevoked()) {
+        return new Response("This sharing link has been stopped", { status: 410 });
+      }
 
-    const offeredOwner = url.searchParams.get("owner");
-    const storedOwner = await this.ctx.storage.get<string>(OWNER_KEY);
-    if (!storedOwner && offeredOwner && TOKEN_PATTERN.test(offeredOwner)) {
-      await this.ctx.storage.put(OWNER_KEY, offeredOwner);
-    }
+      const offeredOwner = url.searchParams.get("owner");
+      const storedOwner = await this.ctx.storage.get<string>(OWNER_KEY);
+      const authorization = authorizeRoom(storedOwner, offeredOwner);
+      if (authorization === "unissued") {
+        return new Response("This sharing link does not exist", { status: 404 });
+      }
+      if (authorization === "forbidden") {
+        return new Response("Not allowed", { status: 403 });
+      }
+      const clientId = parseClientId(url.searchParams.get("client"));
+      const sessionId = url.searchParams.get("session");
+      if (clientId === null || !validSessionId(sessionId)) {
+        return new Response("Invalid client identity", { status: 400 });
+      }
+      if (authorization === "issue-owner") {
+        await this.ctx.storage.put(OWNER_KEY, offeredOwner!);
+      }
+      const isOwner = authorization === "owner" || authorization === "issue-owner";
+      if (!isOwner && !roomHasHistory(doc)) {
+        return new Response("This sharing room is still initializing", {
+          status: 425,
+          headers: { "retry-after": "1" },
+        });
+      }
 
-    await this.getDocument();
-    const peers = this.openSockets();
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    server.serializeAttachment({ awareness: [] } satisfies SocketAttachment);
-    this.ctx.acceptWebSocket(server);
+      const ip = (request.headers.get("cf-connecting-ip") || "unknown").slice(0, 64);
+      const rateState = await this.ctx.storage.get<ConnectionRateState>(RATE_STATE_KEY);
+      const rate = checkConnectionRate(rateState, ip, sessionId, clientId);
+      await this.ctx.storage.put(RATE_STATE_KEY, rate.state);
+      if (!rate.allowed) {
+        return new Response("Too many connection attempts", {
+          status: 429,
+          headers: { "retry-after": "60" },
+        });
+      }
 
-    // Existing peers answer this standard y-websocket query with their current
-    // awareness, which is then relayed to the newcomer without persisting it.
-    const query = queryAwarenessMessage();
-    for (const peer of peers) peer.send(query);
+      const duplicateSession = this.openSockets().find(
+        (socket) => this.attachment(socket)?.sessionId === sessionId
+      );
+      if (duplicateSession) duplicateSession.close(4002, "Reconnected elsewhere");
 
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-    } as ResponseInit);
+      const peers = this.openSockets();
+      if (peers.length >= MAX_ROOM_CONNECTIONS) {
+        return new Response("This room has too many connected writers", { status: 503 });
+      }
+      if (peers.some((socket) => this.attachment(socket)?.clientId === clientId)) {
+        return new Response("Yjs client identity is already connected", { status: 409 });
+      }
+
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      server.serializeAttachment({
+        clientId,
+        sessionId,
+        owner: isOwner,
+      } satisfies SocketAttachment);
+      this.ctx.acceptWebSocket(server);
+
+      // Each peer's overridden query handler returns only its local state. The
+      // Worker rejects a response that claims any other Yjs client id.
+      const query = queryAwarenessMessage();
+      for (const peer of peers) {
+        try {
+          peer.send(query);
+        } catch {
+          // A closing peer will remove its own presence in the close callback.
+        }
+      }
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+      } as ResponseInit);
+    });
   }
 
   async webSocketMessage(socket: WebSocket, message: ArrayBuffer | string): Promise<void> {
-    if (this.revoking) {
-      socket.close(4001, "Sharing stopped");
-      return;
-    }
-    if (typeof message === "string") {
-      socket.close(1003, "Binary messages required");
-      return;
-    }
-
-    try {
-      const doc = await this.getDocument();
-      const result = handleProtocolMessage(doc, message);
-      if (result.reply) socket.send(result.reply);
-      if (result.followUp) socket.send(result.followUp);
-      if (result.relay) this.relay(result.relay, socket);
-      if (result.awareness) {
-        const previous =
-          (socket.deserializeAttachment() as SocketAttachment | null)?.awareness ?? [];
-        const byClient = new Map(previous.map((entry) => [entry.clientId, entry]));
-        for (const entry of result.awareness) {
-          if (entry.present) byClient.set(entry.clientId, entry);
-          else byClient.delete(entry.clientId);
-        }
-        socket.serializeAttachment({ awareness: [...byClient.values()] } satisfies SocketAttachment);
+    await this.document.run(async (doc) => {
+      const attachment = this.attachment(socket);
+      if (!attachment || attachment.closed || socket.readyState !== WebSocket.OPEN) return;
+      if (await this.roomIsRevoked()) {
+        socket.close(4001, "Sharing stopped");
+        return;
       }
-      if (result.documentChanged) this.markDocumentChanged();
-    } catch {
-      socket.close(1003, "Invalid y-websocket message");
-    }
+      if (typeof message === "string") {
+        socket.close(1003, "Binary messages required");
+        return;
+      }
+
+      let result;
+      try {
+        result = handleProtocolMessage(doc, message, {
+          allowSeed: attachment.owner,
+          awarenessClientId: attachment.clientId,
+        });
+        if (
+          result.awareness &&
+          this.awareness.has(socket) &&
+          result.awareness.clock < this.awareness.get(socket)!.clock
+        ) {
+          throw new Error("Awareness clocks must not move backwards");
+        }
+      } catch {
+        socket.close(1003, "Invalid y-websocket message");
+        return;
+      }
+
+      if (result.documentChanged) {
+        try {
+          // The update is not replied to or relayed until durable storage has
+          // accepted the complete post-transaction snapshot.
+          await this.document.persist(doc);
+        } catch {
+          // The in-memory document now contains an update that storage did not
+          // accept. Drop that instance and disconnect everyone before any sync
+          // reply can expose state that would disappear after eviction.
+          this.document.reset();
+          for (const peer of this.openSockets()) {
+            peer.close(1011, "The shared document could not be persisted");
+          }
+          return;
+        }
+      }
+
+      if (result.awareness) {
+        this.awareness.set(socket, result.awareness);
+      }
+      try {
+        if (result.reply) socket.send(result.reply);
+        if (result.followUp) socket.send(result.followUp);
+      } catch {
+        return;
+      }
+      if (result.relay) this.relay(result.relay, socket);
+    });
   }
 
   async webSocketClose(
@@ -274,10 +316,10 @@ export class DuetRoom extends DurableObject<Env> {
     _reason: string,
     _wasClean: boolean
   ): Promise<void> {
-    await this.closeSocket(socket);
+    await this.document.run(() => this.closeSocket(socket));
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
-    await this.closeSocket(socket);
+    await this.document.run(() => this.closeSocket(socket));
   }
 }

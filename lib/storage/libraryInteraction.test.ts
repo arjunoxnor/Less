@@ -146,6 +146,24 @@ describe("folder card drops", () => {
       )
     ).toBeNull();
   });
+
+  it("drops deleted and duplicate siblings from a stale gap plan", () => {
+    expect(
+      planFolderCardDrop(
+        "bravo",
+        {
+          kind: "gap",
+          parentId: "second-section",
+          siblingIds: ["deleted", "delta", "delta", "echo"],
+          slot: 3,
+        },
+        folders
+      )
+    ).toEqual({
+      parentId: "second-section",
+      orderedIds: ["delta", "bravo", "echo"],
+    });
+  });
 });
 
 describe("card grid gap hit testing", () => {

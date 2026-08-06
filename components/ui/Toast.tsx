@@ -11,7 +11,12 @@ import { useEffect, useRef, useState } from "react";
 
 export type ToastVariant = "default" | "danger";
 
-type ToastData = { id: number; text: string; variant: ToastVariant };
+type ToastData = {
+  id: number;
+  text: string;
+  variant: ToastVariant;
+  createdAt: number;
+};
 
 const DISMISS_MS = 4000;
 
@@ -20,32 +25,57 @@ let current: ToastData | null = null;
 let notify: ((t: ToastData | null) => void) | null = null;
 
 export function showToast(text: string, opts?: { variant?: ToastVariant }) {
-  current = { id: nextId++, text, variant: opts?.variant ?? "default" };
+  current = {
+    id: nextId++,
+    text,
+    variant: opts?.variant ?? "default",
+    createdAt: Date.now(),
+  };
   notify?.(current);
 }
 
 export function ToastHost() {
   const [toast, setToast] = useState<ToastData | null>(null);
+  const toastRef = useRef<ToastData | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const armedAt = useRef(0);
   const remaining = useRef(DISMISS_MS);
 
   useEffect(() => {
     notify = setToast;
-    setToast(current);
+    if (current && Date.now() - current.createdAt < DISMISS_MS) {
+      setToast(current);
+    } else {
+      current = null;
+      setToast(null);
+    }
     return () => {
       if (notify === setToast) notify = null;
+      if (current?.id === toastRef.current?.id) current = null;
     };
   }, []);
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
+
+  const dismiss = (id: number) => {
+    if (current?.id === id) current = null;
+    setToast((shown) => (shown?.id === id ? null : shown));
+  };
 
   // Auto-dismiss with pause-on-hover: hovering stops the clock, leaving
   // resumes it with whatever time was left (with a small floor so a toast
   // never vanishes the instant the pointer leaves).
   useEffect(() => {
     if (!toast) return;
-    remaining.current = DISMISS_MS;
+    remaining.current = Math.max(
+      0,
+      DISMISS_MS - (Date.now() - toast.createdAt)
+    );
     armedAt.current = Date.now();
-    timer.current = setTimeout(() => setToast(null), remaining.current);
+    const id = toast.id;
+    timer.current = setTimeout(() => dismiss(id), remaining.current);
     return () => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
@@ -65,14 +95,14 @@ export function ToastHost() {
     if (!timer.current) {
       remaining.current = Math.max(600, remaining.current);
       armedAt.current = Date.now();
-      timer.current = setTimeout(() => setToast(null), remaining.current);
+      timer.current = setTimeout(() => dismiss(toast.id), remaining.current);
     }
   };
 
   return (
     <div
       className={"ui-toast" + (toast.variant === "danger" ? " ui-toast-danger" : "")}
-      role="status"
+      role={toast.variant === "danger" ? "alert" : "status"}
       onMouseEnter={pause}
       onMouseLeave={resume}
     >

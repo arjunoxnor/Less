@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -59,7 +59,9 @@ export function Menu({
   onClose: () => void;
   ariaLabel?: string;
 }) {
+  const id = useId();
   const menuRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const selectable = useMemo(
     () =>
@@ -69,6 +71,11 @@ export function Menu({
     [items]
   );
   const [active, setActive] = useState(() => (selectable.length ? selectable[0].i : -1));
+
+  useEffect(() => {
+    if (selectable.some(({ i }) => i === active)) return;
+    setActive(selectable.length ? selectable[0].i : -1);
+  }, [active, selectable]);
 
   // Position after first paint (needs the rendered size), clamped to the
   // viewport; flips to the other side when the preferred one cannot fit.
@@ -90,18 +97,24 @@ export function Menu({
   }, [anchor, side]);
 
   // Take focus so arrow keys land here, and give it back on close.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
+  useLayoutEffect(() => {
+    openerRef.current = document.activeElement as HTMLElement | null;
     menuRef.current?.focus();
     return () => {
-      opener?.focus?.();
+      if (openerRef.current?.isConnected) openerRef.current.focus();
     };
   }, []);
 
   // Click-outside closes.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) onClose();
+      const target = e.target as Node;
+      if (
+        !menuRef.current?.contains(target) &&
+        !openerRef.current?.contains(target)
+      ) {
+        onClose();
+      }
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -124,9 +137,10 @@ export function Menu({
     const cur = selectable.findIndex(({ i }) => i === active);
     const next = selectable[(cur + dir + selectable.length) % selectable.length];
     setActive(next.i);
-    menuRef.current
-      ?.querySelector<HTMLElement>(`[data-idx="${next.i}"]`)
-      ?.scrollIntoView({ block: "nearest" });
+    const nextElement = menuRef.current?.querySelector<HTMLElement>(
+      `[data-idx="${next.i}"]`
+    );
+    nextElement?.scrollIntoView?.({ block: "nearest" });
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -154,6 +168,7 @@ export function Menu({
       className="ui-menu"
       role="menu"
       aria-label={ariaLabel}
+      aria-activedescendant={active >= 0 ? `${id}-item-${active}` : undefined}
       tabIndex={-1}
       style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999 }}
       onKeyDown={onKeyDown}
@@ -168,6 +183,7 @@ export function Menu({
         return (
           <button
             key={it.label + i}
+            id={`${id}-item-${i}`}
             type="button"
             data-idx={i}
             className={

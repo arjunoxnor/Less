@@ -72,6 +72,7 @@ export function LeftRail({
             <button
               type="button"
               className={"rail-btn" + (active ? " rail-btn-active" : "")}
+              data-panel-id={it.id}
               aria-pressed={active}
               aria-label={it.label}
               onClick={() => onPanelChange(active ? null : it.id)}

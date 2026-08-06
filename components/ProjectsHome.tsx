@@ -16,6 +16,8 @@ import {
   canMoveProjectTo,
   listFolderMoveTargets,
   listLibrary,
+  MAX_LIBRARY_NAME_LENGTH,
+  normalizeLibraryName,
   pruneFolderFolds,
   reorderIdsAtSlot,
   type Card,
@@ -123,22 +125,34 @@ const ChevronDown = () => (
 export function HoldDelete({ onConfirm }: { onConfirm: () => void }) {
   const [holding, setHolding] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const active = useRef(false);
+  const confirmRef = useRef(onConfirm);
+  confirmRef.current = onConfirm;
   const cancel = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    active.current = false;
     setHolding(false);
   };
   const start = () => {
+    if (active.current) return;
+    active.current = true;
     setHolding(true);
     timer.current = setTimeout(() => {
       timer.current = null;
+      active.current = false;
       setHolding(false);
-      onConfirm();
+      confirmRef.current();
     }, 2000);
   };
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      active.current = false;
+    },
+    []
+  );
   return (
     <button
       type="button"
@@ -147,6 +161,19 @@ export function HoldDelete({ onConfirm }: { onConfirm: () => void }) {
       onPointerUp={cancel}
       onPointerLeave={cancel}
       onPointerCancel={cancel}
+      onBlur={cancel}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && !event.repeat) {
+          event.preventDefault();
+          start();
+        }
+      }}
+      onKeyUp={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          cancel();
+        }
+      }}
     >
       <span className="hold-fill" />
       <span className="hold-label">{holding ? "Keep holding" : "Hold to delete"}</span>
@@ -172,7 +199,7 @@ export function NameInput({
   onDone: () => void;
 }) {
   const [val, setVal] = useState(initial);
-  const commit = () => onCommit(val.trim());
+  const commit = () => onCommit(normalizeLibraryName(val, ""));
   const ref = useRef<HTMLInputElement>(null);
   // Focus on the next tick, not via autoFocus: the Menu that triggered this
   // rename restores focus to its opener when it closes, and that restore runs
@@ -189,6 +216,7 @@ export function NameInput({
       ref={ref}
       className={className}
       value={val}
+      maxLength={MAX_LIBRARY_NAME_LENGTH}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) => setVal(e.target.value)}
       onBlur={() => {
@@ -340,6 +368,25 @@ export function ProjectsHome({
     });
   }, [folders]);
 
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== FOLDS_KEY && event.key !== null) return;
+      try {
+        const raw = event.newValue ? JSON.parse(event.newValue) : {};
+        setFolds(
+          pruneFolderFolds(
+            raw && typeof raw === "object" ? raw : {},
+            folders
+          )
+        );
+      } catch {
+        setFolds({});
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [folders]);
+
   // Relative times refresh once a minute while the home is on screen.
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -371,6 +418,105 @@ export function ProjectsHome({
   const library = useMemo(() => listLibrary(projects, folders), [projects, folders]);
   const sections = library.sections;
   const unfiled = library.unfiled;
+  const projectById = useMemo(() => {
+    const all = [
+      ...unfiled,
+      ...sections.flatMap((section) => [
+        ...section.loose,
+        ...section.cards.flatMap((card) => [
+          ...card.items,
+          ...card.shelves.flatMap((shelf) => shelf.items),
+        ]),
+      ]),
+    ];
+    return new Map(all.map((project) => [project.id, project]));
+  }, [sections, unfiled]);
+  const folderById = useMemo(() => {
+    const all = sections.flatMap((section) => [
+      section.folder,
+      ...section.cards.flatMap((card) => [
+        card.folder,
+        ...card.shelves.map((shelf) => shelf.folder),
+      ]),
+    ]);
+    return new Map(all.map((folder) => [folder.id, folder]));
+  }, [sections]);
+
+  // Keep open layers attached to live data. A rename in another tab updates
+  // the wording in place; a delete closes the stale action before it can run.
+  useEffect(() => {
+    setConfirmDelete((target) =>
+      target ? projectById.get(target.id) ?? null : null
+    );
+    setConfirmDeleteFilm((target) =>
+      target ? folderById.get(target.id) ?? null : null
+    );
+    setMoveTarget((target) => {
+      if (!target) return null;
+      if (target.kind === "item") {
+        const meta = projectById.get(target.meta.id);
+        return meta ? { kind: "item", meta } : null;
+      }
+      const folder = folderById.get(target.folder.id);
+      return folder ? { kind: "folder", folder } : null;
+    });
+  }, [folderById, projectById]);
+
+  useEffect(() => {
+    const menuTargetMissing =
+      menu?.kind === "card" || menu?.kind === "section"
+        ? !folderById.has(menu.id)
+        : menu?.kind === "idea" || menu?.kind === "item"
+          ? !projectById.has(menu.id)
+          : false;
+    const stale =
+      menuTargetMissing ||
+      (colorTarget !== null && !folderById.has(colorTarget)) ||
+      (confirmDelete !== null && !projectById.has(confirmDelete.id)) ||
+      (confirmDeleteFilm !== null && !folderById.has(confirmDeleteFilm.id)) ||
+      (renamingFilm !== null && !folderById.has(renamingFilm)) ||
+      (renamingSection !== null && !folderById.has(renamingSection)) ||
+      (renamingItem !== null && !projectById.has(renamingItem)) ||
+      (moveTarget?.kind === "item" && !projectById.has(moveTarget.meta.id)) ||
+      (moveTarget?.kind === "folder" && !folderById.has(moveTarget.folder.id));
+    if (!stale) return;
+    if (menuTargetMissing) setMenu(null);
+    if (colorTarget !== null && !folderById.has(colorTarget)) setColorTarget(null);
+    if (confirmDelete !== null && !projectById.has(confirmDelete.id)) {
+      setConfirmDelete(null);
+    }
+    if (confirmDeleteFilm !== null && !folderById.has(confirmDeleteFilm.id)) {
+      setConfirmDeleteFilm(null);
+    }
+    if (renamingFilm !== null && !folderById.has(renamingFilm)) setRenamingFilm(null);
+    if (renamingSection !== null && !folderById.has(renamingSection)) {
+      setRenamingSection(null);
+    }
+    if (renamingItem !== null && !projectById.has(renamingItem)) setRenamingItem(null);
+    if (
+      (moveTarget?.kind === "item" && !projectById.has(moveTarget.meta.id)) ||
+      (moveTarget?.kind === "folder" && !folderById.has(moveTarget.folder.id))
+    ) {
+      setMoveTarget(null);
+    }
+    queueMicrotask(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body || !active.isConnected) {
+        searchRef.current?.focus();
+      }
+    });
+  }, [
+    colorTarget,
+    confirmDelete,
+    confirmDeleteFilm,
+    folderById,
+    menu,
+    moveTarget,
+    projectById,
+    renamingFilm,
+    renamingItem,
+    renamingSection,
+  ]);
   // "Now writing" is the folder holding whatever was last OPENED, not whatever
   // was last written to. Filing something stamps its clock, so a recency lead
   // moved the crown (and the wide card with it) when the writer was only
@@ -399,7 +545,13 @@ export function ProjectsHome({
   // What is being dragged: a project (script or note), or a whole folder.
   // The ref is the authority during the drag (drop can fire before a render);
   // the state only drives the wash and the dimmed row.
-  const drag = useRef<{ kind: "item" | "folder"; id: string } | null>(null);
+  const drag = useRef<{
+    kind: "item" | "folder";
+    id: string;
+    session: number;
+  } | null>(null);
+  const nextDragSession = useRef(0);
+  const dragSessions = useRef(new WeakMap<DataTransfer, number>());
   const [dragging, setDragging] = useState<string | null>(null);
   // The folder id currently under the pointer, or "unfiled" for the last band.
   const [dropFilm, setDropFilm] = useState<string | null>(null);
@@ -414,7 +566,8 @@ export function ProjectsHome({
   const caretRef = useRef<DropCaret | null>(null);
   const [caret, setCaret] = useState<DropCaret | null>(null);
 
-  const clearDrag = () => {
+  const clearDrag = (session?: number) => {
+    if (session !== undefined && drag.current?.session !== session) return;
     drag.current = null;
     caretRef.current = null;
     setDragging(null);
@@ -431,15 +584,41 @@ export function ProjectsHome({
     if (!exists) clearDrag();
   }, [folders, projects]);
 
+  useEffect(() => {
+    const target = caretRef.current;
+    if (
+      target &&
+      target.container !== "sections" &&
+      target.container !== "unfiled" &&
+      !folderById.has(target.container)
+    ) {
+      caretRef.current = null;
+      setCaret(null);
+      setDropFilm(null);
+    }
+  }, [folderById]);
+
   /** Can what is being dragged land here? null means the unfiled band. */
   const canDropOn = (folderId: string | null): boolean => {
     const d = drag.current;
     if (!d) return false;
     if (d.kind === "item") {
-      return canMoveProjectTo(d.id, folderId, projects, folders);
+      return (
+        projectById.has(d.id) &&
+        (folderId === null || folderById.has(folderId))
+      );
     }
     // A folder cannot go into itself or into anything already inside it.
-    return canMoveFolderTo(d.id, folderId, folders);
+    if (!folderById.has(d.id)) return false;
+    if (folderId === null) return true;
+    const seen = new Set<string>();
+    let current = folderById.get(folderId);
+    while (current) {
+      if (current.id === d.id || seen.has(current.id)) return false;
+      seen.add(current.id);
+      current = current.parentId ? folderById.get(current.parentId) : undefined;
+    }
+    return folderById.has(folderId);
   };
 
   /** Do the move, through the existing handlers so clocks stamp correctly. */
@@ -476,10 +655,10 @@ export function ProjectsHome({
    * arrange, different level means put inside.
    */
   const isTopLevel = (id: string) => {
-    const f = folders.find((x) => x.id === id);
+    const f = folderById.get(id);
     if (!f) return false;
     // An orphan parent means the folder already reads as top level.
-    return !f.parentId || !folders.some((x) => x.id === f.parentId);
+    return !f.parentId || !folderById.has(f.parentId);
   };
 
   const headingDropProps = (sectionId: string) => ({
@@ -573,19 +752,36 @@ export function ProjectsHome({
   const dragProps = (kind: "item" | "folder", id: string) => ({
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
-      if (!canStartLibraryDrag(e.target)) {
+      if (
+        !canStartLibraryDrag(e.target) ||
+        menu !== null ||
+        renamingFilm !== null ||
+        renamingSection !== null ||
+        renamingItem !== null ||
+        colorTarget !== null ||
+        confirmDelete !== null ||
+        confirmDeleteFilm !== null ||
+        moveTarget !== null ||
+        showCodeImport
+      ) {
         e.preventDefault();
         return;
       }
       // The innermost draggable wins: a row inside a card must not start the
       // card dragging as well.
       e.stopPropagation();
-      drag.current = { kind, id };
+      const session = ++nextDragSession.current;
+      drag.current = { kind, id, session };
+      dragSessions.current.set(e.dataTransfer, session);
       setDragging(id);
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", id);
     },
-    onDragEnd: clearDrag,
+    onDragEnd: (e: React.DragEvent) => {
+      const session = dragSessions.current.get(e.dataTransfer);
+      if (session !== undefined) clearDrag(session);
+      else if (drag.current?.kind === kind && drag.current.id === id) clearDrag();
+    },
   });
 
   /**
@@ -630,6 +826,15 @@ export function ProjectsHome({
       if (d?.kind !== "item" || !target) return;
       e.preventDefault();
       e.stopPropagation();
+      const targetFolderId =
+        target.container === "unfiled" ? null : target.container;
+      if (
+        !Object.prototype.hasOwnProperty.call(containers, target.container) ||
+        !canMoveProjectTo(d.id, targetFolderId, projects, folders)
+      ) {
+        clearDrag();
+        return;
+      }
       const items = containers[target.container] ?? [];
       const ids = items.map((p) => p.id);
       const from = ids.indexOf(d.id);
@@ -638,8 +843,9 @@ export function ProjectsHome({
         if (next) onReorder(next);
       } else {
         // Arriving from another folder: file it here, then place it.
-        onSetFolder(d.id, target.container === "unfiled" ? null : target.container);
-        ids.splice(target.at, 0, d.id);
+        onSetFolder(d.id, targetFolderId);
+        const bounded = Math.max(0, Math.min(target.at, ids.length));
+        ids.splice(bounded, 0, d.id);
         onReorder(ids);
       }
       clearDrag();
@@ -761,6 +967,14 @@ export function ProjectsHome({
 
   /* ---- Flows ---- */
 
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   /** Make something inside a folder and open it. */
   const createIn = (type: ProjectType, title: string, folderId: string) => {
     clearDrag();
@@ -824,11 +1038,15 @@ export function ProjectsHome({
   // level to its parent, through the existing handlers, so nothing a writer
   // wrote is ever destroyed and nothing falls out of the tree.
   const removeFolder = (target: Folder) => {
-    const up = target.parentId ?? null;
-    folders
+    const liveFolders = [...folderById.values()];
+    const up =
+      target.parentId && canMoveFolderTo(target.id, target.parentId, liveFolders)
+        ? target.parentId
+        : null;
+    liveFolders
       .filter((sf) => sf.parentId === target.id)
       .forEach((sf) => onUpdateFolder(sf.id, { parentId: up }));
-    projects
+    [...projectById.values()]
       .filter((p) => p.folderId === target.id)
       .forEach((p) => onSetFolder(p.id, up));
     onDeleteFolder(target.id);
@@ -843,25 +1061,33 @@ export function ProjectsHome({
     setImporting(true);
     try {
       const { imported, failed } = await onImportScreenplays(Array.from(fileList));
+      if (!mounted.current) return;
       showToast(
         `Imported ${imported} script${imported === 1 ? "" : "s"}` +
           (failed.length ? `, ${failed.length} could not be read.` : ".")
       );
     } catch {
-      showToast("Import failed.", { variant: "danger" });
+      if (mounted.current) showToast("Import failed.", { variant: "danger" });
     } finally {
-      setImporting(false);
-      if (importInputRef.current) importInputRef.current.value = "";
+      if (mounted.current) {
+        setImporting(false);
+        if (importInputRef.current) importInputRef.current.value = "";
+      }
     }
   };
 
   const runSync = async () => {
-    showToast("Syncing.");
     try {
       const ok = await onSyncNow();
-      showToast(ok ? "Synced." : "Sync did not finish. Check your connection.");
+      if (mounted.current) {
+        showToast(ok ? "Synced." : "Sync did not finish. Check your connection.");
+      }
     } catch {
-      showToast("Sync did not finish. Check your connection.", { variant: "danger" });
+      if (mounted.current) {
+        showToast("Sync did not finish. Check your connection.", {
+          variant: "danger",
+        });
+      }
     }
   };
 
@@ -1051,6 +1277,7 @@ export function ProjectsHome({
         {...dragProps("item", p.id)}
         onClick={open}
         onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             open(e);
@@ -1089,6 +1316,7 @@ export function ProjectsHome({
           className="fh-kebab"
           aria-label={`Actions for ${p.title}`}
           aria-haspopup="menu"
+          aria-expanded={menu?.kind === "item" && menu.id === p.id}
           onClick={(e) => openMenu(e, { kind: "item", id: p.id })}
         >
           <DotsIcon />
@@ -1105,6 +1333,24 @@ export function ProjectsHome({
     // A project starts shut; the card you are writing in starts open.
     const isOpen = isOpenFolder(f.id, isLead);
     const draft = card.current;
+    const hasContents = card.total > 0 || card.shelves.length > 0;
+    const openBranches: boolean[] = [];
+    const shelfRows = card.shelves
+      .map((shelf, index) => {
+        const visible =
+          shelf.depth === 1 ? true : (openBranches[shelf.depth - 1] ?? false);
+        const open = isOpenFolder(shelf.folder.id, false);
+        openBranches[shelf.depth] = visible && open;
+        return {
+          shelf,
+          visible,
+          open,
+          hasChildren:
+            index + 1 < card.shelves.length &&
+            card.shelves[index + 1].depth > shelf.depth,
+        };
+      })
+      .filter((row) => row.visible);
     const openFolder = (e: React.SyntheticEvent) => {
       e.stopPropagation();
       if (!renaming) toggleFold(f.id, isLead);
@@ -1126,7 +1372,7 @@ export function ProjectsHome({
         <div className="pcard-head" {...dropProps(f.id, f.id)}>
           {isLead && <div className="lead-label">Now writing</div>}
           <div className="pcard-top">
-            {card.total > 0 && (
+            {hasContents && (
               <button
                 type="button"
                 className={"film-caret" + (isOpen ? " open" : "")}
@@ -1162,6 +1408,7 @@ export function ProjectsHome({
               className="fh-kebab"
               aria-label={`Actions for ${f.name}`}
               aria-haspopup="menu"
+              aria-expanded={menu?.kind === "card" && menu.id === f.id}
               onClick={(e) => openMenu(e, { kind: "card", id: f.id })}
             >
               <DotsIcon />
@@ -1184,19 +1431,29 @@ export function ProjectsHome({
                     : ""}
               </button>
             ) : (
-              <span>{card.total === 0 ? "Empty" : `${card.total} item${card.total === 1 ? "" : "s"}`}</span>
+              <span>
+                {card.total > 0
+                  ? `${card.total} item${card.total === 1 ? "" : "s"}`
+                  : card.shelves.length > 0
+                    ? `${card.shelves.length} folder${card.shelves.length === 1 ? "" : "s"}`
+                    : "Empty"}
+              </span>
             )}
             <span className="film-when">{relativeTime(card.lastTouched)}</span>
           </div>
         </div>
 
-        {isOpen && card.total > 0 && (
+        {isOpen && hasContents && (
           <div
             className="pcard-list"
             {...listDropProps(
               {
                 [f.id]: card.items,
-                ...Object.fromEntries(card.shelves.map((sh) => [sh.folder.id, sh.items])),
+                ...Object.fromEntries(
+                  shelfRows
+                    .filter((row) => row.open)
+                    .map((row) => [row.shelf.folder.id, row.shelf.items])
+                ),
               },
               f.id
             )}
@@ -1204,8 +1461,7 @@ export function ProjectsHome({
             {itemList(f.id, card.items, {
               currentId: isLead ? card.current?.id : undefined,
             })}
-            {card.shelves.map((shelf) => {
-              const shelfOpen = isOpenFolder(shelf.folder.id, false);
+            {shelfRows.map(({ shelf, open: shelfOpen, hasChildren }) => {
               return (
               <div key={shelf.folder.id} className="pcard-shelfgroup">
                 <div
@@ -1218,7 +1474,7 @@ export function ProjectsHome({
                   {...dragProps("folder", shelf.folder.id)}
                   {...dropProps(shelf.folder.id, shelf.folder.id)}
                 >
-                  {shelf.items.length > 0 && (
+                  {(shelf.items.length > 0 || hasChildren) && (
                     <button
                       type="button"
                       className={"film-caret shelf-caret" + (shelfOpen ? " open" : "")}
@@ -1257,6 +1513,9 @@ export function ProjectsHome({
                     className="fh-kebab"
                     aria-label={`Actions for ${shelf.folder.name}`}
                     aria-haspopup="menu"
+                    aria-expanded={
+                      menu?.kind === "card" && menu.id === shelf.folder.id
+                    }
                     onClick={(e) => openMenu(e, { kind: "card", id: shelf.folder.id })}
                   >
                     <DotsIcon />
@@ -1285,6 +1544,7 @@ export function ProjectsHome({
       {...dragProps("item", idea.id)}
       onClick={() => onOpen(idea.id)}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen(idea.id);
@@ -1298,6 +1558,7 @@ export function ProjectsHome({
         className="fh-kebab"
         aria-label={`Actions for ${idea.title}`}
         aria-haspopup="menu"
+        aria-expanded={menu?.kind === "idea" && menu.id === idea.id}
         onClick={(e) => openMenu(e, { kind: "idea", id: idea.id })}
       >
         <DotsIcon />
@@ -1306,15 +1567,15 @@ export function ProjectsHome({
   );
 
   const menuTargetCard =
-    menu?.kind === "card" ? folders.find((f) => f.id === menu.id) ?? null : null;
+    menu?.kind === "card" ? folderById.get(menu.id) ?? null : null;
   const menuTargetSection =
-    menu?.kind === "section" ? folders.find((f) => f.id === menu.id) ?? null : null;
+    menu?.kind === "section" ? folderById.get(menu.id) ?? null : null;
   const menuTargetIdea =
-    menu?.kind === "idea" ? unfiled.find((p) => p.id === menu.id) ?? null : null;
+    menu?.kind === "idea" ? projectById.get(menu.id) ?? null : null;
   const menuTargetItem =
-    menu?.kind === "item" ? projects.find((p) => p.id === menu.id) ?? null : null;
+    menu?.kind === "item" ? projectById.get(menu.id) ?? null : null;
   const colorFolder = colorTarget
-    ? folders.find((f) => f.id === colorTarget) ?? null
+    ? folderById.get(colorTarget) ?? null
     : null;
 
   return (
@@ -1349,6 +1610,7 @@ export function ProjectsHome({
           aria-label="More"
           title="More"
           aria-haspopup="menu"
+          aria-expanded={menu?.kind === "overflow"}
           onClick={(e) => openMenu(e, { kind: "overflow" })}
         >
           <DotsIcon />
@@ -1360,6 +1622,7 @@ export function ProjectsHome({
             aria-label="Account"
             title={user ? user.email ?? "Account" : "Account"}
             aria-haspopup="menu"
+            aria-expanded={menu?.kind === "account"}
             onClick={(e) => openMenu(e, { kind: "account" })}
           >
             {user ? (
@@ -1375,6 +1638,7 @@ export function ProjectsHome({
           type="button"
           className="ui-btn ui-btn-solid fh-new"
           aria-haspopup="menu"
+          aria-expanded={menu?.kind === "new"}
           onClick={(e) => openMenu(e, { kind: "new" })}
         >
           New
@@ -1480,6 +1744,7 @@ export function ProjectsHome({
                       className="fh-kebab band-kebab"
                       aria-label={`Actions for ${sf.name}`}
                       aria-haspopup="menu"
+                      aria-expanded={menu?.kind === "section" && menu.id === sf.id}
                       onClick={(e) => openMenu(e, { kind: "section", id: sf.id })}
                     >
                       <DotsIcon />
@@ -1550,6 +1815,7 @@ export function ProjectsHome({
                 value={jot}
                 placeholder="Jot an idea and press Enter"
                 aria-label="Jot an idea"
+                maxLength={MAX_LIBRARY_NAME_LENGTH}
                 onChange={(e) => setJot(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") jotIdea();
@@ -1687,10 +1953,29 @@ export function ProjectsHome({
           <div className="move-list">
             <button
               type="button"
-              className="move-item"
+              className={
+                "move-item" +
+                ((moveTarget.kind === "item"
+                  ? (moveTarget.meta.folderId ?? null) === null
+                  : (moveTarget.folder.parentId ?? null) === null)
+                  ? " move-current"
+                  : "")
+              }
+              aria-current={
+                (moveTarget.kind === "item"
+                  ? (moveTarget.meta.folderId ?? null) === null
+                  : (moveTarget.folder.parentId ?? null) === null)
+                  ? "location"
+                  : undefined
+              }
               onClick={() => {
-                if (moveTarget.kind === "item") onSetFolder(moveTarget.meta.id, null);
-                else onUpdateFolder(moveTarget.folder.id, { parentId: null });
+                if (moveTarget.kind === "item") {
+                  if ((moveTarget.meta.folderId ?? null) !== null) {
+                    onSetFolder(moveTarget.meta.id, null);
+                  }
+                } else if ((moveTarget.folder.parentId ?? null) !== null) {
+                  onUpdateFolder(moveTarget.folder.id, { parentId: null });
+                }
                 setMoveTarget(null);
               }}
             >
@@ -1712,9 +1997,15 @@ export function ProjectsHome({
                     key={f.id}
                     type="button"
                     className={"move-item" + (here ? " move-current" : "")}
+                    aria-current={here ? "location" : undefined}
                     onClick={() => {
-                      if (moveTarget.kind === "item") onSetFolder(moveTarget.meta.id, f.id);
-                      else onUpdateFolder(moveTarget.folder.id, { parentId: f.id });
+                      if (!here) {
+                        if (moveTarget.kind === "item") {
+                          onSetFolder(moveTarget.meta.id, f.id);
+                        } else {
+                          onUpdateFolder(moveTarget.folder.id, { parentId: f.id });
+                        }
+                      }
                       setMoveTarget(null);
                     }}
                   >
@@ -1768,30 +2059,42 @@ function CodeImportModal({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const apply = async () => {
     setBusy(true);
     setError(null);
     try {
       const ok = await claimSyncCode(code);
+      if (!mounted.current) return;
       if (!ok) {
         setError("That code did not work. Paste the full code from your other device.");
         return;
       }
       await onSyncNow();
+      if (!mounted.current) return;
       onClose();
       showToast("Imported. Your other work is now in this account.");
     } catch {
-      setError("Could not import that code.");
+      if (mounted.current) setError("Could not import that code.");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
+  };
+  const close = () => {
+    if (!busy) onClose();
   };
   return (
     <Modal
       title="Import a code"
-      onClose={onClose}
+      onClose={close}
       actions={[
-        { label: "Cancel", onClick: onClose },
+        { label: "Cancel", onClick: close, disabled: busy },
         {
           label: busy ? "Importing" : "Apply",
           variant: "solid",

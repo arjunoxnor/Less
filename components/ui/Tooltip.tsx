@@ -95,6 +95,9 @@ export function Tooltip({
 
   // In React 19 the ref lives on props (element.ref is a deprecation trap).
   const childRef = (child.props as { ref?: Ref<HTMLElement> }).ref;
+  const describedBy = [child.props["aria-describedby"], open ? id : undefined]
+    .filter(Boolean)
+    .join(" ") || undefined;
 
   const trigger = cloneElement(child, {
     ref: (node: HTMLElement | null) => {
@@ -105,7 +108,7 @@ export function Tooltip({
         (orig as { current: HTMLElement | null }).current = node;
       }
     },
-    "aria-describedby": open ? id : undefined,
+    "aria-describedby": describedBy,
     onMouseEnter: (e: unknown) => {
       child.props.onMouseEnter?.(e);
       show();

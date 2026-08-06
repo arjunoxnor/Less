@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { lsGet, lsSet } from "@/lib/storage/localStore";
 
 /**
@@ -16,15 +16,29 @@ const AUTO_DISMISS_KEYSTROKES = 50;
 export function HintCard({ modLabel }: { modLabel: string }) {
   const [visible, setVisible] = useState(() => lsGet(HINTS_KEY) !== "dismissed");
   const [fading, setFading] = useState(false);
+  const dismissing = useRef(false);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const dismiss = useCallback((immediate = false) => {
+    lsSet(HINTS_KEY, "dismissed");
+    if (immediate) {
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+      dismissTimer.current = null;
+      setVisible(false);
+      return;
+    }
+    if (dismissing.current) return;
+    dismissing.current = true;
+    setFading(true);
+    dismissTimer.current = setTimeout(() => {
+      dismissTimer.current = null;
+      setVisible(false);
+    }, 250);
+  }, []);
 
   useEffect(() => {
     if (!visible) return;
     let count = 0;
-    const dismiss = () => {
-      lsSet(HINTS_KEY, "dismissed");
-      setFading(true);
-      setTimeout(() => setVisible(false), 250);
-    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key.length === 1 || e.key === "Enter" || e.key === "Backspace" || e.key === "Tab") {
         count++;
@@ -32,22 +46,31 @@ export function HintCard({ modLabel }: { modLabel: string }) {
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [visible]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+      dismissTimer.current = null;
+    };
+  }, [dismiss, visible]);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === HINTS_KEY && event.newValue === "dismissed") {
+        dismiss(true);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [dismiss]);
 
   if (!visible) return null;
-
-  const close = () => {
-    lsSet(HINTS_KEY, "dismissed");
-    setVisible(false);
-  };
 
   return (
     <div className={"hint-card" + (fading ? " hint-card-fading" : "")} role="note">
       <button
         type="button"
         className="hint-card-x"
-        onClick={close}
+        onClick={() => dismiss(true)}
         aria-label="Close hints"
       >
         ×

@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -25,6 +32,30 @@ const FOCUSABLE =
 /** How long a destructive confirm stays disabled after the modal mounts. */
 const DANGER_ARM_MS = 400;
 
+type ModalStackEntry = {
+  token: symbol;
+  panelRef: { current: HTMLDivElement | null };
+};
+
+const modalStack: ModalStackEntry[] = [];
+let bodyOverflowBeforeModals = "";
+
+function focusInside(panel: HTMLDivElement | null) {
+  if (!panel) return;
+  const field = panel.querySelector<HTMLElement>("input, textarea, select");
+  const textBtn = panel.querySelector<HTMLElement>(".ui-btn-text");
+  const any = panel.querySelector<HTMLElement>(FOCUSABLE);
+  (field ?? textBtn ?? any ?? panel).focus();
+}
+
+function focusDocumentFallback() {
+  const body = document.body;
+  const hadTabIndex = body.hasAttribute("tabindex");
+  if (!hadTabIndex) body.tabIndex = -1;
+  body.focus();
+  if (!hadTabIndex) body.removeAttribute("tabindex");
+}
+
 export function Modal({
   title,
   onClose,
@@ -37,6 +68,8 @@ export function Modal({
   children?: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const tokenRef = useRef(Symbol("modal"));
+  const openerRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const hasDanger = actions?.some((a) => a.variant === "danger") ?? false;
   const [armed, setArmed] = useState(!hasDanger);
@@ -48,40 +81,53 @@ export function Modal({
     return () => clearTimeout(t);
   }, [armed]);
 
-  // Lock the page scroller while the modal is open so wheel and touch over
-  // the scrim cannot scroll the content behind it. The previous inline value
-  // is saved and restored so nested modals unwind cleanly.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  // Initial focus (first field, else the least-destructive button) and focus
-  // restore to whatever was focused when the modal opened.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    if (panel) {
-      const field = panel.querySelector<HTMLElement>(
-        "input, textarea, select"
-      );
-      const textBtn = panel.querySelector<HTMLElement>(".ui-btn-text");
-      const any = panel.querySelector<HTMLElement>(FOCUSABLE);
-      (field ?? textBtn ?? any ?? panel).focus();
+  // One shared stack makes Escape, focus restore, and scroll locking obey the
+  // visual order even when one modal closes underneath another.
+  useLayoutEffect(() => {
+    openerRef.current = document.activeElement as HTMLElement | null;
+    const entry = { token: tokenRef.current, panelRef };
+    if (modalStack.length === 0) {
+      bodyOverflowBeforeModals = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
     }
+    modalStack.push(entry);
+    focusInside(panelRef.current);
     return () => {
-      opener?.focus?.();
+      const index = modalStack.findIndex((candidate) => candidate.token === entry.token);
+      const wasTop = index === modalStack.length - 1;
+      if (index >= 0) modalStack.splice(index, 1);
+      if (modalStack.length === 0) {
+        document.body.style.overflow = bodyOverflowBeforeModals;
+      }
+      if (!wasTop) return;
+
+      // React may still be removing the old opener during layout cleanup.
+      // Restore after the commit so a detached control cannot receive focus.
+      queueMicrotask(() => {
+        const top = modalStack[modalStack.length - 1];
+        const opener = openerRef.current;
+        if (top) {
+          if (opener?.isConnected && top.panelRef.current?.contains(opener)) {
+            opener.focus();
+          } else {
+            focusInside(top.panelRef.current);
+          }
+        } else if (opener?.isConnected) {
+          opener.focus();
+        } else {
+          focusDocumentFallback();
+        }
+      });
     };
   }, []);
 
   // Esc closes; Tab loops inside the panel (Shift+Tab in reverse).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (modalStack[modalStack.length - 1]?.token !== tokenRef.current) return;
       if (e.key === "Escape") {
-        e.stopPropagation();
+        e.preventDefault();
+        e.stopImmediatePropagation();
         onClose();
         return;
       }
@@ -89,8 +135,9 @@ export function Modal({
       const panel = panelRef.current;
       if (!panel) return;
       const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+      e.preventDefault();
+      e.stopImmediatePropagation();
       if (focusables.length === 0) {
-        e.preventDefault();
         return;
       }
       const first = focusables[0];
@@ -98,12 +145,18 @@ export function Modal({
       const active = document.activeElement;
       if (e.shiftKey) {
         if (active === first || !panel.contains(active)) {
-          e.preventDefault();
           last.focus();
+        } else {
+          const index = focusables.indexOf(active as HTMLElement);
+          focusables[Math.max(0, index - 1)].focus();
         }
-      } else if (active === last || !panel.contains(active)) {
-        e.preventDefault();
-        first.focus();
+      } else {
+        if (active === last || !panel.contains(active)) {
+          first.focus();
+        } else {
+          const index = focusables.indexOf(active as HTMLElement);
+          focusables[Math.min(focusables.length - 1, index + 1)].focus();
+        }
       }
     };
     // Capture phase so the trap wins over editor-level key handlers.

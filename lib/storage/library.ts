@@ -67,13 +67,49 @@ export interface Library {
   unfiled: ProjectMeta[];
 }
 
+/** Long enough for a real title, short enough to keep hostile rows usable. */
+export const MAX_LIBRARY_NAME_LENGTH = 200;
+
+export function normalizeLibraryName(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  return value.trim().slice(0, MAX_LIBRARY_NAME_LENGTH).trimEnd() || fallback;
+}
+
+function uniqueFolders(folders: Folder[]): Folder[] {
+  const seen = new Set<string>();
+  const out: Folder[] = [];
+  for (const folder of folders) {
+    if (seen.has(folder.id)) continue;
+    seen.add(folder.id);
+    out.push({
+      ...folder,
+      name: normalizeLibraryName(folder.name, "Untitled folder"),
+    });
+  }
+  return out;
+}
+
+function uniqueProjects(projects: ProjectMeta[]): ProjectMeta[] {
+  const seen = new Set<string>();
+  const out: ProjectMeta[] = [];
+  for (const project of projects) {
+    if (seen.has(project.id)) continue;
+    seen.add(project.id);
+    out.push({
+      ...project,
+      title: normalizeLibraryName(project.title, "Untitled"),
+    });
+  }
+  return out;
+}
+
 /** Whether a folder may be moved to a target without creating a cycle. */
 export function canMoveFolderTo(
   sourceId: string,
   targetId: string | null,
   folders: Folder[]
 ): boolean {
-  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const byId = new Map(uniqueFolders(folders).map((folder) => [folder.id, folder]));
   if (!byId.has(sourceId)) return false;
   if (targetId === null) return true;
   if (!byId.has(targetId)) return false;
@@ -96,8 +132,8 @@ export function canMoveProjectTo(
   projects: ProjectMeta[],
   folders: Folder[]
 ): boolean {
-  if (!projects.some((project) => project.id === projectId)) return false;
-  return targetId === null || folders.some((folder) => folder.id === targetId);
+  if (!uniqueProjects(projects).some((project) => project.id === projectId)) return false;
+  return targetId === null || uniqueFolders(folders).some((folder) => folder.id === targetId);
 }
 
 /** Drop fold entries for folders that no longer exist or invalid old values. */
@@ -123,6 +159,7 @@ export function reorderIdsAtSlot(
   sourceId: string,
   slot: number
 ): string[] | null {
+  if (new Set(ids).size !== ids.length) return null;
   const from = ids.indexOf(sourceId);
   if (from < 0) return null;
   const bounded = Math.max(0, Math.min(slot, ids.length));
@@ -159,31 +196,55 @@ function newer(a: string, b: string): string {
  * always appears exactly once and nothing can vanish from the screen.
  */
 function childIndex(folders: Folder[]): Map<string | null, Folder[]> {
-  const byId = new Map(folders.map((f) => [f.id, f]));
-  /** True when walking up from this folder actually reaches a top level. */
-  const rootsCleanly = (f: Folder): boolean => {
-    const seen = new Set<string>([f.id]);
-    let cur = f;
-    while (cur.parentId && byId.has(cur.parentId)) {
-      if (seen.has(cur.parentId)) return false; // a loop: never reaches a root
-      seen.add(cur.parentId);
-      cur = byId.get(cur.parentId)!;
+  const unique = uniqueFolders(folders);
+  const byId = new Map(unique.map((f) => [f.id, f]));
+
+  // Cache every path result. A long chain is walked once instead of once per
+  // folder, which keeps a library with thousands of folders linear.
+  const rootsCleanly = new Map<string, boolean>();
+  for (const folder of unique) {
+    if (rootsCleanly.has(folder.id)) continue;
+    const path: string[] = [];
+    const onPath = new Set<string>();
+    let current: Folder | undefined = folder;
+    let clean = true;
+    while (current) {
+      const cached = rootsCleanly.get(current.id);
+      if (cached !== undefined) {
+        clean = cached;
+        break;
+      }
+      if (onPath.has(current.id)) {
+        clean = false;
+        break;
+      }
+      onPath.add(current.id);
+      path.push(current.id);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
     }
-    return true;
-  };
+    for (const id of path) rootsCleanly.set(id, clean);
+  }
+
   const kids = new Map<string | null, Folder[]>();
-  for (const f of folders) {
+  for (const f of unique) {
     // Corrupt data must never swallow a folder: anything whose chain loops is
     // hoisted to the top instead of hiding inside its own cycle. Hoisting every
     // member also leaves the remaining tree genuinely acyclic, so the walks
     // below terminate.
-    const key = f.parentId && byId.has(f.parentId) && rootsCleanly(f) ? f.parentId : null;
+    const key =
+      f.parentId && byId.has(f.parentId) && rootsCleanly.get(f.id)
+        ? f.parentId
+        : null;
     const list = kids.get(key);
     if (list) list.push(f);
     else kids.set(key, [f]);
   }
   for (const list of kids.values()) {
-    list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    list.sort((a, b) => {
+      const ao = Number.isFinite(a.order) ? a.order : 0;
+      const bo = Number.isFinite(b.order) ? b.order : 0;
+      return ao - bo;
+    });
   }
   return kids;
 }
@@ -195,15 +256,22 @@ export function listFolderMoveTargets(
   const kids = childIndex(folders);
   const out: { folder: Folder; path: string }[] = [];
   const seen = new Set<string>();
-  const walk = (parentId: string | null, path: string) => {
-    for (const folder of kids.get(parentId) ?? []) {
-      if (seen.has(folder.id)) continue;
-      seen.add(folder.id);
-      out.push({ folder, path });
-      walk(folder.id, path ? `${path} / ${folder.name}` : folder.name);
+  const stack = [...(kids.get(null) ?? [])]
+    .reverse()
+    .map((folder) => ({ folder, path: "" }));
+  while (stack.length > 0) {
+    const entry = stack.pop()!;
+    if (seen.has(entry.folder.id)) continue;
+    seen.add(entry.folder.id);
+    out.push(entry);
+    const childPath = entry.path
+      ? `${entry.path} / ${entry.folder.name}`
+      : entry.folder.name;
+    const children = kids.get(entry.folder.id) ?? [];
+    for (let index = children.length - 1; index >= 0; index--) {
+      stack.push({ folder: children[index], path: childPath });
     }
-  };
-  walk(null, "");
+  }
   return out;
 }
 
@@ -211,7 +279,7 @@ function projectIndex(projects: ProjectMeta[], folders: Folder[]) {
   const known = new Set(folders.map((f) => f.id));
   const inFolder = new Map<string, ProjectMeta[]>();
   const unfiled: ProjectMeta[] = [];
-  for (const p of projects) {
+  for (const p of uniqueProjects(projects)) {
     if (!p.folderId || !known.has(p.folderId)) {
       unfiled.push(p);
       continue;
@@ -233,9 +301,20 @@ function collectShelves(
   inFolder: Map<string, ProjectMeta[]>,
   out: Shelf[]
 ) {
-  for (const child of kids.get(folder.id) ?? []) {
-    out.push({ folder: child, depth, items: inFolder.get(child.id) ?? [] });
-    collectShelves(child, depth + 1, kids, inFolder, out);
+  const stack = [...(kids.get(folder.id) ?? [])]
+    .reverse()
+    .map((child) => ({ folder: child, depth }));
+  while (stack.length > 0) {
+    const entry = stack.pop()!;
+    out.push({
+      folder: entry.folder,
+      depth: entry.depth,
+      items: inFolder.get(entry.folder.id) ?? [],
+    });
+    const children = kids.get(entry.folder.id) ?? [];
+    for (let index = children.length - 1; index >= 0; index--) {
+      stack.push({ folder: children[index], depth: entry.depth + 1 });
+    }
   }
 }
 
@@ -267,8 +346,10 @@ function buildCard(
  * here is sorted by a clock, so tidying up never rearranges the page.
  */
 export function listLibrary(projects: ProjectMeta[], folders: Folder[]): Library {
-  const kids = childIndex(folders);
-  const { inFolder, unfiled } = projectIndex(projects, folders);
+  const safeFolders = uniqueFolders(folders);
+  const safeProjects = uniqueProjects(projects);
+  const kids = childIndex(safeFolders);
+  const { inFolder, unfiled } = projectIndex(safeProjects, safeFolders);
 
   const sections: Section[] = [];
   for (const top of kids.get(null) ?? []) {
@@ -306,14 +387,16 @@ export function folderView(
   projects: ProjectMeta[],
   folders: Folder[]
 ): FolderView | null {
-  const folder = folders.find((f) => f.id === folderId);
+  const safeFolders = uniqueFolders(folders);
+  const safeProjects = uniqueProjects(projects);
+  const folder = safeFolders.find((f) => f.id === folderId);
   if (!folder) return null;
-  const kids = childIndex(folders);
-  const { inFolder } = projectIndex(projects, folders);
+  const kids = childIndex(safeFolders);
+  const { inFolder } = projectIndex(safeProjects, safeFolders);
   const card = buildCard(folder, kids, inFolder);
 
   // Walk up for the breadcrumb, cycle-safe.
-  const byId = new Map(folders.map((f) => [f.id, f]));
+  const byId = new Map(safeFolders.map((f) => [f.id, f]));
   const trail: Folder[] = [];
   const seen = new Set<string>([folder.id]);
   let cur = folder;
@@ -345,9 +428,11 @@ export function cardForProject(
   projects: ProjectMeta[],
   folders: Folder[]
 ): Card | null {
-  const p = projects.find((m) => m.id === projectId);
+  const safeFolders = uniqueFolders(folders);
+  const safeProjects = uniqueProjects(projects);
+  const p = safeProjects.find((m) => m.id === projectId);
   if (!p || !p.folderId) return null;
-  const byId = new Map(folders.map((f) => [f.id, f]));
+  const byId = new Map(safeFolders.map((f) => [f.id, f]));
   let folder = byId.get(p.folderId);
   if (!folder) return null;
 
@@ -363,7 +448,7 @@ export function cardForProject(
   // into a section has no card of its own, so the section stands in.
   const cardFolder = chain[1] ?? chain[0];
 
-  const kids = childIndex(folders);
-  const { inFolder } = projectIndex(projects, folders);
+  const kids = childIndex(safeFolders);
+  const { inFolder } = projectIndex(safeProjects, safeFolders);
   return buildCard(cardFolder, kids, inFolder);
 }

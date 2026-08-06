@@ -104,12 +104,17 @@ import { showToast } from "./ui/Toast";
 import type { TitlePage } from "@/lib/export/titlePage";
 import {
   clearProjectShare,
+  clearDuetDocumentCache,
   colorForName,
   createDuetSession,
   createProjectShare,
+  duetAllowsLocalCloudSync,
+  duetCloudSyncProjectId,
+  subscribeProjectShare,
   loadDuetDisplayName,
   makeGuestName,
   revokeDuetRoom,
+  renameSharedOrLocalTitle,
   saveDuetDisplayName,
   type DuetConnectionStatus,
   type DuetParticipant,
@@ -157,6 +162,17 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
       ? props.user?.name?.trim() || "You"
       : loadDuetDisplayName() || guestFallback.current
   );
+
+  useEffect(() => {
+    if (duet && !duet.owner) return;
+    return subscribeProjectShare(props.projectId, (record) => {
+      setAccess(
+        record
+          ? { token: record.token, owner: true, ownerKey: record.ownerKey }
+          : null
+      );
+    });
+  }, [duet, props.projectId]);
 
   useEffect(() => {
     if (!access) {
@@ -245,6 +261,7 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
     const finalTitle = session.getTitle()?.trim();
     if (finalTitle && finalTitle !== props.title) props.onRename(finalTitle);
     clearProjectShare(props.projectId);
+    clearDuetDocumentCache(access.token);
     setShowShare(false);
     setSession(null);
     setAccess(null);
@@ -262,7 +279,7 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
       />
     ) : null;
 
-  if (access && !session) {
+  if (access && !session && sessionError) {
     return (
       <>
         <div className="host-hydrate">
@@ -287,6 +304,7 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
         duetStatus={duetStatus}
         participants={participants}
         duetReady={duetReady}
+        duetPending={access !== null && session === null}
         onOpenShare={openShare}
       />
       {modal}
@@ -312,12 +330,14 @@ function ScreenplayEditor({
   duetStatus,
   participants,
   duetReady,
+  duetPending,
   onOpenShare,
 }: Omit<ScreenplayBodyProps, "duet"> & {
   duetSession: DuetSession | null;
   duetStatus: DuetConnectionStatus;
   participants: DuetParticipant[];
   duetReady: boolean;
+  duetPending: boolean;
   onOpenShare: () => void;
 }) {
   const initialContent = useMemo(
@@ -328,14 +348,12 @@ function ScreenplayEditor({
     () => duetSession?.getTitle() ?? null
   );
   const activeTitle = duetSession ? sharedTitle || title : title;
+  const duetActive = duetSession !== null || duetPending;
+  const localCloudSyncAllowed = duetAllowsLocalCloudSync(duetSession, duetPending);
+  const cloudSyncProjectId = duetCloudSyncProjectId(projectId, duetPending);
   const renameActiveTitle = useCallback(
     (next: string) => {
-      if (duetSession) {
-        duetSession.setTitle(next);
-        if (duetSession.owner) onRename(next);
-      } else {
-        onRename(next);
-      }
+      renameSharedOrLocalTitle(duetSession, onRename, next);
     },
     [duetSession, onRename]
   );
@@ -410,7 +428,7 @@ function ScreenplayEditor({
       debounce(
         (doc: JSONContent) => {
           const ok = saveProjectDoc(projectId, doc);
-          setSaveError(!ok);
+          setSaveError(!ok || duetSession?.localBackupFailed() === true);
           if (ok) {
             unsavedRef.current = false;
             setSaved(true);
@@ -427,7 +445,7 @@ function ScreenplayEditor({
         // can never lose more than a couple of seconds of work.
         2500
       ),
-    [projectId]
+    [projectId, duetSession]
   );
 
   const measure = useCallback((ed: Editor) => {
@@ -470,10 +488,10 @@ function ScreenplayEditor({
   const editor = useEditor({
     immediatelyRender: false,
     extensions,
-    editable: duetSession ? false : true,
+    editable: !duetActive,
     // A Yjs-bound editor must never also receive content. Doing both imports
     // the local script into the shared fragment and duplicates whole drafts.
-    ...(duetSession ? {} : { content: initialContent }),
+    ...(duetActive ? {} : { content: initialContent }),
     editorProps: {
       attributes: { class: "sp-prose", spellcheck: "false" },
     },
@@ -514,8 +532,8 @@ function ScreenplayEditor({
   }, [editor, duetSession, initialContent, title]);
 
   useEffect(() => {
-    if (editor) editor.setEditable(!duetSession || duetReady);
-  }, [editor, duetSession, duetReady]);
+    if (editor) editor.setEditable(!duetActive || (duetSession !== null && duetReady));
+  }, [editor, duetSession, duetReady, duetActive]);
 
   useEffect(() => {
     if (!duetSession) {
@@ -575,8 +593,8 @@ function ScreenplayEditor({
 
   const syncOpts = useMemo(
     () => ({
-      disabled: duetSession != null,
-      projectId,
+      disabled: !localCloudSyncAllowed,
+      projectId: cloudSyncProjectId,
       type: "screenplay" as const,
       status,
       deriveTitle,
@@ -598,7 +616,7 @@ function ScreenplayEditor({
       setCloudCreatePending: (pending: boolean) =>
         patchProjectMeta(projectId, { cloudCreatePending: pending }),
     }),
-    [projectId, status, duetSession]
+    [projectId, cloudSyncProjectId, status, localCloudSyncAllowed]
   );
 
   const {
@@ -1178,15 +1196,17 @@ function ScreenplayEditor({
       ? { label: "Unlock pages", onSelect: unlockPages }
       : { label: "Lock pages", onSelect: lockPages },
     { kind: "divider" },
-    ...STATUS_ROWS.map(
-      (s): MenuItem => ({
-        kind: "radio",
-        group: "status",
-        label: s.label,
-        checked: status === s.value,
-        onSelect: () => onStatusChange(s.value),
-      })
-    ),
+    ...(!localCloudSyncAllowed
+      ? []
+      : STATUS_ROWS.map(
+          (s): MenuItem => ({
+            kind: "radio",
+            group: "status",
+            label: s.label,
+            checked: status === s.value,
+            onSelect: () => onStatusChange(s.value),
+          })
+        )),
     { kind: "divider" },
     ...(isCloudConfigured
       ? user
@@ -1344,7 +1364,7 @@ function ScreenplayEditor({
             wordCount={wordCount}
             saved={saved}
             saveError={saveError}
-            collaborative={duetSession != null}
+            collaborative={duetActive}
             locked={pageLock != null}
             lockRevision={pageLock?.revision}
           />
@@ -1357,7 +1377,7 @@ function ScreenplayEditor({
               style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
             >
               <PageBackdrop pages={pages} />
-              {duetSession && !duetReady && (
+              {duetActive && !duetReady && (
                 <div className="duet-editor-loading" role="status">
                   Connecting to the shared script…
                 </div>
@@ -1369,7 +1389,7 @@ function ScreenplayEditor({
         <HintCard modLabel={mod} />
       </EditorShell>
 
-      {duetSession && !duetReady && (
+      {duetActive && !duetReady && (
         <div className="duet-initializing-overlay" role="status">
           <div>
             <p>Connecting before the shared script opens…</p>

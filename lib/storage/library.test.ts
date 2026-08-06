@@ -6,6 +6,7 @@ import {
   listFolderMoveTargets,
   folderView,
   cardForProject,
+  MAX_LIBRARY_NAME_LENGTH,
   pruneFolderFolds,
   reorderIdsAtSlot,
 } from "./library";
@@ -160,6 +161,48 @@ describe("listLibrary", () => {
     expect(names).toContain("B");
   });
 
+  it("shows duplicate ids once and normalizes hostile names", () => {
+    const blank = { ...folder("dup", "   "), order: 0 };
+    const duplicate = { ...folder("dup", "Wrong duplicate"), order: 1 };
+    const card = folder("card-dup", "x".repeat(10_000), "dup");
+    const firstProject = proj("same-project", "   ", "card-dup", 2);
+    const duplicateProject = proj(
+      "same-project",
+      "Wrong duplicate",
+      "card-dup",
+      3
+    );
+
+    const library = listLibrary(
+      [firstProject, duplicateProject],
+      [blank, duplicate, card]
+    );
+    expect(library.sections).toHaveLength(1);
+    expect(library.sections[0].folder.name).toBe("Untitled folder");
+    expect(library.sections[0].cards[0].folder.name).toHaveLength(
+      MAX_LIBRARY_NAME_LENGTH
+    );
+    expect(library.sections[0].cards[0].items.map((item) => item.title)).toEqual([
+      "Untitled",
+    ]);
+  });
+
+  it("walks thousands of nested folders without recursive overflow", () => {
+    const many = Array.from({ length: 3_000 }, (_, index) =>
+      folder(
+        `deep-${index}`,
+        `Deep ${index}`,
+        index === 0 ? undefined : `deep-${index - 1}`,
+        index
+      )
+    );
+    const library = listLibrary([], many);
+    expect(library.sections).toHaveLength(1);
+    expect(library.sections[0].cards).toHaveLength(1);
+    expect(library.sections[0].cards[0].shelves).toHaveLength(2_998);
+    expect(listFolderMoveTargets(many)).toHaveLength(3_000);
+  });
+
   it("keeps cards in the writer's folder order, not in clock order", () => {
     const { sections } = listLibrary(PROJECTS, FOLDERS);
     const completed = sections.find((s) => s.folder.id === "completed")!;
@@ -271,6 +314,10 @@ describe("library interaction guards", () => {
     const ids = ["a", "b", "c"];
     expect(reorderIdsAtSlot(ids, "a", 3)).toEqual(["b", "c", "a"]);
     expect(ids).toEqual(["a", "b", "c"]);
+  });
+
+  it("rejects an ambiguous reorder list with duplicate ids", () => {
+    expect(reorderIdsAtSlot(["a", "b", "a"], "a", 2)).toBeNull();
   });
 
   it("prunes fold state for folders that no longer exist", () => {

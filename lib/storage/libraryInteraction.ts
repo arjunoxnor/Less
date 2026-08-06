@@ -43,19 +43,30 @@ export function planFolderCardDrop(
 
   if (!canMoveFolderTo(sourceId, target.parentId, folders)) return null;
   const currentParentId = source.parentId ?? null;
+  const seen = new Set<string>();
+  const liveSiblingIds = target.siblingIds.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    const folder = folders.find((candidate) => candidate.id === id);
+    return folder && (folder.parentId ?? null) === target.parentId;
+  });
+  const liveIds = new Set(liveSiblingIds);
+  const liveSlot = [
+    ...new Set(target.siblingIds.slice(0, target.slot)),
+  ].filter((id) => liveIds.has(id)).length;
   if (currentParentId === target.parentId) {
     const orderedIds = reorderIdsAtSlot(
-      target.siblingIds,
+      liveSiblingIds,
       sourceId,
-      target.slot
+      liveSlot
     );
     return orderedIds ? { orderedIds } : null;
   }
 
-  const targetIds = target.siblingIds.filter((id) => id !== sourceId);
+  const targetIds = liveSiblingIds.filter((id) => id !== sourceId);
   const withSource = [...targetIds, sourceId];
   const orderedIds =
-    reorderIdsAtSlot(withSource, sourceId, target.slot) ?? withSource;
+    reorderIdsAtSlot(withSource, sourceId, liveSlot) ?? withSource;
   return { parentId: target.parentId, orderedIds };
 }
 

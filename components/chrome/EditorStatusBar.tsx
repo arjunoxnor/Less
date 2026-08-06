@@ -58,6 +58,13 @@ export function EditorStatusBar({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
+        const target = e.target instanceof Element ? e.target : null;
+        if (
+          e.defaultPrevented ||
+          target?.closest("input, textarea, select, [role='dialog']")
+        ) {
+          return;
+        }
         e.preventDefault();
         setMenuOpen((v) => !v);
       }
