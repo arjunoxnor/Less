@@ -207,23 +207,13 @@ body {
 }
 
 
-/* Relative host. The screenplay host is sized to its 8.5in content and the
-   plain host is full width so it can center its continuous sheet. */
+/* Relative host. The plain host remains full width so its responsive text
+   column and centered page sheets keep the existing line wrapping. */
 .page-host {
   position: relative;
 }
 .page-host-pl {
   width: 100%;
-}
-.plain-sheet {
-  position: absolute;
-  inset: 0;
-  width: 8.5in;
-  max-width: 100%;
-  margin-inline: auto;
-  background: var(--page-bg);
-  box-shadow: var(--shadow);
-  pointer-events: none;
 }
 .page-backdrop {
   position: absolute;
@@ -290,6 +280,27 @@ body {
   display: block;
   pointer-events: none;
   user-select: none;
+}
+
+/* Prose page gaps are measured in pixels from real line boxes. The list-item
+   form is a valid, marker-free child of a list when a break falls between
+   items. Split spans sit at the measured start of the first carried line. */
+.doc-page-gap {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+  pointer-events: none;
+  user-select: none;
+}
+.pl-prose li.doc-page-gap,
+.pl-prose ul[data-type="taskList"] > li.doc-page-gap {
+  display: block;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* Mid-block split widget (F16): (MORE), the page-gap spacer, and NAME (CONT'D)
@@ -2139,8 +2150,7 @@ button.film-name-link:hover {
   justify-content: center;
 }
 .pl-prose {
-  /* The 6.5in text measure and 1in side margins match the former page layout.
-     The surrounding continuous sheet follows this element's intrinsic height. */
+  /* The 6.5in text measure and 1in margins match the screenplay sheets. */
   width: 8.5in;
   max-width: 100%;
   min-width: 0;
@@ -2888,10 +2898,10 @@ button.film-name-link:hover {
     margin-left: 48%;
   }
 
-  /* Plain documents keep their continuous sheet and reflow the text measure. */
+  /* Plain documents keep their narrow-screen text measure and page margins. */
   .pl-prose {
     width: 100%;
-    padding: 40px 6% 56px;
+    padding: 1in 6%;
   }
 
   /* Status bar: compact. */

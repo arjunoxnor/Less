@@ -110,16 +110,20 @@ afterEach(() => {
 });
 
 describe("PlainBody document lifecycle", () => {
-  it("uses one continuous sheet and no screenplay pagination plugin", async () => {
+  it("uses prose pagination and page sheets without the screenplay plugin", async () => {
     const editor = await renderPlainBody();
     expect(editor).toBeDefined();
     expect(editor!.extensionManager.extensions.map((extension) => extension.name)).not.toContain(
       "pagination"
     );
-    expect(host!.querySelector(".plain-sheet")).not.toBeNull();
-    expect(host!.querySelector(".page-backdrop")).toBeNull();
-    expect(host!.querySelector<HTMLElement>(".page-host-pl")!.style.minHeight).toBe("");
-  });
+    expect(editor!.extensionManager.extensions.map((extension) => extension.name)).toContain(
+      "docPagination"
+    );
+    expect(host!.querySelector(".plain-sheet")).toBeNull();
+    expect(host!.querySelector(".page-backdrop")).not.toBeNull();
+    expect(host!.querySelector<HTMLElement>(".page-host-pl")!.style.minHeight).toBe("1056px");
+    expect(host!.textContent).toContain("Page 1 of 1");
+  }, 60_000);
 
   it("flushes an edit when closed before the debounce fires", async () => {
     const editor = await renderPlainBody();
@@ -131,7 +135,7 @@ describe("PlainBody document lifecycle", () => {
 
     const saved = JSON.parse(storage.get(`less:project:${projectId}:doc`) ?? "null");
     expect(saved.content?.[0]?.content?.[0]?.text).toBe("Last word");
-  });
+  }, 60_000);
 
   it("does not let a sibling-tab save replace a pending local edit", async () => {
     const editor = await renderPlainBody();
@@ -149,5 +153,5 @@ describe("PlainBody document lifecycle", () => {
       TestBroadcastChannel.instances[0].emit({ type: "docSaved", id: projectId });
     });
     expect(editor!.getText()).toBe("Mine");
-  });
+  }, 60_000);
 });

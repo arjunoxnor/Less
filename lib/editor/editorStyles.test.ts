@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 
 const css = readFileSync(resolve(process.cwd(), "app/globals.css"), "utf8");
 const plainBody = readFileSync(resolve(process.cwd(), "components/PlainBody.tsx"), "utf8");
+const docPagination = readFileSync(
+  resolve(process.cwd(), "lib/editor/docPagination.ts"),
+  "utf8"
+);
 
 function ruleFor(selector: string): string {
   for (const match of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
@@ -26,12 +30,13 @@ describe("editor placeholder and spacing styles", () => {
     expect(ruleFor(".pl-prose > :first-child")).toMatch(/margin-top:\s*0\s*;/);
   });
 
-  it("renders plain documents on one content-sized sheet without pagination", () => {
-    expect(plainBody).not.toMatch(/\bPagination\b|\bSTRIDE\b|\bPAGE_H\b/);
-    expect(plainBody).not.toContain("<PageBackdrop");
-    expect(plainBody).toContain('className="plain-sheet"');
-    expect(ruleFor(".plain-sheet")).toMatch(/inset:\s*0/);
-    expect(ruleFor(".plain-sheet")).not.toMatch(/\bheight\s*:/);
+  it("renders measured prose pages without borrowing screenplay pagination", () => {
+    expect(plainBody).toContain("DocPagination.configure");
+    expect(plainBody).not.toMatch(/\bPagination\.configure/);
+    expect(plainBody).toContain("<PageBackdrop");
+    expect(plainBody).not.toContain('className="plain-sheet"');
+    expect(css).toMatch(/\.doc-page-gap\s*\{[^}]*display:\s*block/);
+    expect(css).toMatch(/\.doc-page-gap\s*\{[^}]*pointer-events:\s*none/);
   });
 
   it("keeps every top-level plain block on the same vertical rhythm", () => {
@@ -56,6 +61,16 @@ describe("editor placeholder and spacing styles", () => {
     expect(ruleFor(".pl-prose pre")).toMatch(/max-width:\s*100%/);
     expect(ruleFor('.pl-prose ul[data-type="taskList"] li > div')).toMatch(
       /min-width:\s*0/
+    );
+  });
+
+  it("reflows documents for every layout-changing input without polling", () => {
+    expect(docPagination).toContain("new ResizeObserverCtor");
+    expect(docPagination).toContain('addEventListener("resize", onResize)');
+    expect(docPagination).toContain("nextView.state.doc !== previousState.doc");
+    expect(docPagination).toContain("Math.min(90, 320 - elapsed)");
+    expect(plainBody).toContain(
+      "[editor, prefs.docFont, prefs.docFontSize, prefs.focusMode, activePanel]"
     );
   });
 });

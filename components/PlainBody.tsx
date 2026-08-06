@@ -6,6 +6,12 @@ import type { JSONContent } from "@tiptap/core";
 import type { CloudUser as User } from "@/lib/cloud/client";
 
 import { buildPlainExtensions } from "@/lib/editor/buildPlainExtensions";
+import {
+  DocPagination,
+  docPageAtPos,
+  requestDocPagination,
+} from "@/lib/editor/docPagination";
+import { PAGE_H, STRIDE } from "@/lib/editor/pagination";
 import { derivePlainTitle } from "@/lib/editor/plainDocUtils";
 import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
@@ -42,6 +48,7 @@ import { Modal } from "./ui/Modal";
 import type { MenuItem } from "./ui/Menu";
 import { listFolders } from "@/lib/storage/folders";
 import { cardForProject } from "@/lib/storage/library";
+import { PageBackdrop } from "./PageBackdrop";
 
 export function PlainBody({
   projectId,
@@ -79,6 +86,8 @@ export function PlainBody({
 
   const [words, setWords] = useState(0);
   const [chars, setChars] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [caretPage, setCaretPage] = useState(1);
   const [saved, setSaved] = useState(true);
   const [saveError, setSaveError] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
@@ -119,7 +128,10 @@ export function PlainBody({
     setChars(text.length);
   }, []);
 
-  const extensions = useMemo(() => buildPlainExtensions(), []);
+  const extensions = useMemo(
+    () => [...buildPlainExtensions(), DocPagination.configure({ onPages: setPages })],
+    []
+  );
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -140,6 +152,27 @@ export function PlainBody({
       measure(editor);
     },
   });
+
+  // The status bar reads the same decoration set that places the text, so its
+  // current page cannot disagree with the visible sheets.
+  useEffect(() => {
+    if (!editor) return;
+    const sync = () => {
+      setCaretPage(docPageAtPos(editor.state, editor.state.selection.head));
+    };
+    sync();
+    editor.on("transaction", sync);
+    return () => {
+      editor.off("transaction", sync);
+    };
+  }, [editor]);
+
+  // Ancestor style changes do not always resize a short prose root. This
+  // explicit request covers every non-content reflow named by the page spec.
+  useEffect(() => {
+    if (!editor) return;
+    requestDocPagination(editor);
+  }, [editor, prefs.docFont, prefs.docFontSize, prefs.focusMode, activePanel]);
 
   // Live title via a ref so an explicit document title is never overwritten by
   // its first line on save.
@@ -395,6 +428,7 @@ export function PlainBody({
         statusBar={
           <div className="status-bar">
             <span className="status-spacer" />
+            <span className="status-item">Page {caretPage} of {pages}</span>
             <span className="status-item">{words.toLocaleString()} words</span>
             <span className="status-item">{chars.toLocaleString()} characters</span>
             <span
@@ -417,8 +451,11 @@ export function PlainBody({
           style={{ ["--doc-font-size" as string]: `${prefs.docFontSize ?? 16}px` }}
         >
           <div className="page-wrap">
-            <div className="page-host page-host-pl">
-              <div className="plain-sheet" aria-hidden="true" />
+            <div
+              className="page-host page-host-pl"
+              style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
+            >
+              <PageBackdrop pages={pages} />
               <EditorContent editor={editor} className="pl-doc" />
             </div>
           </div>
