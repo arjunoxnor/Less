@@ -106,6 +106,10 @@ function isSubsequence(q: string, s: string): boolean {
   return i === q.length;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Filter a candidate pool by `query` (prefix first, fuzzy fallback) and rank by
  * frequency, then recency, then shortness, then alphabetically. Deterministic.
@@ -335,6 +339,16 @@ function computeSceneHeading(
         ...(le?.subLocations ?? []),
         ...COMMON_SUBLOCATIONS,
       ]);
+      const childPattern = new RegExp(
+        `^${escapeRegExp(parent)}\\s+-{1,2}\\s+(.+)$`,
+        "i"
+      );
+      for (const location of outline.locations) {
+        const child = childPattern.exec(location.name)?.[1]
+          ?.split(/\s+-{1,2}\s+/)[0]
+          ?.trim();
+        if (child) subs.add(child.toUpperCase());
+      }
       for (const s of subs) pool.push({ text: s, hint: "room" });
     }
     const items = rankCandidates(query, pool);

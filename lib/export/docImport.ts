@@ -15,9 +15,11 @@ import type { ElementType } from "@/lib/editor/elements";
 
 const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const ODF_TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+const ODF_STYLE_NS = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
 
 const SCENE_PREFIX = /^(INT|EXT|EST|INT\.?\/EXT|INT\/EXT|I\/E)[.\s]/i;
-const isAllCaps = (t: string): boolean => /[A-Za-z]/.test(t) && t === t.toUpperCase();
+const isAllCaps = (t: string): boolean =>
+  t.toUpperCase() !== t.toLowerCase() && t === t.toUpperCase();
 // Terminal transitions that end in a period (no "TO:"), so the heuristic path
 // recognizes them instead of demoting them to action. Mirrors the editor's
 // SmartType transition catalog.
@@ -244,11 +246,24 @@ function docxParaText(p: Element): string {
   return s;
 }
 
-function docxParaStyle(p: Element): string | undefined {
+function docxStyleNames(xml: string | null): Map<string, string> {
+  const names = new Map<string, string>();
+  if (!xml) return names;
+  const doc = parseXml(xml);
+  for (const style of Array.from(doc.getElementsByTagNameNS(W_NS, "style"))) {
+    const id = style.getAttributeNS(W_NS, "styleId");
+    const name = childNS(style, W_NS, "name")?.getAttributeNS(W_NS, "val");
+    if (id && name) names.set(id, name);
+  }
+  return names;
+}
+
+function docxParaStyle(p: Element, styleNames: Map<string, string>): string | undefined {
   const pPr = childNS(p, W_NS, "pPr");
   if (!pPr) return undefined;
   const st = childNS(pPr, W_NS, "pStyle");
-  return st?.getAttributeNS(W_NS, "val") ?? undefined;
+  const id = st?.getAttributeNS(W_NS, "val") ?? undefined;
+  return id ? styleNames.get(id) ?? id : undefined;
 }
 
 function docxParaAlign(p: Element): string | undefined {
@@ -262,14 +277,22 @@ function docxParaAlign(p: Element): string | undefined {
 }
 
 export async function docxToLines(buf: ArrayBuffer): Promise<ScriptLine[]> {
-  const xml = await unzipEntry(buf, "word/document.xml");
+  const [xml, stylesXml] = await Promise.all([
+    unzipEntry(buf, "word/document.xml"),
+    unzipEntry(buf, "word/styles.xml"),
+  ]);
   if (!xml) throw new Error("That .docx file has no document body.");
   const doc = parseXml(xml);
+  const styleNames = docxStyleNames(stylesXml);
   const pEls = doc.getElementsByTagNameNS(W_NS, "p");
   const paras: Para[] = [];
   for (let i = 0; i < pEls.length; i++) {
     const p = pEls[i];
-    paras.push({ text: docxParaText(p), style: docxParaStyle(p), align: docxParaAlign(p) });
+    paras.push({
+      text: docxParaText(p),
+      style: docxParaStyle(p, styleNames),
+      align: docxParaAlign(p),
+    });
   }
   return classifyParagraphs(paras);
 }
@@ -310,6 +333,14 @@ export async function odtToLines(buf: ArrayBuffer): Promise<ScriptLine[]> {
   const xml = await unzipEntry(buf, "content.xml");
   if (!xml) throw new Error("That .odt file has no content.");
   const doc = parseXml(xml);
+  const styleNames = new Map<string, string>();
+  for (const style of Array.from(doc.getElementsByTagNameNS(ODF_STYLE_NS, "style"))) {
+    const name = style.getAttributeNS(ODF_STYLE_NS, "name");
+    const readable =
+      style.getAttributeNS(ODF_STYLE_NS, "display-name") ||
+      style.getAttributeNS(ODF_STYLE_NS, "parent-style-name");
+    if (name && readable) styleNames.set(name, readable);
+  }
   const paras: Para[] = [];
   const collect = (node: Node): void => {
     for (let n = node.firstChild; n; n = n.nextSibling) {
@@ -318,7 +349,10 @@ export async function odtToLines(buf: ArrayBuffer): Promise<ScriptLine[]> {
       if (el.namespaceURI === ODF_TEXT_NS && (el.localName === "p" || el.localName === "h")) {
         paras.push({
           text: odtParaText(el),
-          style: el.getAttributeNS(ODF_TEXT_NS, "style-name") ?? undefined,
+          style: (() => {
+            const name = el.getAttributeNS(ODF_TEXT_NS, "style-name");
+            return name ? styleNames.get(name) ?? name : undefined;
+          })(),
         });
       } else {
         collect(el);
@@ -352,7 +386,11 @@ const IGNORE_DEST = new Set([
   "wgrffmtfilter", "xmlnstbl", "fldinst", "header", "footer", "pgdsctbl",
 ]);
 
-function rtfToParagraphs(rtf: string): string[] {
+const RTF_ALIGN_CENTER = "\uE000";
+const RTF_ALIGN_RIGHT = "\uE001";
+const RTF_ALIGN_LEFT = "\uE002";
+
+function rtfToParagraphs(rtf: string): Para[] {
   const n = rtf.length;
   let text = "";
   const stack: { ignore: boolean; ucskip: number }[] = [{ ignore: false, ucskip: 1 }];
@@ -430,7 +468,18 @@ function rtfToParagraphs(rtf: string): string[] {
             skip = top.ucskip;
             break;
           }
-          case "emdash": emit("—"); break;
+          case "qc":
+            emit(RTF_ALIGN_CENTER);
+            break;
+          case "qr":
+            emit(RTF_ALIGN_RIGHT);
+            break;
+          case "pard":
+          case "ql":
+          case "qj":
+            emit(RTF_ALIGN_LEFT);
+            break;
+          case "emdash": emit("\u2014"); break;
           case "endash": emit("–"); break;
           case "lquote": emit("‘"); break;
           case "rquote": emit("’"); break;
@@ -455,11 +504,20 @@ function rtfToParagraphs(rtf: string): string[] {
     i++;
   }
 
-  return text.split("\n").map((s) => s.replace(/\s+$/, ""));
+  let align: string | undefined;
+  return text.split("\n").map((raw) => {
+    const value = raw.replace(/[\uE000-\uE002]/g, (marker) => {
+      if (marker === RTF_ALIGN_CENTER) align = "center";
+      else if (marker === RTF_ALIGN_RIGHT) align = "right";
+      else align = undefined;
+      return "";
+    });
+    return { text: value.replace(/\s+$/, ""), align };
+  });
 }
 
 export function rtfToLines(rtf: string): ScriptLine[] {
-  return classifyParagraphs(rtfToParagraphs(rtf).map((text) => ({ text })));
+  return classifyParagraphs(rtfToParagraphs(rtf));
 }
 
 /** True when decoded text looks like binary (NUL bytes or many control chars). */

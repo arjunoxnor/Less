@@ -27,6 +27,7 @@ export function buildReport(
   pageCount: number,
   words: number
 ): ScriptReport {
+  const speakingCast = outline.cast.filter((character) => character.lines > 0);
   let intCount = 0;
   let extCount = 0;
   for (const s of outline.scenes) {
@@ -40,14 +41,14 @@ export function buildReport(
       scenes: outline.scenes.length,
       pages: pageCount,
       runtimeMin: pageCount,
-      speakingCharacters: outline.cast.length,
+      speakingCharacters: speakingCast.length,
       locations: outline.locations.length,
       words,
       intCount,
       extCount,
     },
     scenes: outline.scenes.map((s) => ({ number: s.number, heading: s.heading, page: s.page })),
-    characters: outline.cast.map((c) => ({ name: c.name, lines: c.lines, scenes: c.scenes })),
+    characters: speakingCast.map((c) => ({ name: c.name, lines: c.lines, scenes: c.scenes })),
     locations: outline.locations.map((l) => ({ name: l.name, scenes: l.scenes })),
   };
 }

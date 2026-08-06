@@ -11,7 +11,9 @@ import {
   wrapParentheticalText,
 } from "./parenthetical";
 import { SKIP_REVISION_META } from "./revisions";
-import { TextSelection } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+
+const dualNormalizeKey = new PluginKey("screenplayDualNormalize");
 
 /**
  * The one and only block node in our schema.
@@ -106,6 +108,54 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
         class: `sp-line sp-${element}`,
       }),
       0,
+    ];
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: dualNormalizeKey,
+        appendTransaction: (transactions, oldState, newState) => {
+          if (!transactions.some((transaction) => transaction.docChanged)) return null;
+          // Only a removed block can strand one half of a previously valid
+          // pair. Attribute edits on legacy or imported orphan clusters keep
+          // their existing behavior until the writer changes the structure.
+          if (newState.doc.childCount >= oldState.doc.childCount) return null;
+          const lines: { node: PMNode; pos: number }[] = [];
+          newState.doc.forEach((node, pos) => lines.push({ node, pos }));
+          const body = (node: PMNode) =>
+            node.attrs.element === "parenthetical" || node.attrs.element === "dialogue";
+          const tr = newState.tr;
+          let changed = false;
+          let inRightCluster = false;
+
+          for (let i = 0; i < lines.length; i++) {
+            const { node, pos } = lines[i];
+            let shouldBeDual = false;
+            if (node.attrs.element === "character" && node.attrs.dual === true) {
+              let previous = i - 1;
+              while (previous >= 0 && body(lines[previous].node)) previous--;
+              shouldBeDual =
+                previous >= 0 &&
+                lines[previous].node.attrs.element === "character" &&
+                lines[previous].node.attrs.dual !== true;
+              inRightCluster = shouldBeDual;
+            } else if (body(node)) {
+              shouldBeDual = inRightCluster;
+            } else {
+              inRightCluster = false;
+            }
+            if (node.attrs.dual !== shouldBeDual) {
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, dual: shouldBeDual });
+              changed = true;
+            }
+          }
+
+          if (!changed) return null;
+          tr.setMeta(SKIP_REVISION_META, true);
+          return tr;
+        },
+      }),
     ];
   },
 
@@ -247,7 +297,8 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
             let hasLeft = false;
             for (let i = cueIdx - 1; i >= 0; i--) {
               if (isCueBody(i)) continue;
-              hasLeft = elementOf(i) === "character";
+              hasLeft =
+                elementOf(i) === "character" && lines[i].node.attrs.dual !== true;
               break;
             }
             if (!hasLeft) return false;

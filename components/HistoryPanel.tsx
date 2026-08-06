@@ -7,7 +7,7 @@ import type { TitlePage } from "@/lib/export/titlePage";
 import { docText } from "@/lib/editor/docUtils";
 
 /**
- * Version history — the rollback safety net. Lists the snapshots taken on save,
+ * Version history is the rollback safety net. Lists the snapshots taken on save,
  * newest first, and lets the writer restore any of them with one click.
  */
 export function HistoryPanel({
@@ -75,9 +75,9 @@ export function HistoryPanel({
                 title={
                   v.title_page
                     ? "Restore this version's text and its title page"
-                    : "Restore this version's text"
+                    : "Restore this version's text and remove the current title page"
                 }
-                onClick={() => onRestore(v.content, v.title_page ?? undefined)}
+                onClick={() => onRestore(v.content, v.title_page)}
               >
                 Restore
               </button>

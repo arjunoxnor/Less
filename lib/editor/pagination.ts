@@ -736,15 +736,18 @@ export function pageAtPos(state: EditorState, pos: number): number {
 
 export interface PaginationOptions {
   onPages?: (pages: number) => void;
+  /** Notify React when page boundaries move without changing the page count. */
+  onLayout?: () => void;
 }
 
 export const Pagination = Extension.create<PaginationOptions>({
   name: "pagination",
   addOptions() {
-    return { onPages: undefined };
+    return { onPages: undefined, onLayout: undefined };
   },
   addProseMirrorPlugins() {
     const onPages = this.options.onPages;
+    const onLayout = this.options.onLayout;
     let raf = 0;
     let lastPages = -1;
     // Convergence guard: a mid-block widget re-wraps its block's text, so one
@@ -773,8 +776,10 @@ export const Pagination = Extension.create<PaginationOptions>({
         },
         view(view) {
           const timers: ReturnType<typeof setTimeout>[] = [];
+          let destroyed = false;
           const run = () => {
             raf = 0;
+            if (destroyed) return;
             // Never reflow mid-composition: IME text is not yet real content
             // and a dispatch would disturb it. Try again shortly after.
             if (view.composing) {
@@ -784,6 +789,7 @@ export const Pagination = Extension.create<PaginationOptions>({
             const { decos, pages, sig } = compute(view, metrics);
             if (sig !== sigOfState(view.state)) {
               view.dispatch(view.state.tr.setMeta(key, { decos, pages }));
+              onLayout?.();
               if (passes < 4) {
                 passes++;
                 schedule();
@@ -797,6 +803,7 @@ export const Pagination = Extension.create<PaginationOptions>({
             }
           };
           const schedule = () => {
+            if (destroyed) return;
             if (!raf) raf = requestAnimationFrame(run);
           };
           schedule();
@@ -824,6 +831,7 @@ export const Pagination = Extension.create<PaginationOptions>({
           if (typeof document !== "undefined" && document.fonts?.ready) {
             document.fonts.ready
               .then(() => {
+                if (destroyed) return;
                 metrics.clear();
                 schedule();
               })
@@ -841,6 +849,7 @@ export const Pagination = Extension.create<PaginationOptions>({
               }
             },
             destroy() {
+              destroyed = true;
               if (raf) cancelAnimationFrame(raf);
               timers.forEach(clearTimeout);
               ro.disconnect();

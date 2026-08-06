@@ -106,6 +106,7 @@ export function linesToDoc(lines: ScriptLine[]): JSONContent {
       element: isElementType(line.element) ? line.element : DEFAULT_ELEMENT,
       // Set the attr only when true, so docs without dual serialize unchanged.
       ...(line.dual ? { dual: true } : {}),
+      ...(line.revised ? { revised: true } : {}),
     },
     content: line.text ? [{ type: "text", text: line.text }] : [],
   }));

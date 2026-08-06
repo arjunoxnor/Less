@@ -51,7 +51,7 @@ function placeholderFor(element: ElementType): string {
  * Assembles the full editor schema + behavior.
  *
  * We deliberately do NOT use TipTap's StarterKit. StarterKit brings paragraphs,
- * headings, lists, blockquotes, bold/italic, etc. — none of which belong in a
+ * headings, lists, blockquotes, bold/italic, etc. None belong in a
  * strict screenplay document. A small, hand-picked extension list is what keeps
  * the schema enforceable, which is what makes Fountain/FDX export reliable.
  *

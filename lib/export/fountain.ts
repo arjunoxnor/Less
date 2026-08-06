@@ -45,7 +45,7 @@ const TITLE_PAGE_KEYS: ReadonlySet<string> = new Set([
 
 /** True if every cased letter in the text is uppercase and there is >=1 letter. */
 function isAllCaps(text: string): boolean {
-  return /[A-Za-z]/.test(text) && text === text.toUpperCase();
+  return text.toUpperCase() !== text.toLowerCase() && text === text.toUpperCase();
 }
 
 /** Backslash-escape literal emphasis markers so they survive a round trip. */
@@ -137,7 +137,9 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
         cluster.push(
           l.element === "parenthetical"
             ? escapeInline(ensureParentheticalParens(l.text))
-            : escapeInline(l.text)
+            : l.text
+              ? escapeInline(l.text)
+              : "~"
         );
         i++;
       }
@@ -160,13 +162,17 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
         break;
       case "dialogue":
         // Orphaned dialogue: keep it so nothing is lost.
-        blocks.push(escapeInline(text));
+        blocks.push(`~${escapeInline(text)}`);
         break;
       case "action":
       default:
         // Force with "!" any action line that would otherwise re-import as a
         // different element (all-caps cue, or a leading control character).
-        blocks.push(actionNeedsForce(text) ? `!${escapeInline(text)}` : escapeInline(text));
+        blocks.push(
+          text === "" || actionNeedsForce(text)
+            ? `!${escapeInline(text)}`
+            : escapeInline(text)
+        );
         break;
     }
     i++;
@@ -239,14 +245,10 @@ export function parseFountain(text: string): {
     !SCENE_PREFIX.test(firstLine) &&
     TITLE_PAGE_KEYS.has(keyMatch[1].trim().toLowerCase())
   ) {
-    // The block ends at a truly empty line; an indented (whitespace) line is a
-    // continuation (e.g. a blank line inside a multi-line Contact value), so it
-    // does not terminate the block.
+    // The block ends at any visually blank line. Editors often leave spaces on
+    // separator lines, and treating those as contact continuation eats the body.
     let j = start;
-    while (
-      j < rawLines.length &&
-      (rawLines[j].trim() !== "" || /^[ \t]/.test(rawLines[j]))
-    ) {
+    while (j < rawLines.length && rawLines[j].trim() !== "") {
       j++;
     }
     const parsed = parseTitleBlock(rawLines.slice(start, j));
@@ -288,7 +290,7 @@ export function parseFountain(text: string): {
     };
 
     // 1. Forced markers (highest priority).
-    if (/^\.[A-Za-z0-9]/.test(line)) {
+    if (line.startsWith(".") && !line.startsWith("..")) {
       // Single leading "." forces a scene heading; ".." / "..." do not.
       push("scene_heading", line.slice(1));
       inDialogue = false;

@@ -1,5 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { isHistoryTransaction } from "@tiptap/pm/history";
+import { changedTopLevelNodes, finalChangedRanges } from "./changedRanges";
 
 /**
  * Revision tracking. While revision mode is on, any line the writer edits gets
@@ -24,43 +26,23 @@ export function buildRevisionTracker(isEnabled: () => boolean): Extension {
           key: revKey,
           appendTransaction(trs, oldState, newState) {
             if (!isEnabled()) return null;
-            if (!trs.some((t) => t.docChanged)) return null;
-            // Skip attribute-only changes (our own marking, clearRevisions, notes).
-            if (trs.some((t) => t.getMeta(SKIP_REVISION_META))) return null;
-
-            // Collect the changed ranges in the new document.
-            const ranges: [number, number][] = [];
-            let minStart = Infinity;
-            let maxEnd = -Infinity;
-            for (const tr of trs) {
-              for (const step of tr.steps) {
-                step.getMap().forEach((_os, _oe, newStart, newEnd) => {
-                  ranges.push([newStart, newEnd]);
-                  if (newStart < minStart) minStart = newStart;
-                  if (newEnd > maxEnd) maxEnd = newEnd;
-                });
-              }
-            }
+            const edits = (transaction: (typeof trs)[number]) =>
+              transaction.docChanged &&
+              !isHistoryTransaction(transaction) &&
+              !transaction.getMeta(SKIP_REVISION_META) &&
+              !transaction.getMeta("preventUpdate");
+            const ranges = finalChangedRanges(trs, edits);
             if (!ranges.length) return null;
-
-            // Skip a full-document replace (setContent on load/import/restore):
-            // it spans from the very start to the very end of the document.
-            if (minStart <= 1 && maxEnd >= newState.doc.content.size - 1) {
-              return null;
-            }
 
             const setTr = newState.tr;
             let changed = false;
-            newState.doc.forEach((node, offset) => {
-              if (node.type.name !== "screenplayLine") return;
-              const start = offset;
-              const end = offset + node.nodeSize;
-              const touched = ranges.some(([s, e]) => s < end && e > start);
-              if (touched && !node.attrs.revised) {
-                setTr.setNodeMarkup(offset, undefined, { ...node.attrs, revised: true });
+            for (const { node, pos } of changedTopLevelNodes(newState.doc, ranges)) {
+              if (node.type.name !== "screenplayLine") continue;
+              if (!node.attrs.revised) {
+                setTr.setNodeMarkup(pos, undefined, { ...node.attrs, revised: true });
                 changed = true;
               }
-            });
+            }
             if (!changed) return null;
             setTr.setMeta(SKIP_REVISION_META, true);
             setTr.setMeta("addToHistory", false);

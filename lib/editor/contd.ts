@@ -25,24 +25,36 @@ export function computeContinuations(
 ): boolean[] {
   const flags = new Array(lines.length).fill(false);
   let prevSpeaker: string | null = null;
+  let prevSpeakerHasDialogue = false;
   for (let i = 0; i < lines.length; i++) {
     const el = lines[i].element;
     if (el === "scene_heading" || el === "transition") {
       prevSpeaker = null;
+      prevSpeakerHasDialogue = false;
       continue;
     }
     if (el === "character") {
       const base = cueBaseName(lines[i].text).toUpperCase();
       if (base) {
-        if (base === prevSpeaker && !HAS_CONTD.test(lines[i].text)) flags[i] = true;
+        if (
+          base === prevSpeaker &&
+          prevSpeakerHasDialogue &&
+          !HAS_CONTD.test(lines[i].text)
+        ) {
+          flags[i] = true;
+        }
         prevSpeaker = base;
+        prevSpeakerHasDialogue = false;
       } else {
         // An empty or extension-only cue ("(V.O.)" with no name) is still a new
         // cue, so it breaks the run: the next same-name cue is not a CONT'D.
         prevSpeaker = null;
+        prevSpeakerHasDialogue = false;
       }
+    } else if (el === "dialogue" && prevSpeaker) {
+      prevSpeakerHasDialogue = true;
     }
-    // action / parenthetical / dialogue keep the current speaker.
+    // Action and parenthetical keep the current speaker.
   }
   return flags;
 }

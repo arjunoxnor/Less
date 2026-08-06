@@ -66,6 +66,7 @@ import {
   setTitleDirty as projSetTitleDirty,
   getLastSavedAt as projGetLastSavedAt,
   setLastSavedAt as projSetLastSavedAt,
+  hasPendingCloudWork,
   type ProjectStatus,
 } from "@/lib/storage/projects";
 import { modKeyLabel } from "@/lib/platform";
@@ -439,6 +440,7 @@ function ScreenplayEditor({
   // paginator on every keystroke: it duplicated work and could disagree with the
   // pages actually on screen (F17/F37).
   const [pages, setPages] = useState(1);
+  const [paginationTick, setPaginationTick] = useState(0);
   // Ref mirror for the debounced save (memoized on projectId only).
   const pagesRef = useRef(1);
   pagesRef.current = pages;
@@ -457,7 +459,10 @@ function ScreenplayEditor({
         showGhostHint,
         collaboration: duetSession ?? undefined,
       }),
-      Pagination.configure({ onPages: setPages }),
+      Pagination.configure({
+        onPages: setPages,
+        onLayout: () => setPaginationTick((tick) => tick + 1),
+      }),
     ],
     [showGhostHint, duetSession]
   );
@@ -533,7 +538,22 @@ function ScreenplayEditor({
     });
   }, [duetSession, debouncedSave]);
 
-  const outline = useOutline(editor);
+  const rawOutline = useOutline(editor);
+  // Replace the outline's cheap headless estimate with the page decorations
+  // that actually draw the editor whenever layout settles.
+  const outline = useMemo<Outline>(
+    () =>
+      editor
+        ? {
+            ...rawOutline,
+            scenes: rawOutline.scenes.map((scene) => ({
+              ...scene,
+              page: pageAtPos(editor.state, scene.pos),
+            })),
+          }
+        : rawOutline,
+    [rawOutline, editor, paginationTick]
+  );
   outlineRef.current = outline;
   useEffect(() => {
     if (editor) rescanAutocomplete(editor.view);
@@ -560,11 +580,12 @@ function ScreenplayEditor({
       type: "screenplay" as const,
       status,
       deriveTitle,
-      getTitle: () => titleRef.current,
+      getTitle: () => getProjectMeta(projectId)?.title ?? titleRef.current,
       saveLocalDoc: (d: JSONContent) => saveProjectDoc(projectId, d),
       loadLocalTitlePage: () => loadProjectTitlePage(projectId),
       saveLocalTitlePage: (tp: ReturnType<typeof loadProjectTitlePage>) =>
         saveProjectTitlePage(projectId, tp),
+      hasUnsavedLocalEdits: () => unsavedRef.current,
       isDirty: () => projIsDirty(projectId),
       setDirty: (b: boolean) => projSetDirty(projectId, b),
       isTitlePageDirty: () => projIsTpDirty(projectId),
@@ -574,6 +595,8 @@ function ScreenplayEditor({
       getLastSavedAt: () => projGetLastSavedAt(projectId),
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
       onCloudCreated: (id: string) => markCloudCreated(id),
+      setCloudCreatePending: (pending: boolean) =>
+        patchProjectMeta(projectId, { cloudCreatePending: pending }),
     }),
     [projectId, status, duetSession]
   );
@@ -581,6 +604,7 @@ function ScreenplayEditor({
   const {
     status: syncStatus,
     pulledTick,
+    pulledSaveOk,
     getVersions,
     restoreVersion,
     importContent,
@@ -649,15 +673,11 @@ function ScreenplayEditor({
     if (editor && pulledTick > 0) {
       debouncedSave.cancel();
       measure(editor);
-      setSaved(true);
-      // The content was just replaced from the cloud. Re-persist it and reflect
-      // the REAL result: this clears a stale "not saved" after a recovered pull,
-      // but does not hide a genuine storage-full that also affects this write.
-      const ok = saveProjectDoc(projectId, editor.getJSON());
-      if (ok) unsavedRef.current = false;
-      setSaveError(!ok);
+      setSaved(pulledSaveOk);
+      if (pulledSaveOk) unsavedRef.current = false;
+      setSaveError(!pulledSaveOk);
     }
-  }, [pulledTick, editor, measure, debouncedSave]);
+  }, [pulledTick, pulledSaveOk, editor, measure, debouncedSave]);
 
   useEffect(() => {
     setMod(modKeyLabel());
@@ -713,29 +733,27 @@ function ScreenplayEditor({
     (category: string, name: string) => {
       const clean = name.trim();
       if (!clean) return;
-      setBreakdownItems((prev) => {
-        // Dedupe on category + case-insensitive name so the same tag is not
-        // added twice from the selection and the manual field.
-        const exists = prev.some(
-          (it) => it.category === category && it.name.toLowerCase() === clean.toLowerCase()
-        );
-        const next = exists
-          ? prev
-          : [...prev, { id: crypto.randomUUID(), category, name: clean }];
-        saveBreakdown(projectId, next);
-        return next;
-      });
+      const prev = breakdownItemsRef.current;
+      // Dedupe on category + case-insensitive name so the same tag is not
+      // added twice from the selection and the manual field.
+      const exists = prev.some(
+        (it) => it.category === category && it.name.toLowerCase() === clean.toLowerCase()
+      );
+      if (exists) return;
+      const next = [...prev, { id: crypto.randomUUID(), category, name: clean }];
+      breakdownItemsRef.current = next;
+      setBreakdownItems(next);
+      saveBreakdown(projectId, next);
     },
     [projectId]
   );
 
   const removeBreakdownItem = useCallback(
     (id: string) => {
-      setBreakdownItems((prev) => {
-        const next = prev.filter((it) => it.id !== id);
-        saveBreakdown(projectId, next);
-        return next;
-      });
+      const next = breakdownItemsRef.current.filter((it) => it.id !== id);
+      breakdownItemsRef.current = next;
+      setBreakdownItems(next);
+      saveBreakdown(projectId, next);
     },
     [projectId]
   );
@@ -856,6 +874,10 @@ function ScreenplayEditor({
 
   const jumpToSceneNumber = useCallback(
     (n: number) => {
+      if (n === 0) {
+        jumpToScene(1);
+        return;
+      }
       const pos = outlineRef.current.scenes.find((s) => s.number === n)?.pos;
       if (pos != null) jumpToScene(pos);
     },
@@ -1105,7 +1127,13 @@ function ScreenplayEditor({
     // Land any pending edit in the cloud before sign-out wipes the local
     // cloud-backed copy (the reconcile effect clears it on identity change).
     await flushRef.current();
-    void signOut();
+    if (hasPendingCloudWork()) {
+      showToast("Some changes have not synced. Reconnect and sync before signing out.", {
+        variant: "danger",
+      });
+      return;
+    }
+    await signOut();
   };
 
   const exportItems: MenuItem[] = [
@@ -1376,14 +1404,14 @@ function ScreenplayEditor({
               label: "Restore this version",
               variant: "solid",
               onClick: () => {
-                restoreVersion(confirmRestore.content, confirmRestore.titlePage ?? undefined);
+                restoreVersion(confirmRestore.content, confirmRestore.titlePage);
                 setConfirmRestore(null);
                 setActivePanel(null);
               },
             },
           ]}
         >
-          <p>This replaces your current text with the selected version.</p>
+          <p>This replaces your current text and title page with the selected version.</p>
           <p className="ui-modal-note">
             A snapshot of the current text is kept in History, so you can come back.
           </p>

@@ -40,6 +40,18 @@ describe("AutoCaps length guard", () => {
     expect(linesOf(ed)[0].text).toBe("hello");
   });
 
+  it("does not uppercase an untouched line that was only retyped earlier", () => {
+    const ed = (editor = makeEditor(
+      docOf(line("character", "Sentence case."), line("action", ""))
+    ));
+    ed.commands.setTextSelection(ed.state.doc.child(0).nodeSize + 1);
+    typeText(ed, "next");
+    expect(linesOf(ed)).toEqual([
+      { element: "character", text: "Sentence case.", dual: false, note: "" },
+      { element: "action", text: "next", dual: false, note: "" },
+    ]);
+  });
+
   it("does not rewrite while an IME composition is in flight", () => {
     // Rewriting the text node mid-composition cancels the composition and
     // eats CJK / accented input, so AutoCaps must stand down until it ends.

@@ -1,7 +1,9 @@
-import { Extension } from "@tiptap/core";
+import { Extension, getChangedRanges } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import { tagRangesIn, categoryById, type BreakdownItem } from "./breakdown";
+import { changedTopLevelNodes } from "./changedRanges";
 
 /**
  * In-script breakdown highlighting: underline every tagged occurrence in the
@@ -40,6 +42,22 @@ function buildDeco(
   return DecorationSet.create(state.doc, decos);
 }
 
+function decorationsForLine(
+  node: PMNode,
+  offset: number,
+  items: BreakdownItem[]
+): Decoration[] {
+  if (node.type.name !== "screenplayLine" || !node.textContent) return [];
+  return tagRangesIn(node.textContent, items).map((range) => {
+    const color = categoryById(range.item.category)?.color ?? "#888";
+    return Decoration.inline(offset + 1 + range.start, offset + 1 + range.end, {
+      class: "sp-bd",
+      style: `--bd-color:${color}`,
+      title: `${categoryById(range.item.category)?.label ?? range.item.category}: ${range.item.name}`,
+    });
+  });
+}
+
 /** Force the highlights to recompute (after the item catalog or toggle changes). */
 export function rescanBreakdown(view: EditorView): void {
   view.dispatch(view.state.tr.setMeta(bdKey, "refresh").setMeta("addToHistory", false));
@@ -58,10 +76,26 @@ export function buildBreakdownMarks(
           key: bdKey,
           state: {
             init: (_c, state) => buildDeco(state, getItems, enabled),
-            apply: (tr, old, _o, newState) =>
-              tr.docChanged || tr.getMeta(bdKey) === "refresh"
-                ? buildDeco(newState, getItems, enabled)
-                : old,
+            apply: (tr, old, _o, newState) => {
+              if (tr.getMeta(bdKey) === "refresh") {
+                return buildDeco(newState, getItems, enabled);
+              }
+              if (!tr.docChanged) return old;
+              if (!enabled()) return DecorationSet.empty;
+              const ranges = getChangedRanges(tr).map(
+                (change) => [change.newRange.from, change.newRange.to] as [number, number]
+              );
+              if (!ranges.length) return buildDeco(newState, getItems, enabled);
+
+              let next = old.map(tr.mapping, tr.doc);
+              const items = getItems();
+              for (const { node, pos } of changedTopLevelNodes(newState.doc, ranges)) {
+                next = next.remove(next.find(pos, pos + node.nodeSize));
+                const additions = decorationsForLine(node, pos, items);
+                if (additions.length) next = next.add(newState.doc, additions);
+              }
+              return next;
+            },
           },
           props: {
             decorations(state) {

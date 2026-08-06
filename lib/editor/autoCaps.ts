@@ -1,7 +1,9 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { isHistoryTransaction } from "@tiptap/pm/history";
 import { UPPERCASE_ELEMENTS, type ElementType } from "./elements";
 import { parentheticalEditingKey } from "./parenthetical";
+import { changedTopLevelNodes, finalChangedRanges } from "./changedRanges";
 
 /**
  * Auto-uppercase plugin.
@@ -34,6 +36,7 @@ export const AutoCaps = Extension.create({
         // characters, we append a follow-up transaction that fixes them.
         appendTransaction: (transactions, oldState, newState) => {
           if (!transactions.some((t) => t.docChanged)) return null;
+          if (transactions.some(isHistoryTransaction)) return null;
           // Adding or removing the parenthetical scaffold is part of an
           // element-format change, not newly typed prose.
           if (transactions.some((t) => t.getMeta(parentheticalEditingKey))) return null;
@@ -46,13 +49,18 @@ export const AutoCaps = Extension.create({
           // CJK / accented input. AutoCaps re-runs on compositionend anyway.
           if (editor?.view?.composing) return null;
 
+          const ranges = finalChangedRanges(transactions, (transaction) =>
+            transaction.docChanged
+          );
+          if (ranges.length === 0) return null;
+
           const tr = newState.tr;
           let modified = false;
 
-          newState.doc.descendants((node, pos) => {
-            if (node.type.name !== "screenplayLine") return;
+          for (const { node, pos } of changedTopLevelNodes(newState.doc, ranges)) {
+            if (node.type.name !== "screenplayLine") continue;
             const element = node.attrs.element as ElementType;
-            if (!UPPERCASE_ELEMENTS.has(element)) return;
+            if (!UPPERCASE_ELEMENTS.has(element)) continue;
 
             // Walk the line's text children and uppercase any that need it.
             node.descendants((child, offset) => {
@@ -69,7 +77,7 @@ export const AutoCaps = Extension.create({
                 modified = true;
               }
             });
-          });
+          }
 
           // Left visible to history on purpose: ProseMirror composes an
           // appendTransaction result into the same undo event as the keystroke

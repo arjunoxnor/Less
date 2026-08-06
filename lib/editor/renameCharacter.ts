@@ -29,8 +29,12 @@ function mentionRegex(name: string): RegExp {
   );
 }
 
-function capitalize(s: string): string {
-  return s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : s;
+function titleCase(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/(^|[^\p{L}\p{N}])(\p{L})/gu, (_match, lead: string, letter: string) =>
+      lead + letter.toUpperCase()
+    );
 }
 
 /** Reproduce the casing of `original` on `replacement`. */
@@ -38,7 +42,7 @@ function matchCase(original: string, replacement: string): string {
   if (original === original.toUpperCase()) return replacement.toUpperCase();
   const rest = original.slice(1);
   if (original[0] === original[0]?.toUpperCase() && rest === rest.toLowerCase()) {
-    return capitalize(replacement);
+    return titleCase(replacement);
   }
   return replacement.toLowerCase();
 }

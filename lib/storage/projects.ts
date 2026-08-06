@@ -29,6 +29,8 @@ export interface ProjectMeta {
   updatedAt: string;
   /** Whether a matching cloud row has been created for this project yet. */
   cloudCreated: boolean;
+  /** A first cloud insert is in flight; sign-out must wait for its result. */
+  cloudCreatePending?: boolean;
   /** True once the user names/renames it, so autosave stops auto-deriving the title. */
   titleManual?: boolean;
   /** Optional goal page count, shown in the status bar (local-only). */
@@ -338,8 +340,8 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
 }
 
 export function saveProjectTitlePage(id: string, tp: TitlePage | null): void {
-  if (tp === null) lsSet(tpKey(id), null);
-  else lsSet(tpKey(id), JSON.stringify(tp));
+  const ok = tp === null ? lsSet(tpKey(id), null) : lsSet(tpKey(id), JSON.stringify(tp));
+  if (ok) broadcast({ type: "titlePageSaved", id });
 }
 
 /* --- Page lock (local-only; production page-number freeze + A-pages) ------ */
@@ -556,6 +558,19 @@ const titleDirtyKey = (id: string) => `less:project:${id}:titleDirty`;
 export const isTitleDirty = (id: string) => lsGet(titleDirtyKey(id)) === "1";
 export const setTitleDirty = (id: string, dirty: boolean) =>
   lsSet(titleDirtyKey(id), dirty ? "1" : null);
+
+/** True when signing out would discard cloud-backed work not yet confirmed. */
+export function hasPendingCloudWork(): boolean {
+  return readIndex().some(
+    (m) =>
+      m.cloudCreatePending ||
+      (m.cloudCreated &&
+        (isDirty(m.id) ||
+          isTitlePageDirty(m.id) ||
+          isStatusDirty(m.id) ||
+          isTitleDirty(m.id)))
+  );
+}
 
 /* --- Tombstones (offline cloud deletes, flushed on reconnect) ------------ */
 

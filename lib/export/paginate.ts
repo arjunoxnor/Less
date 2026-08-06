@@ -72,6 +72,8 @@ interface Row {
   x: number;
   /** Draw in the bold face (scene-heading rows). */
   bold?: boolean;
+  /** The source line is revised and needs a right-margin marker. */
+  revised?: boolean;
 }
 interface Block {
   kind: ElementType;
@@ -155,7 +157,9 @@ function buildDualRows(blocks: Block[], originX: number): Row[] {
   const rows: Row[] = [];
   for (const b of blocks) {
     const { x, maxChars } = dualColumn(originX, b.kind);
-    for (const w of wrap(b.text, maxChars)) rows.push({ text: w, x });
+    for (const w of wrap(b.text, maxChars)) {
+      rows.push({ text: w, x, ...(b.revised ? { revised: true } : {}) });
+    }
   }
   return rows;
 }
@@ -378,6 +382,9 @@ export function paginate(
         const r = rightRows[row + k];
         if (l) ops.push({ text: l.text, x: l.x, y: startY - k * LINE });
         if (r) ops.push({ text: r.text, x: r.x, y: startY - k * LINE });
+        if (l?.revised || r?.revised) {
+          ops.push({ text: "*", x: REVISION_X, y: startY - k * LINE });
+        }
       }
       y = startY - canDraw * LINE;
       usedSlots += canDraw;

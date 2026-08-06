@@ -52,6 +52,7 @@ import {
 } from "./folders";
 import { onBroadcast } from "./broadcast";
 import { clockNewer, decideField, decidePlacement, mapLimit } from "./lww";
+import { stillMatchesField } from "./syncSafety";
 import {
   createScript,
   deleteScript,
@@ -126,6 +127,7 @@ export function useProjects(user: User | null) {
       if (user && online()) {
         const doc = loadProjectDoc(meta.id);
         if (doc) {
+          patchProjectMeta(meta.id, { cloudCreatePending: true });
           createScript(user.id, meta.title, doc, {
             id: meta.id,
             type,
@@ -139,7 +141,8 @@ export function useProjects(user: User | null) {
             .then((row) => {
               if (row) markCloudCreated(meta.id);
             })
-            .catch((e) => console.error("cloud create failed", e));
+            .catch((e) => console.error("cloud create failed", e))
+            .finally(() => patchProjectMeta(meta.id, { cloudCreatePending: false }));
         }
       }
       refresh();
@@ -155,10 +158,14 @@ export function useProjects(user: User | null) {
       if (user) {
         if (wasCloud) {
           if (online()) {
-            deleteScript(id).catch((e) => {
-              console.error("cloud delete failed", e);
-              markDeletedTombstone(id);
-            });
+            deleteScript(id)
+              .then((deleted) => {
+                if (!deleted) markDeletedTombstone(id);
+              })
+              .catch((e) => {
+                console.error("cloud delete failed", e);
+                markDeletedTombstone(id);
+              });
           } else {
             markDeletedTombstone(id);
           }
@@ -325,7 +332,9 @@ export function useProjects(user: User | null) {
       refreshFolders();
       if (user && online()) {
         deleteCloudFolder(id)
-          .then(() => clearFolderTombstone(id))
+          .then((deleted) => {
+            if (deleted) clearFolderTombstone(id);
+          })
           .catch((e) => console.error("cloud folder delete failed", e));
       }
     },
@@ -351,6 +360,7 @@ export function useProjects(user: User | null) {
         const anonResults = await mapLimit(anon, 6, async (m) => {
           const doc = loadProjectDoc(m.id);
           if (!doc || !isMeaningfulFor(m.type, doc)) return true; // nothing to push
+          patchProjectMeta(m.id, { cloudCreatePending: true });
           try {
             const row = await createScript(u.id, m.title, doc, {
               id: m.id,
@@ -368,6 +378,8 @@ export function useProjects(user: User | null) {
           } catch (e) {
             console.error("push anonymous project failed", e);
             return false;
+          } finally {
+            patchProjectMeta(m.id, { cloudCreatePending: false });
           }
         });
         failures += anonResults.filter((ok) => !ok).length;
@@ -452,9 +464,10 @@ export function useProjects(user: User | null) {
         }
 
         const cloud = await listScripts();
+        const projectTombstones = new Set(listTombstones());
         const localIds = new Set(listProjects().map((m) => m.id));
         for (const c of cloud) {
-          if (!localIds.has(c.id)) {
+          if (!localIds.has(c.id) && !projectTombstones.has(c.id)) {
             // Seed the pulled project WITH its cloud placement, so a fresh device
             // does not start loose and then push a blank placement back up (which
             // would erase the folder for everyone). titleManual keeps the local
@@ -512,8 +525,11 @@ export function useProjects(user: User | null) {
                 const ts = await setScriptTitle(c.id, lm.title);
                 if (ts === null) failures++;
                 else {
-                  patchProjectMeta(c.id, { titleAt: ts });
-                  setTitleDirty(c.id, false);
+                  const live = getProjectMeta(c.id);
+                  if (live && stillMatchesField(live.title, lm.title)) {
+                    patchProjectMeta(c.id, { titleAt: ts });
+                    setTitleDirty(c.id, false);
+                  }
                 }
               } catch (e) {
                 console.error("title push failed", e);
@@ -543,8 +559,11 @@ export function useProjects(user: User | null) {
                 const ts = await setScriptStatus(c.id, lm.status);
                 if (ts === null) failures++;
                 else {
-                  patchProjectMeta(c.id, { statusAt: ts });
-                  setStatusDirty(c.id, false);
+                  const live = getProjectMeta(c.id);
+                  if (live && stillMatchesField(live.status, lm.status)) {
+                    patchProjectMeta(c.id, { statusAt: ts });
+                    setStatusDirty(c.id, false);
+                  }
                 }
               } catch (e) {
                 console.error("status push failed", e);

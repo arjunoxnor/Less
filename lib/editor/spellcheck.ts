@@ -203,8 +203,10 @@ export function buildSpellcheck(
           },
           view(view) {
             let timer: ReturnType<typeof setTimeout> | null = null;
+            let destroyed = false;
 
             const scanNow = () => {
+              if (destroyed) return;
               if (!isEnabled()) {
                 const cur = spellKey.getState(view.state)?.deco ?? DecorationSet.empty;
                 if (cur.find().length) {
@@ -219,6 +221,7 @@ export function buildSpellcheck(
               if (!speller) {
                 getSpellerFn()
                   .then((s) => {
+                    if (destroyed) return;
                     speller = s;
                     if (isEnabled()) scanNow();
                   })
@@ -234,6 +237,7 @@ export function buildSpellcheck(
             };
 
             const schedule = () => {
+              if (destroyed) return;
               if (timer) clearTimeout(timer);
               timer = setTimeout(scanNow, 400);
             };
@@ -246,6 +250,7 @@ export function buildSpellcheck(
                 if (view.state.doc !== prevState.doc) schedule();
               },
               destroy() {
+                destroyed = true;
                 if (timer) clearTimeout(timer);
                 viewScanners.delete(view);
               },

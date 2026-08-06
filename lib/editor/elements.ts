@@ -22,7 +22,7 @@ export const DEFAULT_ELEMENT: ElementType = "action";
 
 /**
  * Ordered list used by Tab / Shift+Tab to cycle a line through the types.
- * This is the "cycle order" — deliberately the natural writing rhythm.
+ * This cycle order deliberately follows the natural writing rhythm.
  */
 export const ELEMENT_CYCLE: ElementType[] = [
   "scene_heading",

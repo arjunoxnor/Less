@@ -33,13 +33,13 @@ export interface FindState {
 
 /** A word character for whole-word boundary checks (letters, digits, _). */
 function isWordChar(ch: string | undefined): boolean {
-  return !!ch && /[A-Za-z0-9_]/.test(ch);
+  return !!ch && /[\p{L}\p{N}_]/u.test(ch);
 }
 
 export const findPluginKey = new PluginKey<FindState>("screenplayFind");
 
-/** A safety cap so a pathological one-character search can't lock the UI. */
-const MAX_MATCHES = 5000;
+/** Keep the decoration tree bounded while retaining the complete match list. */
+const MAX_DECORATIONS = 5000;
 
 /** All non-overlapping matches of `query` within the lines of `doc`. */
 export function findMatches(doc: PMNode, query: string, opts: FindOpts): Match[] {
@@ -51,13 +51,12 @@ export function findMatches(doc: PMNode, query: string, opts: FindOpts): Match[]
   const scope = opts.element && opts.element !== "all" ? opts.element : null;
 
   doc.forEach((node, offset) => {
-    if (matches.length >= MAX_MATCHES) return;
     if (node.type.name !== "screenplayLine") return;
     if (scope && node.attrs.element !== scope) return;
     const raw = node.textContent;
     const hay = opts.caseSensitive ? raw : raw.toLowerCase();
     let i = hay.indexOf(needle);
-    while (i !== -1 && matches.length < MAX_MATCHES) {
+    while (i !== -1) {
       const before = i > 0 ? hay[i - 1] : undefined;
       const after = i + nlen < hay.length ? hay[i + nlen] : undefined;
       const wordOk = !opts.wholeWord || (!isWordChar(before) && !isWordChar(after));
@@ -72,11 +71,18 @@ export function findMatches(doc: PMNode, query: string, opts: FindOpts): Match[]
 }
 
 function buildDeco(doc: PMNode, matches: Match[], active: number): DecorationSet {
+  const visible = matches.slice(0, MAX_DECORATIONS).map((match, index) => ({
+    match,
+    index,
+  }));
+  if (active >= MAX_DECORATIONS && matches[active]) {
+    visible.push({ match: matches[active], index: active });
+  }
   return DecorationSet.create(
     doc,
-    matches.map((m, i) =>
-      Decoration.inline(m.from, m.to, {
-        class: i === active ? "find-mark find-mark-active" : "find-mark",
+    visible.map(({ match, index }) =>
+      Decoration.inline(match.from, match.to, {
+        class: index === active ? "find-mark find-mark-active" : "find-mark",
       })
     )
   );

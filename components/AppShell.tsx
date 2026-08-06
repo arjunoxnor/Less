@@ -18,6 +18,7 @@ import {
   listProjects,
   setLastOpenedId,
   evictSyncedBodies,
+  hasPendingCloudWork,
   type ProjectType,
   type ProjectStatus,
 } from "@/lib/storage/projects";
@@ -29,6 +30,7 @@ import { SessionExpiredBanner } from "./SessionExpiredBanner";
 import { importFile } from "@/lib/export";
 import { getFolder, type Stage } from "@/lib/storage/folders";
 import { getProjectShare } from "@/lib/collab/duet";
+import { showToast } from "./ui/Toast";
 
 /**
  * Two places, and no third: the home, and a document. A folder is not a place
@@ -203,6 +205,16 @@ export function AppShell() {
     if (typeof window !== "undefined") window.location.hash = "";
     setView({ kind: "home" });
   }, [refresh]);
+
+  const signOutSafely = useCallback(async () => {
+    if (hasPendingCloudWork()) {
+      showToast("Some changes have not synced. Reconnect and sync before signing out.", {
+        variant: "danger",
+      });
+      return;
+    }
+    await signOut();
+  }, []);
 
   // Cold visit (2D.1): no project index at all means a first-ever open. Skip
   // the dashboard: create an "Untitled screenplay" seeded with the six-line
@@ -417,7 +429,7 @@ export function AppShell() {
         onImportScreenplays={importScreenplays}
         onSyncNow={syncNow}
         onSignIn={() => setShowAuth(true)}
-        onSignOut={() => void signOut()}
+        onSignOut={() => void signOutSafely()}
       />
       {sessionExpired && (
         <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />

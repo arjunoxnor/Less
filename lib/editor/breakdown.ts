@@ -51,7 +51,7 @@ export interface BreakdownItem {
 }
 
 function isWordChar(ch: string | undefined): boolean {
-  return !!ch && /[A-Za-z0-9]/.test(ch);
+  return !!ch && /[\p{L}\p{N}]/u.test(ch);
 }
 
 /**

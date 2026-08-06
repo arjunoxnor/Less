@@ -12,6 +12,7 @@
 
 export type BroadcastMessage =
   | { type: "docSaved"; id: string }
+  | { type: "titlePageSaved"; id: string }
   | { type: "indexChanged" }
   | { type: "foldersChanged" };
 

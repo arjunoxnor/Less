@@ -10,6 +10,7 @@ import { derivePlainTitle } from "@/lib/editor/plainDocUtils";
 import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
   EMPTY_PLAIN_DOC,
+  getProjectMeta,
   listProjects,
   loadProjectDoc,
   saveProjectDoc,
@@ -22,10 +23,13 @@ import {
   setTitleDirty as projSetTitleDirty,
   getLastSavedAt as projGetLastSavedAt,
   setLastSavedAt as projSetLastSavedAt,
+  hasPendingCloudWork,
+  patchProjectMeta,
   type ProjectStatus,
 } from "@/lib/storage/projects";
 import { isCloudConfigured } from "@/lib/cloud/client";
 import { signOut } from "@/lib/cloud/auth";
+import { showToast } from "./ui/Toast";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { modKeyLabel } from "@/lib/platform";
@@ -148,7 +152,7 @@ export function PlainBody({
       type: "plain" as const,
       status,
       deriveTitle: derivePlainTitle,
-      getTitle: () => titleRef.current,
+      getTitle: () => getProjectMeta(projectId)?.title ?? titleRef.current,
       saveLocalDoc: (d: JSONContent) => saveProjectDoc(projectId, d),
       loadLocalTitlePage: () => null,
       saveLocalTitlePage: () => {},
@@ -162,12 +166,21 @@ export function PlainBody({
       getLastSavedAt: () => projGetLastSavedAt(projectId),
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
       onCloudCreated: (id: string) => markCloudCreated(id),
+      setCloudCreatePending: (pending: boolean) =>
+        patchProjectMeta(projectId, { cloudCreatePending: pending }),
     }),
     [projectId, status]
   );
 
-  const { status: syncStatus, pulledTick, getVersions, restoreVersion, flush, flushBeacon } =
-    useCloudSync(editor, user, syncOpts);
+  const {
+    status: syncStatus,
+    pulledTick,
+    pulledSaveOk,
+    getVersions,
+    restoreVersion,
+    flush,
+    flushBeacon,
+  } = useCloudSync(editor, user, syncOpts);
 
   const flushRef = useRef(flush);
   flushRef.current = flush;
@@ -217,9 +230,13 @@ export function PlainBody({
     if (editor && pulledTick > 0) {
       debouncedSave.cancel();
       measure(editor);
-      setSaved(true);
+      setSaveError(!pulledSaveOk);
+      setSaved(pulledSaveOk);
+      if (pulledSaveOk) {
+        unsavedRef.current = false;
+      }
     }
-  }, [pulledTick, editor, measure, debouncedSave]);
+  }, [pulledTick, pulledSaveOk, editor, measure, debouncedSave]);
 
   const handleExport = useCallback(
     (format: PlainExportFormat) => {
@@ -231,7 +248,13 @@ export function PlainBody({
   const signOutAndFlush = async () => {
     // Land any pending edit before sign-out clears the local cloud copy.
     await flushRef.current();
-    void signOut();
+    if (hasPendingCloudWork()) {
+      showToast("Some changes have not synced. Reconnect and sync before signing out.", {
+        variant: "danger",
+      });
+      return;
+    }
+    await signOut();
   };
 
   const mod = modKeyLabel();
