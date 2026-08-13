@@ -786,6 +786,15 @@ export const Pagination = Extension.create<PaginationOptions>({
               timers.push(setTimeout(schedule, 250));
               return;
             }
+            // No layout, no pagination. A hidden or collapsed container measures
+            // zero wide, every line wraps to one character, and the page count
+            // explodes. Re-scheduling on the frame loop is self-healing: the
+            // callback lands once the editor is visible again, and the width
+            // observer above fires the moment the column has a real width.
+            if (!view.dom.isConnected || view.dom.clientWidth <= 0) {
+              schedule();
+              return;
+            }
             const { decos, pages, sig } = compute(view, metrics);
             if (sig !== sigOfState(view.state)) {
               view.dispatch(view.state.tr.setMeta(key, { decos, pages }));

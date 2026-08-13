@@ -278,6 +278,9 @@ interface PaginationMeta {
 
 const key = new PluginKey<DocPaginationState>("docPagination");
 
+/** Exposed so tests can watch for a completed pagination pass. */
+export const DOC_PAGINATION_KEY = key;
+
 interface MeasuredDomBlock {
   pos: number;
   node: PMNode;
@@ -647,13 +650,43 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
               schedule();
               return;
             }
-            const result = compute(view);
-            if (result.sig !== stateSignature(view.state)) {
+            // A document with no layout cannot be paginated. If the editor is
+            // measured before it has been laid out (hidden tab, mount before
+            // first layout, a collapsed ancestor), every line wraps at one
+            // character, a one-line paragraph measures dozens of lines tall,
+            // and the planner faithfully turns a two-page note into a hundred
+            // sheets with spacers wedged mid-sentence. Wait for real geometry
+            // instead: the width observer below re-runs this the moment the
+            // column has a width.
+            if (!view.dom.isConnected || view.dom.clientWidth <= 0) {
+              schedule();
+              return;
+            }
+            // Measure the document with no spacers in it. A split spacer is an
+            // inline span, and an inline span does not grow its paragraph by
+            // its own height: the line box grows by whatever the baseline
+            // demands. Subtracting the spacer height arithmetically therefore
+            // left a residue, the block measured taller than it is, the planner
+            // split it again, and each pass fed the next. Clearing first costs
+            // one forced layout and makes the geometry exact by construction.
+            // Both dispatches land in the same task, so nothing repaints
+            // between them and the spacers never visibly flicker.
+            const before = stateSignature(view.state);
+            const current = key.getState(view.state);
+            if (current && current.decos !== DecorationSet.empty) {
               view.dispatch(
                 view.state.tr.setMeta(key, {
-                  result: { decos: result.decos, pages: result.pages },
+                  result: { decos: DecorationSet.empty, pages: current.pages },
                 } satisfies PaginationMeta)
               );
+            }
+            const result = compute(view);
+            view.dispatch(
+              view.state.tr.setMeta(key, {
+                result: { decos: result.decos, pages: result.pages },
+              } satisfies PaginationMeta)
+            );
+            if (result.sig !== before) {
               if (passes < 4) {
                 passes++;
                 schedule(true);
@@ -679,8 +712,16 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
 
           schedule(true);
           const ResizeObserverCtor = view.dom.ownerDocument.defaultView?.ResizeObserver;
+          // Width only. Height changes on this element are the paginator's own
+          // spacers, and re-running because of them is the feedback loop.
+          let observedWidth = -1;
           const observer = ResizeObserverCtor
-            ? new ResizeObserverCtor(() => schedule())
+            ? new ResizeObserverCtor(() => {
+                const width = view.dom.clientWidth;
+                if (width === observedWidth) return;
+                observedWidth = width;
+                schedule();
+              })
             : null;
           observer?.observe(view.dom);
           const onResize = () => schedule();

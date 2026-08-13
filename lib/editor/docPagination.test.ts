@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { Editor } from "@tiptap/core";
+import Document from "@tiptap/extension-document";
+import Paragraph from "@tiptap/extension-paragraph";
+import Text from "@tiptap/extension-text";
 import {
   DOC_TEXT_HEIGHT,
+  DocPagination,
   collapseMargins,
+  DOC_PAGINATION_KEY,
   planDocPages,
+  requestDocPagination,
   type DocPageAssignment,
   type DocPlanBlock,
 } from "./docPagination";
@@ -203,5 +210,81 @@ describe("prose page planner", () => {
         }
       }
     }
+  });
+});
+
+describe("prose pagination refuses to run without layout", () => {
+  // The regression this guards: the paginator once measured the editor before
+  // it had been laid out. With a zero-width column every line wraps at one
+  // character, so a single-sentence paragraph measured ~90 lines tall and the
+  // planner faithfully turned a 682-word note into 114 sheets with spacers
+  // wedged mid-sentence.
+  //
+  // jsdom cannot reproduce the wrapping itself (it has no layout engine, so
+  // every rect is already zero and nothing overflows). What it CAN prove is
+  // the guard's actual contract: with no measured width, the paginator must
+  // not run a pass at all. Each pass ends in a transaction carrying this
+  // plugin's result meta, so counting those transactions distinguishes
+  // "declined to paginate" from "paginated a document it could not measure".
+  it("runs no pagination pass while the editor has no measured width", async () => {
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: [Document, Paragraph, Text, DocPagination],
+      content: {
+        type: "doc",
+        content: Array.from({ length: 40 }, (_, index) => ({
+          type: "paragraph",
+          content: [
+            { type: "text", text: `Line ${index}. The guy sits down for a second.` },
+          ],
+        })),
+      },
+    });
+
+    let passes = 0;
+    editor.on("transaction", ({ transaction }) => {
+      if ((transaction.getMeta(DOC_PAGINATION_KEY) as { result?: unknown } | undefined)?.result) {
+        passes++;
+      }
+    });
+
+    requestDocPagination(editor);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(editor.view.dom.clientWidth).toBe(0);
+    expect(passes).toBe(0);
+    expect(editor.view.dom.querySelectorAll(".doc-page-gap")).toHaveLength(0);
+
+    editor.destroy();
+  });
+
+  it("runs a pagination pass once the editor reports a width", async () => {
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    const editor = new Editor({
+      element,
+      extensions: [Document, Paragraph, Text, DocPagination],
+      content: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "One line." }] }],
+      },
+    });
+    // jsdom reports 0 for every element; stand in for a laid-out column.
+    Object.defineProperty(editor.view.dom, "clientWidth", { value: 816, configurable: true });
+
+    let passes = 0;
+    editor.on("transaction", ({ transaction }) => {
+      if ((transaction.getMeta(DOC_PAGINATION_KEY) as { result?: unknown } | undefined)?.result) {
+        passes++;
+      }
+    });
+
+    requestDocPagination(editor);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(passes).toBeGreaterThan(0);
+
+    editor.destroy();
+    element.remove();
   });
 });
