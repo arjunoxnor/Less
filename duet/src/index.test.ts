@@ -133,7 +133,9 @@ class MockResponse {
     this.status = init.status ?? 200;
     this.statusText = init.statusText ?? "";
     this.headers = new Headers(init.headers);
-    this.webSocket = (init as ResponseInit & { webSocket?: WebSocket }).webSocket;
+    this.webSocket = (
+      init as ResponseInit & { webSocket?: WebSocket }
+    ).webSocket;
   }
 }
 
@@ -180,7 +182,7 @@ function room(ctx = new MockState()): { room: DuetRoom; ctx: MockState } {
   return {
     room: new DuetRoom(
       ctx as unknown as DurableObjectState,
-      {} as { ROOMS: DurableObjectNamespace }
+      {} as { ROOMS: DurableObjectNamespace },
     ),
     ctx,
   };
@@ -193,7 +195,12 @@ interface ConnectArgs {
   roomToken?: string;
 }
 
-function requestUrl({ owner, clientId, sessionId, roomToken }: ConnectArgs): string {
+function requestUrl({
+  owner,
+  clientId,
+  sessionId,
+  roomToken,
+}: ConnectArgs): string {
   const url = new URL(`https://worker.example/room/${roomToken ?? token}`);
   if (owner) url.searchParams.set("owner", owner);
   url.searchParams.set("client", String(clientId));
@@ -245,7 +252,7 @@ describe("Duet Durable Object lifecycle", () => {
   it("does not create a room for an unissued, correctly-shaped token", async () => {
     const instance = room();
     const response = await instance.room.fetch(
-      connectRequest({ clientId: 1, sessionId: session(1) })
+      connectRequest({ clientId: 1, sessionId: session(1) }),
     );
 
     expect(response.status).toBe(404);
@@ -256,10 +263,14 @@ describe("Duet Durable Object lifecycle", () => {
     const instance = room();
     const [first, second] = await Promise.all([
       instance.room.fetch(
-        connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+        connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
       ),
       instance.room.fetch(
-        connectRequest({ owner: otherOwnerKey, clientId: 2, sessionId: session(2) })
+        connectRequest({
+          owner: otherOwnerKey,
+          clientId: 2,
+          sessionId: session(2),
+        }),
       ),
     ]);
 
@@ -273,7 +284,11 @@ describe("Duet Durable Object lifecycle", () => {
   it("refuses to create a room whose token is not derived from the owner key", async () => {
     const instance = room();
     const response = await instance.room.fetch(
-      connectRequest({ owner: otherOwnerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({
+        owner: otherOwnerKey,
+        clientId: 1,
+        sessionId: session(1),
+      }),
     );
 
     expect(response.status).toBe(404);
@@ -293,16 +308,20 @@ describe("Duet Durable Object lifecycle", () => {
         owner: legacyOwnerKey,
         clientId: 1,
         sessionId: session(1),
-      })
+      }),
     );
     expect(owner.status).toBe(101);
     await instance.room.webSocketMessage(
       ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("Legacy room").slice().buffer as ArrayBuffer
+      seedFrame("Legacy room").slice().buffer as ArrayBuffer,
     );
 
     const guest = await instance.room.fetch(
-      connectRequest({ roomToken: legacyToken, clientId: 2, sessionId: session(2) })
+      connectRequest({
+        roomToken: legacyToken,
+        clientId: 2,
+        sessionId: session(2),
+      }),
     );
     expect(guest.status).toBe(101);
 
@@ -312,7 +331,7 @@ describe("Duet Durable Object lifecycle", () => {
         owner: otherOwnerKey,
         clientId: 3,
         sessionId: session(3),
-      })
+      }),
     );
     expect(impostor.status).toBe(403);
   });
@@ -320,19 +339,19 @@ describe("Duet Durable Object lifecycle", () => {
   it("does not admit a guest in the gap before the owner's first seed", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     const earlyGuest = await instance.room.fetch(
-      connectRequest({ clientId: 2, sessionId: session(2) })
+      connectRequest({ clientId: 2, sessionId: session(2) }),
     );
     expect(earlyGuest.status).toBe(425);
 
     await instance.room.webSocketMessage(
       instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("Owner seed").slice().buffer as ArrayBuffer
+      seedFrame("Owner seed").slice().buffer as ArrayBuffer,
     );
     const readyGuest = await instance.room.fetch(
-      connectRequest({ clientId: 2, sessionId: session(2) })
+      connectRequest({ clientId: 2, sessionId: session(2) }),
     );
     expect(readyGuest.status).toBe(101);
   });
@@ -340,14 +359,14 @@ describe("Duet Durable Object lifecycle", () => {
   it("persists an update before relaying it to another writer", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     await instance.room.webSocketMessage(
       instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("").slice().buffer as ArrayBuffer
+      seedFrame("").slice().buffer as ArrayBuffer,
     );
     await instance.room.fetch(
-      connectRequest({ clientId: 2, sessionId: session(2) })
+      connectRequest({ clientId: 2, sessionId: session(2) }),
     );
     const ownerSocket = instance.ctx.sockets[0];
     const guestSocket = instance.ctx.sockets[1];
@@ -355,84 +374,109 @@ describe("Duet Durable Object lifecycle", () => {
 
     await instance.room.webSocketMessage(
       guestSocket as unknown as WebSocket,
-      frame.slice().buffer as ArrayBuffer
+      frame.slice().buffer as ArrayBuffer,
     );
 
-    expect(instance.ctx.storage.values.get(SNAPSHOT_KEY)).toBeInstanceOf(ArrayBuffer);
+    expect(instance.ctx.storage.values.get(SNAPSHOT_KEY)).toBeInstanceOf(
+      ArrayBuffer,
+    );
     expect(ownerSocket.sent.at(-1)).toEqual(frame);
     const restored = await loadDocument(instance.ctx.storage);
     expect(restored.getText("script").toString()).toBe("Network text");
   });
 
   it("closes a socket that floods the room with frames", async () => {
-    const instance = room();
-    await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
-    );
-    const socket = instance.ctx.sockets[0];
-    const frame = updateFrame("Flood");
-
-    for (let index = 0; index <= MESSAGE_BURST; index++) {
-      await instance.room.webSocketMessage(
-        socket as unknown as WebSocket,
-        frame.slice().buffer as ArrayBuffer
+    // Freeze the clock. The bucket refills on elapsed wall time, so on a
+    // slower machine the 241 decodes in this loop take long enough to refill a
+    // token and the flood is affordable after all: this passed on a developer
+    // Mac and failed on CI, which is the test measuring the runner rather than
+    // the limiter. With time held still the assertion is about the budget.
+    const frozen = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(frozen);
+    try {
+      const instance = room();
+      await instance.room.fetch(
+        connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
       );
-    }
+      const socket = instance.ctx.sockets[0];
+      const frame = updateFrame("Flood");
 
-    expect(socket.closeCode).toBe(4003);
+      for (let index = 0; index <= MESSAGE_BURST; index++) {
+        await instance.room.webSocketMessage(
+          socket as unknown as WebSocket,
+          frame.slice().buffer as ArrayBuffer,
+        );
+      }
+
+      expect(socket.closeCode).toBe(4003);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("stops fanning out awareness queries once a socket exceeds its budget", async () => {
-    const instance = room();
-    await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
-    );
-    await instance.room.webSocketMessage(
-      instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("").slice().buffer as ArrayBuffer
-    );
-    await instance.room.fetch(connectRequest({ clientId: 2, sessionId: session(2) }));
-    const ownerSocket = instance.ctx.sockets[0];
-    const guestSocket = instance.ctx.sockets[1];
-    const query = queryAwarenessFrame();
-    const before = ownerSocket.sent.length;
-
-    for (let index = 0; index < QUERY_AWARENESS_BURST + 3; index++) {
-      await instance.room.webSocketMessage(
-        guestSocket as unknown as WebSocket,
-        query.slice().buffer as ArrayBuffer
+    // Frozen for the same reason as the flood test above: a refill mid-loop
+    // would let extra queries through and make the count machine-dependent.
+    const frozen = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(frozen);
+    try {
+      const instance = room();
+      await instance.room.fetch(
+        connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
       );
-    }
+      await instance.room.webSocketMessage(
+        instance.ctx.sockets[0] as unknown as WebSocket,
+        seedFrame("").slice().buffer as ArrayBuffer,
+      );
+      await instance.room.fetch(
+        connectRequest({ clientId: 2, sessionId: session(2) }),
+      );
+      const ownerSocket = instance.ctx.sockets[0];
+      const guestSocket = instance.ctx.sockets[1];
+      const query = queryAwarenessFrame();
+      const before = ownerSocket.sent.length;
 
-    expect(ownerSocket.sent.length - before).toBe(QUERY_AWARENESS_BURST);
-    // The extra frames are dropped, not treated as an attack on the writer.
-    expect(guestSocket.closeCode).toBeNull();
+      for (let index = 0; index < QUERY_AWARENESS_BURST + 3; index++) {
+        await instance.room.webSocketMessage(
+          guestSocket as unknown as WebSocket,
+          query.slice().buffer as ArrayBuffer,
+        );
+      }
+
+      expect(ownerSocket.sent.length - before).toBe(QUERY_AWARENESS_BURST);
+      // The extra frames are dropped, not treated as an attack on the writer.
+      expect(guestSocket.closeCode).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("refuses the update that would outgrow storage instead of losing the room", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     await instance.room.webSocketMessage(
       instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("").slice().buffer as ArrayBuffer
+      seedFrame("").slice().buffer as ArrayBuffer,
     );
-    await instance.room.fetch(connectRequest({ clientId: 2, sessionId: session(2) }));
+    await instance.room.fetch(
+      connectRequest({ clientId: 2, sessionId: session(2) }),
+    );
     const ownerSocket = instance.ctx.sockets[0];
     const guestSocket = instance.ctx.sockets[1];
     const half = Math.floor(MAX_DOCUMENT_BYTES * 0.55);
 
     await instance.room.webSocketMessage(
       guestSocket as unknown as WebSocket,
-      updateFrame("a".repeat(half)).slice().buffer as ArrayBuffer
+      updateFrame("a".repeat(half)).slice().buffer as ArrayBuffer,
     );
     const accepted = await loadDocument(instance.ctx.storage);
     expect(accepted.getText("script").length).toBe(half);
 
     await instance.room.webSocketMessage(
       guestSocket as unknown as WebSocket,
-      updateFrame("b".repeat(half)).slice().buffer as ArrayBuffer
+      updateFrame("b".repeat(half)).slice().buffer as ArrayBuffer,
     );
 
     expect(guestSocket.closeCode).toBe(4009);
@@ -443,7 +487,7 @@ describe("Duet Durable Object lifecycle", () => {
 
     await instance.room.webSocketMessage(
       ownerSocket as unknown as WebSocket,
-      updateFrame("Still writable").slice().buffer as ArrayBuffer
+      updateFrame("Still writable").slice().buffer as ArrayBuffer,
     );
     const after = await loadDocument(instance.ctx.storage);
     expect(after.getText("script").toString()).toContain("Still writable");
@@ -452,25 +496,29 @@ describe("Duet Durable Object lifecycle", () => {
   it("deletes the shared screenplay when the owner stops sharing", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     await instance.room.webSocketMessage(
       instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("Private screenplay").slice().buffer as ArrayBuffer
+      seedFrame("Private screenplay").slice().buffer as ArrayBuffer,
     );
-    expect(instance.ctx.storage.values.get(SNAPSHOT_KEY)).toBeInstanceOf(ArrayBuffer);
+    expect(instance.ctx.storage.values.get(SNAPSHOT_KEY)).toBeInstanceOf(
+      ArrayBuffer,
+    );
 
     const revoke = await instance.room.fetch(
       new Request(`https://worker.example/room/${token}/revoke`, {
         method: "POST",
         headers: { "x-duet-owner": ownerKey },
-      })
+      }),
     );
 
     expect(revoke.status).toBe(200);
-    expect(restoreSnapshot(revoke.body as unknown as ArrayBuffer).getText("script").toString()).toBe(
-      "Private screenplay"
-    );
+    expect(
+      restoreSnapshot(revoke.body as unknown as ArrayBuffer)
+        .getText("script")
+        .toString(),
+    ).toBe("Private screenplay");
     expect(instance.ctx.storage.values.has(SNAPSHOT_KEY)).toBe(false);
     expect(instance.ctx.storage.alarm).not.toBeNull();
   });
@@ -478,11 +526,11 @@ describe("Duet Durable Object lifecycle", () => {
   it("deletes a room nobody has connected to for the whole idle window", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     await instance.room.webSocketMessage(
       instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("Forgotten").slice().buffer as ArrayBuffer
+      seedFrame("Forgotten").slice().buffer as ArrayBuffer,
     );
 
     // A live room re-arms instead of expiring.
@@ -490,7 +538,10 @@ describe("Duet Durable Object lifecycle", () => {
     expect(instance.ctx.storage.values.has(SNAPSHOT_KEY)).toBe(true);
 
     instance.ctx.sockets.length = 0;
-    instance.ctx.storage.values.set("last-active", Date.now() - IDLE_ROOM_TTL_MS - 1);
+    instance.ctx.storage.values.set(
+      "last-active",
+      Date.now() - IDLE_ROOM_TTL_MS - 1,
+    );
     await room(instance.ctx).room.alarm();
 
     expect(instance.ctx.storage.values.size).toBe(0);
@@ -499,14 +550,14 @@ describe("Duet Durable Object lifecycle", () => {
   it("cuts off connected guests and rejects their late messages after eviction", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     await instance.room.webSocketMessage(
       instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("").slice().buffer as ArrayBuffer
+      seedFrame("").slice().buffer as ArrayBuffer,
     );
     await instance.room.fetch(
-      connectRequest({ clientId: 2, sessionId: session(2) })
+      connectRequest({ clientId: 2, sessionId: session(2) }),
     );
     const guestSocket = instance.ctx.sockets[1];
 
@@ -514,7 +565,7 @@ describe("Duet Durable Object lifecycle", () => {
       new Request(`https://worker.example/room/${token}/revoke`, {
         method: "POST",
         headers: { "x-duet-owner": ownerKey },
-      })
+      }),
     );
     expect(revoke.status).toBe(200);
     expect(guestSocket.closeCode).toBe(4001);
@@ -523,14 +574,14 @@ describe("Duet Durable Object lifecycle", () => {
     const evicted = room(instance.ctx).room;
     await evicted.webSocketMessage(
       guestSocket as unknown as WebSocket,
-      updateFrame("Too late").slice().buffer as ArrayBuffer
+      updateFrame("Too late").slice().buffer as ArrayBuffer,
     );
     expect(guestSocket.closeCode).toBe(4001);
     const finalRoom = await loadDocument(instance.ctx.storage);
     expect(finalRoom.getText("script").toString()).toBe("");
 
     const reconnect = await evicted.fetch(
-      connectRequest({ clientId: 3, sessionId: session(3) })
+      connectRequest({ clientId: 3, sessionId: session(3) }),
     );
     expect(reconnect.status).toBe(410);
   });
@@ -538,36 +589,38 @@ describe("Duet Durable Object lifecycle", () => {
   it("includes every earlier accepted update in the revocation snapshot", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     const socket = instance.ctx.sockets[0];
     const update = instance.room.webSocketMessage(
       socket as unknown as WebSocket,
-      updateFrame("Included before revoke").slice().buffer as ArrayBuffer
+      updateFrame("Included before revoke").slice().buffer as ArrayBuffer,
     );
     const revoke = instance.room.fetch(
       new Request(`https://worker.example/room/${token}/revoke`, {
         method: "POST",
         headers: { "x-duet-owner": ownerKey },
-      })
+      }),
     );
 
     const [, response] = await Promise.all([update, revoke]);
     const snapshot = restoreSnapshot(response.body as unknown as ArrayBuffer);
-    expect(snapshot.getText("script").toString()).toBe("Included before revoke");
+    expect(snapshot.getText("script").toString()).toBe(
+      "Included before revoke",
+    );
   });
 
   it("does not expose an update whose durable write failed", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     await instance.room.webSocketMessage(
       instance.ctx.sockets[0] as unknown as WebSocket,
-      seedFrame("").slice().buffer as ArrayBuffer
+      seedFrame("").slice().buffer as ArrayBuffer,
     );
     await instance.room.fetch(
-      connectRequest({ clientId: 2, sessionId: session(2) })
+      connectRequest({ clientId: 2, sessionId: session(2) }),
     );
     const ownerSocket = instance.ctx.sockets[0];
     const guestSocket = instance.ctx.sockets[1];
@@ -576,7 +629,7 @@ describe("Duet Durable Object lifecycle", () => {
 
     await instance.room.webSocketMessage(
       guestSocket as unknown as WebSocket,
-      updateFrame("Not durable yet").slice().buffer as ArrayBuffer
+      updateFrame("Not durable yet").slice().buffer as ArrayBuffer,
     );
 
     expect(ownerSocket.sent).toHaveLength(sentBefore);
@@ -586,12 +639,12 @@ describe("Duet Durable Object lifecycle", () => {
     expect(lastDurable.getText("script").toString()).toBe("");
 
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 3, sessionId: session(3) })
+      connectRequest({ owner: ownerKey, clientId: 3, sessionId: session(3) }),
     );
     const reconnected = instance.ctx.sockets.at(-1)!;
     await instance.room.webSocketMessage(
       reconnected as unknown as WebSocket,
-      updateFrame("Resent safely").slice().buffer as ArrayBuffer
+      updateFrame("Resent safely").slice().buffer as ArrayBuffer,
     );
     const restored = await loadDocument(instance.ctx.storage);
     expect(restored.getText("script").toString()).toBe("Resent safely");
@@ -600,20 +653,20 @@ describe("Duet Durable Object lifecycle", () => {
   it("ignores a message delivered after that socket's close callback", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) }),
     );
     const socket = instance.ctx.sockets[0];
     await instance.room.webSocketClose(
       socket as unknown as WebSocket,
       1000,
       "closed",
-      true
+      true,
     );
 
     socket.readyState = MockSocket.OPEN;
     await instance.room.webSocketMessage(
       socket as unknown as WebSocket,
-      updateFrame("After close").slice().buffer as ArrayBuffer
+      updateFrame("After close").slice().buffer as ArrayBuffer,
     );
     expect(instance.ctx.storage.values.get(SNAPSHOT_KEY)).toBeUndefined();
   });
@@ -621,13 +674,13 @@ describe("Duet Durable Object lifecycle", () => {
   it("closes a socket that sends awareness for another client id", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 7, sessionId: session(7) })
+      connectRequest({ owner: ownerKey, clientId: 7, sessionId: session(7) }),
     );
     const socket = instance.ctx.sockets[0];
 
     await instance.room.webSocketMessage(
       socket as unknown as WebSocket,
-      awarenessFrame(8).slice().buffer as ArrayBuffer
+      awarenessFrame(8).slice().buffer as ArrayBuffer,
     );
     expect(socket.closeCode).toBe(1003);
   });
@@ -635,16 +688,16 @@ describe("Duet Durable Object lifecycle", () => {
   it("rejects a backwards awareness clock so close removal cannot leave a ghost", async () => {
     const instance = room();
     await instance.room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 7, sessionId: session(7) })
+      connectRequest({ owner: ownerKey, clientId: 7, sessionId: session(7) }),
     );
     const socket = instance.ctx.sockets[0];
     await instance.room.webSocketMessage(
       socket as unknown as WebSocket,
-      awarenessFrame(7, 10).slice().buffer as ArrayBuffer
+      awarenessFrame(7, 10).slice().buffer as ArrayBuffer,
     );
     await instance.room.webSocketMessage(
       socket as unknown as WebSocket,
-      awarenessFrame(7, 9).slice().buffer as ArrayBuffer
+      awarenessFrame(7, 9).slice().buffer as ArrayBuffer,
     );
 
     expect(socket.closeCode).toBe(1003);
@@ -660,24 +713,24 @@ describe("Duet Durable Object lifecycle", () => {
           ...(index === 0 ? { owner: ownerKey } : {}),
           clientId: index + 1,
           sessionId: session(index),
-        })
+        }),
       );
       expect(response.status).toBe(101);
       if (index === 0) {
         await instance.webSocketMessage(
           ctx.sockets[0] as unknown as WebSocket,
-          seedFrame("").slice().buffer as ArrayBuffer
+          seedFrame("").slice().buffer as ArrayBuffer,
         );
       }
     }
 
     const denied = await room(ctx).room.fetch(
-      connectRequest({ clientId: 99, sessionId: session(99) })
+      connectRequest({ clientId: 99, sessionId: session(99) }),
     );
     expect(denied.status).toBe(429);
 
     const reconnect = await room(ctx).room.fetch(
-      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(0) })
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(0) }),
     );
     expect(reconnect.status).toBe(101);
   });
