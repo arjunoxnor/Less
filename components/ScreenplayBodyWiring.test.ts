@@ -35,6 +35,37 @@ describe("ScreenplayBody safety wiring", () => {
     expect(source).toContain("page: pageAtPos(editor.state, scene.pos)");
   });
 
+  it("offers the guest's save-a-copy action only to a guest", () => {
+    expect(source).toContain(
+      "session && !session.owner && onSaveDuetCopy ? openSaveCopy : undefined"
+    );
+    expect(source).toContain(
+      '[{ label: "Save a copy to my library…", onSelect: onSaveCopy } as MenuItem]'
+    );
+  });
+
+  it("never mirrors a guest's shared room into the local library", () => {
+    expect(source).toContain("const mirrorsToLibrary = duetMirrorsToLibrary(duetAccess);");
+    // The debounced autosave, the unmount flush and the pagehide flush are the
+    // three places that could file the room as a phantom project.
+    expect(source).toContain("if (!mirrorsToLibrary) {");
+    expect(source).toContain("if (ed && unsavedRef.current && mirrorsToLibrary) {");
+    expect(source).toContain("if (!ed || !unsavedRef.current || !mirrorsToLibrary) return;");
+    // And the sync hook's own local write, which a restore or import uses even
+    // while cloud sync is off.
+    expect(source).toContain("mirrorsToLibrary ? saveProjectDoc(projectId, d) : true");
+  });
+
+  it("reads the shared room to build the copy and never writes to it", () => {
+    const saveCopy = source.slice(
+      source.indexOf("const openSaveCopy = () => {"),
+      source.indexOf("const stopSharing = async () => {")
+    );
+    expect(saveCopy).toContain("session.getContent()");
+    expect(saveCopy).not.toMatch(/session\.(setTitle|setUser|destroy)\(/);
+    expect(saveCopy).not.toContain("saveProjectDoc(");
+  });
+
   it("warns that history restore also replaces title-page metadata", () => {
     expect(source).toContain(
       "This replaces your current text and title page with the selected version."

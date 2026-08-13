@@ -5,6 +5,7 @@ import {
   clearProjectShare,
   clearDuetDocumentCache,
   createProjectShare,
+  deriveRoomToken,
   persistDuetDocumentCache,
   restoreDuetDocumentCache,
   subscribeProjectShare,
@@ -37,23 +38,34 @@ describe("Duet share changes across open tabs", () => {
     });
   });
 
-  it("notifies the current tab when sharing starts and stops", () => {
+  it("notifies the current tab when sharing starts and stops", async () => {
     const seen: Array<string | null> = [];
     const unsubscribe = subscribeProjectShare("project-1", (record) => {
       seen.push(record?.token ?? null);
     });
 
-    const record = createProjectShare("project-1");
+    const record = await createProjectShare("project-1");
     clearProjectShare("project-1");
     unsubscribe();
 
     expect(seen).toEqual([null, record.token, null]);
   });
 
-  it("reacts to another tab's storage event", () => {
+  it("stores a share whose token is derived from its owner key", async () => {
+    const record = await createProjectShare("project-derived");
+
+    expect(record.token).toBe(await deriveRoomToken(record.ownerKey));
+    expect(JSON.parse(window.localStorage.getItem("less:duet:share:project-derived")!)).toEqual(
+      record
+    );
+    // The record shape is unchanged, so an existing share still loads.
+    expect(await createProjectShare("project-derived")).toEqual(record);
+  });
+
+  it("reacts to another tab's storage event", async () => {
     const listener = vi.fn();
     const unsubscribe = subscribeProjectShare("project-2", listener);
-    const record = createProjectShare("project-2");
+    const record = await createProjectShare("project-2");
     listener.mockClear();
 
     window.dispatchEvent(
@@ -67,8 +79,8 @@ describe("Duet share changes across open tabs", () => {
     unsubscribe();
   });
 
-  it("does not silently retain a revoked sharing record when removal fails", () => {
-    createProjectShare("project-3");
+  it("does not silently retain a revoked sharing record when removal fails", async () => {
+    await createProjectShare("project-3");
     const storage = window.localStorage;
     Object.defineProperty(window, "localStorage", {
       configurable: true,

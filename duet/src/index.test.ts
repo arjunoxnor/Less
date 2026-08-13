@@ -2,14 +2,22 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as encoding from "lib0/encoding";
 import * as Y from "yjs";
 import {
+  MAX_DOCUMENT_BYTES,
   encodeSyncUpdate,
   loadDocument,
   MESSAGE_AWARENESS,
+  MESSAGE_QUERY_AWARENESS,
   MESSAGE_SEED,
   restoreSnapshot,
   SNAPSHOT_KEY,
 } from "./protocol";
-import { RATE_MAX_NEW_SESSIONS } from "./security";
+import {
+  IDLE_ROOM_TTL_MS,
+  MESSAGE_BURST,
+  QUERY_AWARENESS_BURST,
+  RATE_MAX_NEW_SESSIONS,
+  deriveRoomToken,
+} from "./security";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class<Env> {
@@ -25,14 +33,19 @@ vi.mock("cloudflare:workers", () => ({
 
 import { DuetRoom } from "./index";
 
-const token = "t".repeat(43);
 const ownerKey = "o".repeat(43);
+// Room creation now requires the token to be the SHA-256 of the owner key.
+const token = await deriveRoomToken(ownerKey);
 const otherOwnerKey = "p".repeat(43);
+// A room issued before token derivation: a random token with a stored owner.
+const legacyToken = "t".repeat(43);
+const legacyOwnerKey = "l".repeat(43);
 const session = (index: number) => index.toString(36).padStart(22, "0");
 
 class MockStorage {
   values = new Map<string, unknown>();
   failNextDocumentPut = false;
+  alarm: number | null = null;
 
   async get<T>(key: string): Promise<T | undefined> {
     return this.values.get(key) as T | undefined;
@@ -44,6 +57,23 @@ class MockStorage {
       throw new Error("storage unavailable");
     }
     this.values.set(key, value);
+  }
+
+  async delete(key: string): Promise<boolean> {
+    return this.values.delete(key);
+  }
+
+  async deleteAll(): Promise<void> {
+    this.values.clear();
+    this.alarm = null;
+  }
+
+  async getAlarm(): Promise<number | null> {
+    return this.alarm;
+  }
+
+  async setAlarm(scheduledTime: number): Promise<void> {
+    this.alarm = scheduledTime;
   }
 }
 
@@ -156,27 +186,22 @@ function room(ctx = new MockState()): { room: DuetRoom; ctx: MockState } {
   };
 }
 
-function requestUrl({
-  owner,
-  clientId,
-  sessionId,
-}: {
+interface ConnectArgs {
   owner?: string;
   clientId: number;
   sessionId: string;
-}): string {
-  const url = new URL(`https://worker.example/room/${token}`);
+  roomToken?: string;
+}
+
+function requestUrl({ owner, clientId, sessionId, roomToken }: ConnectArgs): string {
+  const url = new URL(`https://worker.example/room/${roomToken ?? token}`);
   if (owner) url.searchParams.set("owner", owner);
   url.searchParams.set("client", String(clientId));
   url.searchParams.set("session", sessionId);
   return url.toString();
 }
 
-function connectRequest(args: {
-  owner?: string;
-  clientId: number;
-  sessionId: string;
-}): Request {
+function connectRequest(args: ConnectArgs): Request {
   return new Request(requestUrl(args), {
     headers: { upgrade: "websocket", "cf-connecting-ip": "203.0.113.10" },
   });
@@ -195,6 +220,12 @@ function seedFrame(text: string): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_SEED);
   encoding.writeVarUint8Array(encoder, Y.encodeStateAsUpdate(doc));
+  return encoding.toUint8Array(encoder);
+}
+
+function queryAwarenessFrame(): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, MESSAGE_QUERY_AWARENESS);
   return encoding.toUint8Array(encoder);
 }
 
@@ -233,8 +264,57 @@ describe("Duet Durable Object lifecycle", () => {
     ]);
 
     expect(first.status).toBe(101);
+    // Issuance is serialized, so the racing credential arrives to find a
+    // stored owner it does not match.
     expect(second.status).toBe(403);
     expect(instance.ctx.storage.values.get("owner-key")).toBe(ownerKey);
+  });
+
+  it("refuses to create a room whose token is not derived from the owner key", async () => {
+    const instance = room();
+    const response = await instance.room.fetch(
+      connectRequest({ owner: otherOwnerKey, clientId: 1, sessionId: session(1) })
+    );
+
+    expect(response.status).toBe(404);
+    expect(instance.ctx.storage.values.get("owner-key")).toBeUndefined();
+    expect(instance.ctx.storage.values.size).toBe(0);
+    expect(instance.ctx.sockets).toHaveLength(0);
+  });
+
+  it("keeps a room issued before derivation working for its owner and guests", async () => {
+    const ctx = new MockState();
+    ctx.storage.values.set("owner-key", legacyOwnerKey);
+    const instance = room(ctx);
+
+    const owner = await instance.room.fetch(
+      connectRequest({
+        roomToken: legacyToken,
+        owner: legacyOwnerKey,
+        clientId: 1,
+        sessionId: session(1),
+      })
+    );
+    expect(owner.status).toBe(101);
+    await instance.room.webSocketMessage(
+      ctx.sockets[0] as unknown as WebSocket,
+      seedFrame("Legacy room").slice().buffer as ArrayBuffer
+    );
+
+    const guest = await instance.room.fetch(
+      connectRequest({ roomToken: legacyToken, clientId: 2, sessionId: session(2) })
+    );
+    expect(guest.status).toBe(101);
+
+    const impostor = await instance.room.fetch(
+      connectRequest({
+        roomToken: legacyToken,
+        owner: otherOwnerKey,
+        clientId: 3,
+        sessionId: session(3),
+      })
+    );
+    expect(impostor.status).toBe(403);
   });
 
   it("does not admit a guest in the gap before the owner's first seed", async () => {
@@ -282,6 +362,138 @@ describe("Duet Durable Object lifecycle", () => {
     expect(ownerSocket.sent.at(-1)).toEqual(frame);
     const restored = await loadDocument(instance.ctx.storage);
     expect(restored.getText("script").toString()).toBe("Network text");
+  });
+
+  it("closes a socket that floods the room with frames", async () => {
+    const instance = room();
+    await instance.room.fetch(
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+    );
+    const socket = instance.ctx.sockets[0];
+    const frame = updateFrame("Flood");
+
+    for (let index = 0; index <= MESSAGE_BURST; index++) {
+      await instance.room.webSocketMessage(
+        socket as unknown as WebSocket,
+        frame.slice().buffer as ArrayBuffer
+      );
+    }
+
+    expect(socket.closeCode).toBe(4003);
+  });
+
+  it("stops fanning out awareness queries once a socket exceeds its budget", async () => {
+    const instance = room();
+    await instance.room.fetch(
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+    );
+    await instance.room.webSocketMessage(
+      instance.ctx.sockets[0] as unknown as WebSocket,
+      seedFrame("").slice().buffer as ArrayBuffer
+    );
+    await instance.room.fetch(connectRequest({ clientId: 2, sessionId: session(2) }));
+    const ownerSocket = instance.ctx.sockets[0];
+    const guestSocket = instance.ctx.sockets[1];
+    const query = queryAwarenessFrame();
+    const before = ownerSocket.sent.length;
+
+    for (let index = 0; index < QUERY_AWARENESS_BURST + 3; index++) {
+      await instance.room.webSocketMessage(
+        guestSocket as unknown as WebSocket,
+        query.slice().buffer as ArrayBuffer
+      );
+    }
+
+    expect(ownerSocket.sent.length - before).toBe(QUERY_AWARENESS_BURST);
+    // The extra frames are dropped, not treated as an attack on the writer.
+    expect(guestSocket.closeCode).toBeNull();
+  });
+
+  it("refuses the update that would outgrow storage instead of losing the room", async () => {
+    const instance = room();
+    await instance.room.fetch(
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+    );
+    await instance.room.webSocketMessage(
+      instance.ctx.sockets[0] as unknown as WebSocket,
+      seedFrame("").slice().buffer as ArrayBuffer
+    );
+    await instance.room.fetch(connectRequest({ clientId: 2, sessionId: session(2) }));
+    const ownerSocket = instance.ctx.sockets[0];
+    const guestSocket = instance.ctx.sockets[1];
+    const half = Math.floor(MAX_DOCUMENT_BYTES * 0.55);
+
+    await instance.room.webSocketMessage(
+      guestSocket as unknown as WebSocket,
+      updateFrame("a".repeat(half)).slice().buffer as ArrayBuffer
+    );
+    const accepted = await loadDocument(instance.ctx.storage);
+    expect(accepted.getText("script").length).toBe(half);
+
+    await instance.room.webSocketMessage(
+      guestSocket as unknown as WebSocket,
+      updateFrame("b".repeat(half)).slice().buffer as ArrayBuffer
+    );
+
+    expect(guestSocket.closeCode).toBe(4009);
+    // Everyone else keeps working and nothing durable was lost.
+    expect(ownerSocket.closeCode).toBeNull();
+    const stored = await loadDocument(instance.ctx.storage);
+    expect(stored.getText("script").length).toBe(half);
+
+    await instance.room.webSocketMessage(
+      ownerSocket as unknown as WebSocket,
+      updateFrame("Still writable").slice().buffer as ArrayBuffer
+    );
+    const after = await loadDocument(instance.ctx.storage);
+    expect(after.getText("script").toString()).toContain("Still writable");
+  });
+
+  it("deletes the shared screenplay when the owner stops sharing", async () => {
+    const instance = room();
+    await instance.room.fetch(
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+    );
+    await instance.room.webSocketMessage(
+      instance.ctx.sockets[0] as unknown as WebSocket,
+      seedFrame("Private screenplay").slice().buffer as ArrayBuffer
+    );
+    expect(instance.ctx.storage.values.get(SNAPSHOT_KEY)).toBeInstanceOf(ArrayBuffer);
+
+    const revoke = await instance.room.fetch(
+      new Request(`https://worker.example/room/${token}/revoke`, {
+        method: "POST",
+        headers: { "x-duet-owner": ownerKey },
+      })
+    );
+
+    expect(revoke.status).toBe(200);
+    expect(restoreSnapshot(revoke.body as unknown as ArrayBuffer).getText("script").toString()).toBe(
+      "Private screenplay"
+    );
+    expect(instance.ctx.storage.values.has(SNAPSHOT_KEY)).toBe(false);
+    expect(instance.ctx.storage.alarm).not.toBeNull();
+  });
+
+  it("deletes a room nobody has connected to for the whole idle window", async () => {
+    const instance = room();
+    await instance.room.fetch(
+      connectRequest({ owner: ownerKey, clientId: 1, sessionId: session(1) })
+    );
+    await instance.room.webSocketMessage(
+      instance.ctx.sockets[0] as unknown as WebSocket,
+      seedFrame("Forgotten").slice().buffer as ArrayBuffer
+    );
+
+    // A live room re-arms instead of expiring.
+    await instance.room.alarm();
+    expect(instance.ctx.storage.values.has(SNAPSHOT_KEY)).toBe(true);
+
+    instance.ctx.sockets.length = 0;
+    instance.ctx.storage.values.set("last-active", Date.now() - IDLE_ROOM_TTL_MS - 1);
+    await room(instance.ctx).room.alarm();
+
+    expect(instance.ctx.storage.values.size).toBe(0);
   });
 
   it("cuts off connected guests and rejects their late messages after eviction", async () => {

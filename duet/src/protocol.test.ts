@@ -4,6 +4,8 @@ import * as encoding from "lib0/encoding";
 import * as syncProtocol from "y-protocols/sync";
 import * as Y from "yjs";
 import {
+  DocumentTooLargeError,
+  MAX_DOCUMENT_BYTES,
   MAX_MESSAGE_BYTES,
   MESSAGE_AWARENESS,
   MESSAGE_SEED,
@@ -11,6 +13,9 @@ import {
   SNAPSHOT_KEY,
   PersistedDocument,
   awarenessRemovalMessage,
+  compactSnapshot,
+  encodeSnapshot,
+  encodeSnapshotForStorage,
   encodeSyncStep1,
   encodeSyncUpdate,
   handleProtocolMessage,
@@ -352,5 +357,54 @@ describe("Duet y-websocket protocol", () => {
       awarenessClientId: 9,
     });
     expect(parsed.awareness).toEqual({ clientId: 9, clock: 4, present: false });
+  });
+});
+
+describe("Duet document size limits", () => {
+  it("refuses to encode a document larger than a storage value", () => {
+    const doc = new Y.Doc();
+    doc.getText("script").insert(0, "x".repeat(MAX_DOCUMENT_BYTES + 1024));
+
+    expect(() => encodeSnapshotForStorage(doc)).toThrow(DocumentTooLargeError);
+  });
+
+  it("leaves a document that still fits exactly as it was", () => {
+    const doc = new Y.Doc();
+    doc.getText("script").insert(0, "Short screenplay");
+
+    expect(encodeSnapshotForStorage(doc)).toEqual(encodeSnapshot(doc));
+  });
+
+  it("keeps every live character when a snapshot is compacted", () => {
+    const doc = new Y.Doc();
+    const text = doc.getText("script");
+    for (let index = 0; index < 200; index++) text.insert(0, `line ${index}\n`);
+    text.delete(0, 400);
+    const original = encodeSnapshot(doc);
+
+    const restored = new Y.Doc();
+    Y.applyUpdate(restored, compactSnapshot(original));
+
+    expect(restored.getText("script").toString()).toBe(text.toString());
+    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(doc));
+  });
+
+  it("does not write a snapshot that storage would reject", async () => {
+    const values = new Map<string, unknown>();
+    const storage: SnapshotStorage = {
+      async get<T>(key: string) {
+        return values.get(key) as T | undefined;
+      },
+      async put(key, value) {
+        values.set(key, value);
+      },
+    };
+    const doc = new Y.Doc();
+    doc.getText("script").insert(0, "y".repeat(MAX_DOCUMENT_BYTES + 1024));
+
+    await expect(saveDocument(storage, doc)).rejects.toBeInstanceOf(
+      DocumentTooLargeError
+    );
+    expect(values.has(SNAPSHOT_KEY)).toBe(false);
   });
 });

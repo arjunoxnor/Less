@@ -1,14 +1,19 @@
 import { Schema } from "@tiptap/pm/model";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
 import {
   createSeedUpdate,
+  deriveRoomToken,
   duetAllowsLocalCloudSync,
   duetCloudSyncProjectId,
+  generateSharePair,
   generateShareToken,
+  isDerivedShare,
   renameSharedOrLocalTitle,
+  revokeDuetRoom,
 } from "./duet";
+import { deriveRoomToken as workerDeriveRoomToken } from "../../duet/src/security";
 
 const schema = new Schema({
   nodes: {
@@ -76,6 +81,50 @@ describe("Duet share tokens", () => {
       expect(token).toHaveLength(43);
       expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
     }
+  });
+
+  it("mints a token the Worker will accept as proof it made the pair", async () => {
+    const pair = await generateSharePair();
+
+    expect(pair.ownerKey).toHaveLength(43);
+    expect(pair.token).toBe(await deriveRoomToken(pair.ownerKey));
+    expect(pair.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(pair.token).not.toBe(pair.ownerKey);
+  });
+
+  it("derives tokens exactly the way the Worker recomputes them", async () => {
+    // The two implementations are separate bundles. If they ever drift, every
+    // new share link stops working, so pin them together here.
+    for (const ownerKey of [generateShareToken(), generateShareToken(), "a".repeat(43)]) {
+      expect(await deriveRoomToken(ownerKey)).toBe(await workerDeriveRoomToken(ownerKey));
+    }
+  });
+});
+
+describe("Stopping a link the Worker will never issue", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("lets an owner clear a pre-derivation link the Worker refuses", async () => {
+    const legacy = { token: "t".repeat(43), ownerKey: "o".repeat(43) };
+    expect(await isDerivedShare(legacy)).toBe(false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 403 }))
+    );
+
+    await expect(revokeDuetRoom(legacy)).resolves.toBeUndefined();
+  });
+
+  it("still refuses to pretend a derived link was stopped", async () => {
+    const pair = await generateSharePair();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 403 }))
+    );
+
+    await expect(revokeDuetRoom(pair)).rejects.toThrow(/permission/);
   });
 });
 

@@ -13,6 +13,7 @@ import { fetchScript } from "@/lib/cloud/scripts";
 import { ScreenplayBody } from "./ScreenplayBody";
 import { PlainBody } from "./PlainBody";
 import type { DuetAccess } from "./ScreenplayBody";
+import type { SaveDuetCopy } from "@/lib/collab/duetCopy";
 
 /**
  * Picks the editor body by project type. Mounted by AppShell with key={id} so
@@ -26,6 +27,7 @@ import type { DuetAccess } from "./ScreenplayBody";
 export function EditorHost({
   type,
   onImportAsNew,
+  onSaveDuetCopy,
   ...rest
 }: {
   projectId: string;
@@ -48,6 +50,8 @@ export function EditorHost({
   autoFocusTitle?: boolean;
   /** Screenplay-only link collaboration. Guests have no local project row. */
   duet?: DuetAccess;
+  /** Duet stage 3: file a guest's snapshot of the room as their own project. */
+  onSaveDuetCopy?: SaveDuetCopy;
 }) {
   const { projectId, onBack } = rest;
   const [hydration, setHydration] = useState<"checking" | "ready" | "failed">(() =>
@@ -105,6 +109,10 @@ export function EditorHost({
   return type === "plain" ? (
     <PlainBody {...rest} />
   ) : (
-    <ScreenplayBody {...rest} onImportAsNew={onImportAsNew} />
+    <ScreenplayBody
+      {...rest}
+      onImportAsNew={onImportAsNew}
+      onSaveDuetCopy={onSaveDuetCopy}
+    />
   );
 }

@@ -18,6 +18,9 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const MESSAGE_AWARENESS = 1;
 const MESSAGE_QUERY_AWARENESS = 3;
 const MESSAGE_SEED = 4;
+const CLOSE_DOCUMENT_FULL = 4009;
+const DOCUMENT_FULL_MESSAGE =
+  "This shared screenplay has reached the size limit for a Duet room. Stop sharing to keep the copy on this device, then start a new link.";
 const COLORS = ["#2563eb", "#dc2626", "#7c3aed", "#059669", "#d97706", "#db2777"];
 
 export type DuetConnectionStatus = "connected" | "reconnecting" | "offline";
@@ -54,6 +57,12 @@ export interface DuetSession {
   subscribePresence(listener: (participants: DuetParticipant[]) => void): () => void;
   subscribeStatus(listener: (status: DuetConnectionStatus) => void): () => void;
   subscribeReady(listener: (ready: boolean) => void): () => void;
+  /**
+   * Fires once with a plain-English reason when the Worker refuses to carry
+   * this room any further, so the app can say so instead of showing an endless
+   * reconnect. Reconnecting is stopped before the listener runs.
+   */
+  subscribeFatal(listener: (reason: string | null) => void): () => void;
   localBackupFailed(): boolean;
   destroy(): void;
 }
@@ -199,6 +208,37 @@ export function generateShareToken(): string {
   return base64Url(randomBytes(32));
 }
 
+/**
+ * A room token is the SHA-256 of its owner key, so only the browser that
+ * generated the owner key can name a room the Worker will agree to create.
+ * Without this the Worker was an open durable store: any 43-character token
+ * plus any 43-character owner value created and claimed a room.
+ *
+ * This must stay byte-for-byte identical to `deriveRoomToken` in
+ * duet/src/security.ts. lib/collab/duet.test.ts asserts the two agree.
+ */
+export async function deriveRoomToken(ownerKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(ownerKey)
+  );
+  return base64Url(new Uint8Array(digest));
+}
+
+/** Mint an owner key and the one token the Worker will accept for it. */
+export async function generateSharePair(): Promise<DuetShareRecord> {
+  const ownerKey = generateShareToken();
+  return { token: await deriveRoomToken(ownerKey), ownerKey };
+}
+
+/**
+ * True when this pair could still create its room. Pairs minted before token
+ * derivation are false: if the Worker never stored their room, it never will.
+ */
+export async function isDerivedShare(record: DuetShareRecord): Promise<boolean> {
+  return record.token === (await deriveRoomToken(record.ownerKey));
+}
+
 export function getProjectShare(projectId: string): DuetShareRecord | null {
   const raw = storageGet(SHARE_KEY_PREFIX + projectId);
   if (!raw) return null;
@@ -213,10 +253,10 @@ export function getProjectShare(projectId: string): DuetShareRecord | null {
   }
 }
 
-export function createProjectShare(projectId: string): DuetShareRecord {
+export async function createProjectShare(projectId: string): Promise<DuetShareRecord> {
   const existing = getProjectShare(projectId);
   if (existing) return existing;
-  const record = { token: generateShareToken(), ownerKey: generateShareToken() };
+  const record = await generateSharePair();
   if (!storageSet(SHARE_KEY_PREFIX + projectId, JSON.stringify(record))) {
     throw new Error("This browser could not save the sharing link. Free some storage and try again.");
   }
@@ -384,6 +424,8 @@ export function createDuetSession({
   let synced = provider.synced;
   let currentUser = user;
   let ready = false;
+  let fatalReason: string | null = null;
+  const fatalListeners = new Set<(value: string | null) => void>();
   const readyListeners = new Set<(value: boolean) => void>();
   let status: DuetConnectionStatus =
     typeof navigator !== "undefined" && !navigator.onLine ? "offline" : "reconnecting";
@@ -476,9 +518,24 @@ export function createDuetSession({
   const onOnline = () => setStatus(provider.wsconnected ? "connected" : "reconnecting");
   const onOffline = () => setStatus("offline");
 
+  // A room that is full refuses the same update on every reconnect, so retrying
+  // would loop forever and never tell anyone why. Stop and say what happened.
+  const onConnectionClose = (event: CloseEvent | null) => {
+    if (event?.code !== CLOSE_DOCUMENT_FULL) return;
+    fatalReason = DOCUMENT_FULL_MESSAGE;
+    provider.shouldConnect = false;
+    try {
+      provider.disconnect();
+    } catch {
+      // The socket is already closed; the listeners below still need telling.
+    }
+    for (const listener of fatalListeners) listener(fatalReason);
+  };
+
   provider.on("sync", onSync);
   provider.on("status", onProviderStatus);
   provider.on("connection-error", onConnectionError);
+  provider.on("connection-close", onConnectionClose);
   if (typeof window !== "undefined") {
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
@@ -543,6 +600,11 @@ export function createDuetSession({
       listener(ready);
       return () => readyListeners.delete(listener);
     },
+    subscribeFatal(listener) {
+      fatalListeners.add(listener);
+      listener(fatalReason);
+      return () => fatalListeners.delete(listener);
+    },
     localBackupFailed() {
       return backupFailed;
     },
@@ -550,6 +612,7 @@ export function createDuetSession({
       provider.off("sync", onSync);
       provider.off("status", onProviderStatus);
       provider.off("connection-error", onConnectionError);
+      provider.off("connection-close", onConnectionClose);
       if (typeof window !== "undefined") {
         window.removeEventListener("online", onOnline);
         window.removeEventListener("offline", onOffline);
@@ -571,6 +634,10 @@ export async function revokeDuetRoom(
     headers: { "x-duet-owner": record.ownerKey },
   });
   if (!response.ok) {
+    // A pair minted before token derivation, for a room the Worker never
+    // stored, can never create that room now. There is nothing left to stop,
+    // and refusing would trap the owner with a link that does nothing.
+    if (response.status === 403 && !(await isDerivedShare(record))) return;
     throw new Error(
       response.status === 403
         ? "This device no longer has permission to stop that sharing link."

@@ -39,7 +39,26 @@ vi.mock("./ProjectsHome", () => ({
     </div>
   ),
 }));
-vi.mock("./EditorHost", () => ({ EditorHost: () => null }));
+vi.mock("./EditorHost", () => ({
+  // Stand in for the editor, exposing only the duet stage 3 hook: a guest's
+  // "save a copy" reaches the app shell through this callback.
+  EditorHost: (props: {
+    onSaveDuetCopy?: (input: { type: string; title: string; content: unknown }) => unknown;
+  }) =>
+    props.onSaveDuetCopy ? (
+      <button
+        type="button"
+        data-testid="save-duet-copy"
+        onClick={() =>
+          props.onSaveDuetCopy?.({
+            type: "screenplay",
+            title: "Kept from the link",
+            content: { type: "doc", content: [] },
+          })
+        }
+      />
+    ) : null,
+}));
 vi.mock("./AuthModal", () => ({ AuthModal: () => null }));
 vi.mock("./SessionExpiredBanner", () => ({ SessionExpiredBanner: () => null }));
 vi.mock("@/lib/export", () => ({ importFile: vi.fn() }));
@@ -139,5 +158,46 @@ describe("AppShell routing", () => {
 
     expect(() => mount(<AppShell />)).not.toThrow();
     expect(host!.querySelector('[data-testid="home"]')).not.toBeNull();
+  });
+});
+
+describe("Keeping a shared script (duet stage 3)", () => {
+  const token = "d".repeat(43);
+
+  it("files the guest's copy as an ordinary project and opens it", () => {
+    projectApi.create.mockReturnValue({ id: "kept-1", title: "Kept from the link" });
+    // The real create writes the index; here it is mocked, so stand the row up
+    // by hand or the shell would bounce straight back to the home.
+    window.localStorage.setItem(
+      "less:projects:index",
+      JSON.stringify([
+        {
+          id: "kept-1",
+          title: "Kept from the link",
+          type: "screenplay",
+          status: "writing",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          cloudCreated: false,
+        },
+      ])
+    );
+    window.location.hash = `#/duet/${token}`;
+    mount(<AppShell />);
+
+    act(() => host!.querySelector<HTMLButtonElement>('[data-testid="save-duet-copy"]')!.click());
+
+    expect(projectApi.create).toHaveBeenCalledWith("screenplay", "Kept from the link", {
+      content: { type: "doc", content: [] },
+    });
+    // Somewhere unambiguous: the writer lands in their own copy, not the room.
+    expect(window.location.hash).toBe("#/p/kept-1");
+  });
+
+  it("offers nothing to save from an ordinary project", () => {
+    window.location.hash = "";
+    mount(<AppShell />);
+
+    expect(host!.querySelector('[data-testid="save-duet-copy"]')).toBeNull();
   });
 });

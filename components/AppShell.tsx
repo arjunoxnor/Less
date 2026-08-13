@@ -30,6 +30,7 @@ import { SessionExpiredBanner } from "./SessionExpiredBanner";
 import { importFile } from "@/lib/export";
 import { getFolder, type Stage } from "@/lib/storage/folders";
 import { getProjectShare } from "@/lib/collab/duet";
+import type { DuetCopyInput } from "@/lib/collab/duetCopy";
 import { showToast } from "./ui/Toast";
 
 /**
@@ -218,6 +219,19 @@ export function AppShell() {
     setView({ kind: "editor", id, focusTitle: opts?.focusTitle });
   }, []);
 
+  // Duet stage 3: a guest keeps the shared script. It becomes an ordinary
+  // project (so it is on the home screen and syncs to the cloud like any
+  // other), and the writer is taken straight into their own copy, which leaves
+  // the shared session behind. A snapshot, not a live link.
+  const saveDuetCopy = useCallback(
+    (input: DuetCopyInput) => {
+      const meta = create(input.type, input.title, { content: input.content });
+      openProject(meta.id);
+      return meta;
+    },
+    [create, openProject]
+  );
+
   const goHome = useCallback(() => {
     refresh();
     if (typeof window !== "undefined") window.location.hash = "";
@@ -379,6 +393,7 @@ export function AppShell() {
           user={user}
           sessionExpired={sessionExpired}
           duet={{ token: view.token, owner: false }}
+          onSaveDuetCopy={saveDuetCopy}
         />
         {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       </>

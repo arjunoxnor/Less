@@ -48,6 +48,7 @@ import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
   EMPTY_SCREENPLAY,
   getProjectMeta,
+  listProjects,
   patchProjectMeta,
   loadProjectDoc,
   saveProjectDoc,
@@ -121,7 +122,18 @@ import {
   type DuetSession,
   type DuetShareRecord,
 } from "@/lib/collab/duet";
+import {
+  duetCopyHasText,
+  duetCopyType,
+  duetMirrorsToLibrary,
+  planDuetCopy,
+  readDuetCopyRecord,
+  writeDuetCopyRecord,
+  type DuetCopyPlan,
+  type SaveDuetCopy,
+} from "@/lib/collab/duetCopy";
 import { DuetShareModal } from "./DuetShareModal";
+import { DuetSaveCopyModal } from "./DuetSaveCopyModal";
 
 export interface DuetAccess {
   token: string;
@@ -146,13 +158,17 @@ interface ScreenplayBodyProps {
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
   duet?: DuetAccess;
+  /** Duet stage 3: file a guest's snapshot of the room in their own library. */
+  onSaveDuetCopy?: SaveDuetCopy;
 }
 
-export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
+export function ScreenplayBody({ duet, onSaveDuetCopy, ...props }: ScreenplayBodyProps) {
   const [access, setAccess] = useState<DuetAccess | null>(() => duet ?? null);
   const [session, setSession] = useState<DuetSession | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [showShare, setShowShare] = useState(false);
+  const [copyPlan, setCopyPlan] = useState<DuetCopyPlan | null>(null);
+  const [savingCopy, setSavingCopy] = useState(false);
   const [participants, setParticipants] = useState<DuetParticipant[]>([]);
   const [duetStatus, setDuetStatus] = useState<DuetConnectionStatus>("reconnecting");
   const [duetReady, setDuetReady] = useState(false);
@@ -215,17 +231,21 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
     const offPresence = session.subscribePresence(setParticipants);
     const offStatus = session.subscribeStatus(setDuetStatus);
     const offReady = session.subscribeReady(setDuetReady);
+    const offFatal = session.subscribeFatal((reason) => {
+      if (reason) showToast(reason, { variant: "danger" });
+    });
     return () => {
       offPresence();
       offStatus();
       offReady();
+      offFatal();
     };
   }, [session]);
 
-  const openShare = () => {
+  const openShare = async () => {
     if (!access) {
       try {
-        const record = createProjectShare(props.projectId);
+        const record = await createProjectShare(props.projectId);
         setAccess({ token: record.token, owner: true, ownerKey: record.ownerKey });
       } catch (cause) {
         showToast(cause instanceof Error ? cause.message : "Sharing could not start.", {
@@ -235,6 +255,52 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
       }
     }
     setShowShare(true);
+  };
+
+  // Duet stage 3. The room is only READ here: the snapshot becomes an ordinary
+  // project with a fresh id, so nobody else's session is touched and the copy
+  // never syncs back over the shared document.
+  const openSaveCopy = () => {
+    if (!session || session.owner || !onSaveDuetCopy) return;
+    const content = session.getContent();
+    if (!duetCopyHasText(content)) {
+      showToast("Nothing has loaded from this shared script yet, so there is nothing to save.");
+      return;
+    }
+    setCopyPlan(
+      planDuetCopy({
+        content,
+        sharedTitle: session.getTitle(),
+        existingTitles: listProjects().map((project) => project.title),
+        previous: readDuetCopyRecord(session.token, (id) => getProjectMeta(id) !== null),
+      })
+    );
+  };
+
+  const saveCopy = (title: string) => {
+    if (!copyPlan || !session || !onSaveDuetCopy || savingCopy) return;
+    setSavingCopy(true);
+    try {
+      // Snapshot at the moment of saving, not at the moment the dialog opened,
+      // so "as it is right now" is true even if the room moved on meanwhile.
+      const live = session.getContent();
+      const content = duetCopyHasText(live) ? live : copyPlan.content;
+      const saved = onSaveDuetCopy({ type: duetCopyType(content), title, content });
+      writeDuetCopyRecord(session.token, {
+        projectId: saved.id,
+        title: saved.title,
+        savedAt: new Date().toISOString(),
+      });
+      setCopyPlan(null);
+      showToast("Saved to your library. You are editing your own copy now, not the shared script.");
+    } catch (cause) {
+      showToast(
+        cause instanceof Error ? cause.message : "The copy could not be saved on this device.",
+        { variant: "danger" }
+      );
+    } finally {
+      setSavingCopy(false);
+    }
   };
 
   const stopSharing = async () => {
@@ -279,6 +345,15 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
       />
     ) : null;
 
+  const copyModal = copyPlan ? (
+    <DuetSaveCopyModal
+      plan={copyPlan}
+      saving={savingCopy}
+      onSave={saveCopy}
+      onClose={() => setCopyPlan(null)}
+    />
+  ) : null;
+
   if (access && !session && sessionError) {
     return (
       <>
@@ -305,9 +380,14 @@ export function ScreenplayBody({ duet, ...props }: ScreenplayBodyProps) {
         participants={participants}
         duetReady={duetReady}
         duetPending={access !== null && session === null}
+        duetAccess={access}
         onOpenShare={openShare}
+        onSaveCopy={
+          session && !session.owner && onSaveDuetCopy ? openSaveCopy : undefined
+        }
       />
       {modal}
+      {copyModal}
     </>
   );
 }
@@ -331,14 +411,20 @@ function ScreenplayEditor({
   participants,
   duetReady,
   duetPending,
+  duetAccess,
   onOpenShare,
-}: Omit<ScreenplayBodyProps, "duet"> & {
+  onSaveCopy,
+}: Omit<ScreenplayBodyProps, "duet" | "onSaveDuetCopy"> & {
   duetSession: DuetSession | null;
   duetStatus: DuetConnectionStatus;
   participants: DuetParticipant[];
   duetReady: boolean;
   duetPending: boolean;
+  /** The room this editor is bound to, owned or joined by link. */
+  duetAccess: DuetAccess | null;
   onOpenShare: () => void;
+  /** Guest-only (stage 3): keep a snapshot of the room as your own project. */
+  onSaveCopy?: () => void;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_SCREENPLAY,
@@ -351,6 +437,10 @@ function ScreenplayEditor({
   const duetActive = duetSession !== null || duetPending;
   const localCloudSyncAllowed = duetAllowsLocalCloudSync(duetSession, duetPending);
   const cloudSyncProjectId = duetCloudSyncProjectId(projectId, duetPending);
+  // A guest's room has no project row here, so every local mirror of it would
+  // be filed as a phantom recovered-conflict project. Their crash backup is the
+  // room's own Y.Doc cache; "Save a copy" is the deliberate way to keep it.
+  const mirrorsToLibrary = duetMirrorsToLibrary(duetAccess);
   const renameActiveTitle = useCallback(
     (next: string) => {
       renameSharedOrLocalTitle(duetSession, onRename, next);
@@ -427,6 +517,12 @@ function ScreenplayEditor({
     () =>
       debounce(
         (doc: JSONContent) => {
+          if (!mirrorsToLibrary) {
+            unsavedRef.current = false;
+            setSaved(true);
+            setSaveError(duetSession?.localBackupFailed() === true);
+            return;
+          }
           const ok = saveProjectDoc(projectId, doc);
           setSaveError(!ok || duetSession?.localBackupFailed() === true);
           if (ok) {
@@ -445,7 +541,7 @@ function ScreenplayEditor({
         // can never lose more than a couple of seconds of work.
         2500
       ),
-    [projectId, duetSession]
+    [projectId, duetSession, mirrorsToLibrary]
   );
 
   const measure = useCallback((ed: Editor) => {
@@ -599,7 +695,11 @@ function ScreenplayEditor({
       status,
       deriveTitle,
       getTitle: () => getProjectMeta(projectId)?.title ?? titleRef.current,
-      saveLocalDoc: (d: JSONContent) => saveProjectDoc(projectId, d),
+      // A restore or import pulls content through here even with cloud sync
+      // off, so it needs the same guard as the autosave: a guest's room has no
+      // project row to write to.
+      saveLocalDoc: (d: JSONContent) =>
+        mirrorsToLibrary ? saveProjectDoc(projectId, d) : true,
       loadLocalTitlePage: () => loadProjectTitlePage(projectId),
       saveLocalTitlePage: (tp: ReturnType<typeof loadProjectTitlePage>) =>
         saveProjectTitlePage(projectId, tp),
@@ -616,7 +716,7 @@ function ScreenplayEditor({
       setCloudCreatePending: (pending: boolean) =>
         patchProjectMeta(projectId, { cloudCreatePending: pending }),
     }),
-    [projectId, cloudSyncProjectId, status, localCloudSyncAllowed]
+    [projectId, cloudSyncProjectId, status, localCloudSyncAllowed, mirrorsToLibrary]
   );
 
   const {
@@ -642,13 +742,13 @@ function ScreenplayEditor({
       debouncedSave.cancel();
       const ed = editorRef.current;
       // Only a real pending edit gets written on the way out; see unsavedRef.
-      if (ed && unsavedRef.current) {
+      if (ed && unsavedRef.current && mirrorsToLibrary) {
         const current = duetSession?.getContent() ?? ed.getJSON();
         saveProjectDoc(projectId, current.content?.length ? current : EMPTY_SCREENPLAY);
       }
       flushRef.current();
     };
-  }, [projectId, debouncedSave, duetSession]);
+  }, [projectId, debouncedSave, duetSession, mirrorsToLibrary]);
 
   // The unmount cleanup above does NOT run when the tab is closed, refreshed, or
   // backgrounded. These handlers force the pending edit to localStorage (a
@@ -657,7 +757,7 @@ function ScreenplayEditor({
   useEffect(() => {
     const flushLocal = () => {
       const ed = editorRef.current;
-      if (!ed || !unsavedRef.current) return;
+      if (!ed || !unsavedRef.current || !mirrorsToLibrary) return;
       debouncedSave.cancel();
       const current = duetSession?.getContent() ?? ed.getJSON();
       const ok = saveProjectDoc(
@@ -685,7 +785,7 @@ function ScreenplayEditor({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [projectId, debouncedSave, duetSession]);
+  }, [projectId, debouncedSave, duetSession, mirrorsToLibrary]);
 
   useEffect(() => {
     if (editor && pulledTick > 0) {
@@ -1169,6 +1269,11 @@ function ScreenplayEditor({
   // The overflow menu, exactly the 2B.1 groups and order.
   const overflowItems: MenuItem[] = [
     { label: "Share…", onSelect: onOpenShare },
+    // Guests only. The owner already has this script in their library, and the
+    // shared text writes back into it, so a copy action would only confuse.
+    ...(onSaveCopy
+      ? [{ label: "Save a copy to my library…", onSelect: onSaveCopy } as MenuItem]
+      : []),
     { kind: "divider" },
     { label: "Import into this project…", onSelect: () => importInputRef.current?.click() },
     { label: "Title page…", onSelect: () => setShowTitlePage(true) },
