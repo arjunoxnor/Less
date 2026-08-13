@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { memo, useMemo, useRef } from "react";
 import type { Outline } from "@/types/screenplay";
 import { buildReport, reportToText } from "@/lib/editor/report";
 import { downloadBlob, safeFilename } from "@/lib/export/download";
@@ -10,7 +10,7 @@ import { downloadBlob, safeFilename } from "@/lib/export/download";
  * breakdowns, all from the live outline and the real page count. Click a scene
  * to jump there; Export downloads a plain-text report.
  */
-export function ReportsPanel({
+export const ReportsPanel = memo(function ReportsPanel({
   outline,
   pageCount,
   wordCount,
@@ -25,15 +25,93 @@ export function ReportsPanel({
   onJump: (pos: number) => void;
   onClose: () => void;
 }) {
+  const structuralReport = useMemo(
+    () => buildReport(outline, pageCount, 0),
+    [outline, pageCount]
+  );
   const report = useMemo(
-    () => buildReport(outline, pageCount, wordCount),
-    [outline, pageCount, wordCount]
+    () => ({
+      ...structuralReport,
+      stats: { ...structuralReport.stats, words: wordCount },
+    }),
+    [structuralReport, wordCount]
+  );
+  const scenePositions = useMemo(
+    () => new Map(outline.scenes.map((scene) => [scene.number, scene.pos])),
+    [outline.scenes]
+  );
+  const latestOutline = useRef(outline);
+  const latestReport = useRef(report);
+  const latestTitle = useRef(title);
+  latestOutline.current = outline;
+  latestReport.current = report;
+  latestTitle.current = title;
+
+  // Word count changes on nearly every keystroke. Keep the large structural
+  // lists memoized so updating that one statistic does not rebuild thousands
+  // of scene/cast/location row elements.
+  const sceneRows = useMemo(
+    () =>
+      structuralReport.scenes.map((scene) => {
+        const pos = scenePositions.get(scene.number);
+        return (
+          <li key={scene.number} className="report-row">
+            <button
+              type="button"
+              className="report-scene"
+              onClick={() => {
+                const live = latestOutline.current.scenes.find(
+                  (entry) =>
+                    entry.number === scene.number && entry.heading === scene.heading
+                );
+                if (live) onJump(live.pos);
+              }}
+              disabled={pos == null}
+              title={scene.heading}
+            >
+              <span className="report-scene-n">{scene.number}</span>
+              <span className="report-scene-h">
+                {scene.heading || "(untitled scene)"}
+              </span>
+              {scene.page != null && (
+                <span className="report-scene-p">p. {scene.page}</span>
+              )}
+            </button>
+          </li>
+        );
+      }),
+    [onJump, scenePositions, structuralReport.scenes]
+  );
+  const characterRows = useMemo(
+    () =>
+      structuralReport.characters.map((character) => (
+        <li key={character.name} className="report-row">
+          <span className="report-name">{character.name}</span>
+          <span className="report-metrics">
+            {character.lines} {character.lines === 1 ? "line" : "lines"},{" "}
+            {character.scenes} {character.scenes === 1 ? "scene" : "scenes"}
+          </span>
+        </li>
+      )),
+    [structuralReport.characters]
+  );
+  const locationRows = useMemo(
+    () =>
+      structuralReport.locations.map((location) => (
+        <li key={location.name} className="report-row">
+          <span className="report-name">{location.name}</span>
+          <span className="report-metrics">
+            {location.scenes} {location.scenes === 1 ? "scene" : "scenes"}
+          </span>
+        </li>
+      )),
+    [structuralReport.locations]
   );
 
   const onExport = () => {
     downloadBlob(
-      reportToText(report, title),
-      safeFilename(title + " report", "txt"),
+      reportToText(latestReport.current, latestTitle.current),
+      safeFilename(latestTitle.current + " report", "txt"),
       "text/plain;charset=utf-8"
     );
   };
@@ -81,23 +159,7 @@ export function ReportsPanel({
         <div className="side-panel-empty">No scenes yet.</div>
       ) : (
         <ul className="side-panel-list">
-          {report.scenes.map((sc) => {
-            const pos = outline.scenes.find((x) => x.number === sc.number)?.pos;
-            return (
-              <li key={sc.number} className="report-row">
-                <button
-                  type="button"
-                  className="report-scene"
-                  onClick={() => pos != null && onJump(pos)}
-                  title={sc.heading}
-                >
-                  <span className="report-scene-n">{sc.number}</span>
-                  <span className="report-scene-h">{sc.heading || "(untitled scene)"}</span>
-                  {sc.page != null && <span className="report-scene-p">p. {sc.page}</span>}
-                </button>
-              </li>
-            );
-          })}
+          {sceneRows}
         </ul>
       )}
 
@@ -106,14 +168,7 @@ export function ReportsPanel({
         <div className="side-panel-empty">No speaking characters yet.</div>
       ) : (
         <ul className="side-panel-list">
-          {report.characters.map((c) => (
-            <li key={c.name} className="report-row">
-              <span className="report-name">{c.name}</span>
-              <span className="report-metrics">
-                {c.lines} {c.lines === 1 ? "line" : "lines"}, {c.scenes} {c.scenes === 1 ? "scene" : "scenes"}
-              </span>
-            </li>
-          ))}
+          {characterRows}
         </ul>
       )}
 
@@ -122,16 +177,15 @@ export function ReportsPanel({
         <div className="side-panel-empty">No locations yet.</div>
       ) : (
         <ul className="side-panel-list">
-          {report.locations.map((l) => (
-            <li key={l.name} className="report-row">
-              <span className="report-name">{l.name}</span>
-              <span className="report-metrics">
-                {l.scenes} {l.scenes === 1 ? "scene" : "scenes"}
-              </span>
-            </li>
-          ))}
+          {locationRows}
         </ul>
       )}
     </aside>
   );
-}
+}, (previous, next) =>
+  previous.outline === next.outline &&
+  previous.pageCount === next.pageCount &&
+  previous.wordCount === next.wordCount &&
+  previous.title === next.title &&
+  previous.onJump === next.onJump
+);

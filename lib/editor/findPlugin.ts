@@ -1,7 +1,8 @@
-import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Extension, getChangedRanges } from "@tiptap/core";
+import { Plugin, PluginKey, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { changedTopLevelNodes } from "./changedRanges";
 
 /**
  * Find and replace, built as a ProseMirror plugin that keeps ALL match state
@@ -39,52 +40,161 @@ function isWordChar(ch: string | undefined): boolean {
 export const findPluginKey = new PluginKey<FindState>("screenplayFind");
 
 /** Keep the decoration tree bounded while retaining the complete match list. */
-const MAX_DECORATIONS = 5000;
+const MAX_DECORATIONS = 1000;
+
+function matchesInLine(
+  node: PMNode,
+  offset: number,
+  query: string,
+  opts: FindOpts
+): Match[] {
+  if (!query || node.type.name !== "screenplayLine") return [];
+  const scope = opts.element && opts.element !== "all" ? opts.element : null;
+  if (scope && node.attrs.element !== scope) return [];
+
+  const matches: Match[] = [];
+  const needle = opts.caseSensitive ? query : query.toLowerCase();
+  const raw = node.textContent;
+  const hay = opts.caseSensitive ? raw : raw.toLowerCase();
+  const nlen = needle.length;
+  let index = hay.indexOf(needle);
+  while (index !== -1) {
+    const before = index > 0 ? hay[index - 1] : undefined;
+    const after = index + nlen < hay.length ? hay[index + nlen] : undefined;
+    const wordOk = !opts.wholeWord || (!isWordChar(before) && !isWordChar(after));
+    if (wordOk) {
+      const from = offset + 1 + index;
+      matches.push({ from, to: from + nlen });
+    }
+    index = hay.indexOf(needle, index + nlen);
+  }
+  return matches;
+}
 
 /** All non-overlapping matches of `query` within the lines of `doc`. */
 export function findMatches(doc: PMNode, query: string, opts: FindOpts): Match[] {
   if (!query) return [];
   const matches: Match[] = [];
-  const needle = opts.caseSensitive ? query : query.toLowerCase();
-  const nlen = needle.length;
-
-  const scope = opts.element && opts.element !== "all" ? opts.element : null;
-
   doc.forEach((node, offset) => {
-    if (node.type.name !== "screenplayLine") return;
-    if (scope && node.attrs.element !== scope) return;
-    const raw = node.textContent;
-    const hay = opts.caseSensitive ? raw : raw.toLowerCase();
-    let i = hay.indexOf(needle);
-    while (i !== -1) {
-      const before = i > 0 ? hay[i - 1] : undefined;
-      const after = i + nlen < hay.length ? hay[i + nlen] : undefined;
-      const wordOk = !opts.wholeWord || (!isWordChar(before) && !isWordChar(after));
-      if (wordOk) {
-        const from = offset + 1 + i;
-        matches.push({ from, to: from + nlen });
-      }
-      i = hay.indexOf(needle, i + nlen); // non-overlapping
-    }
+    matches.push(...matchesInLine(node, offset, query, opts));
   });
   return matches;
 }
 
+function matchKey(match: Match): string {
+  return `${match.from}:${match.to}`;
+}
+
+function visibleMatches(matches: Match[], active: number): Match[] {
+  const visible = matches.slice(0, MAX_DECORATIONS);
+  if (active >= MAX_DECORATIONS && matches[active]) visible.push(matches[active]);
+  return visible;
+}
+
 function buildDeco(doc: PMNode, matches: Match[], active: number): DecorationSet {
-  const visible = matches.slice(0, MAX_DECORATIONS).map((match, index) => ({
-    match,
-    index,
-  }));
-  if (active >= MAX_DECORATIONS && matches[active]) {
-    visible.push({ match: matches[active], index: active });
-  }
   return DecorationSet.create(
     doc,
-    visible.map(({ match, index }) =>
-      Decoration.inline(match.from, match.to, {
-        class: index === active ? "find-mark find-mark-active" : "find-mark",
-      })
+    visibleMatches(matches, active).map((match) =>
+      Decoration.inline(
+        match.from,
+        match.to,
+        {
+          class: match === matches[active] ? "find-mark find-mark-active" : "find-mark",
+        },
+        { findActive: match === matches[active] }
+      )
     )
+  );
+}
+
+/**
+ * Keep the mapped decoration tree and reconcile only membership/active styling.
+ * At most MAX_DECORATIONS entries are inspected; unchanged marks retain their
+ * Decoration objects instead of rebuilding a thousand DOM decorations per key.
+ */
+function reconcileDeco(
+  doc: PMNode,
+  mapped: DecorationSet,
+  matches: Match[],
+  active: number
+): DecorationSet {
+  const desired = visibleMatches(matches, active);
+  const desiredKeys = new Set(desired.map(matchKey));
+  const activeKey = matches[active] ? matchKey(matches[active]) : null;
+  const current = mapped.find();
+  const remove = current.filter((deco) => {
+    const key = matchKey(deco);
+    return (
+      !desiredKeys.has(key) ||
+      key === activeKey ||
+      (deco.spec as { findActive?: boolean }).findActive === true
+    );
+  });
+  let next = remove.length ? mapped.remove(remove) : mapped;
+  const currentKeys = new Set(next.find().map((deco) => matchKey(deco)));
+  const additions: Decoration[] = [];
+  for (const match of desired) {
+    const key = matchKey(match);
+    if (currentKeys.has(key)) continue;
+    const isActive = key === activeKey;
+    additions.push(
+      Decoration.inline(
+        match.from,
+        match.to,
+        { class: isActive ? "find-mark find-mark-active" : "find-mark" },
+        { findActive: isActive }
+      )
+    );
+  }
+  if (additions.length) next = next.add(doc, additions);
+  return next;
+}
+
+function spanContains(span: [number, number], match: Match): boolean {
+  return match.from >= span[0] && match.to <= span[1];
+}
+
+/** Rescan only top-level lines touched by an edit and map every other match. */
+function updateMatches(
+  transaction: Transaction,
+  oldDoc: PMNode,
+  newDoc: PMNode,
+  previous: Match[],
+  query: string,
+  opts: FindOpts
+): Match[] {
+  const changes = getChangedRanges(transaction);
+  if (!changes.length) {
+    return previous.map((match) => ({
+      from: transaction.mapping.map(match.from, 1),
+      to: transaction.mapping.map(match.to, -1),
+    }));
+  }
+
+  const oldRanges = changes.map(
+    (change) => [change.oldRange.from, change.oldRange.to] as [number, number]
+  );
+  const newRanges = changes.map(
+    (change) => [change.newRange.from, change.newRange.to] as [number, number]
+  );
+  const oldSpans = changedTopLevelNodes(oldDoc, oldRanges).map(
+    ({ node, pos }) => [pos, pos + node.nodeSize] as [number, number]
+  );
+  const kept = previous
+    .filter((match) => !oldSpans.some((span) => spanContains(span, match)))
+    .map((match) => ({
+      from: transaction.mapping.map(match.from, 1),
+      to: transaction.mapping.map(match.to, -1),
+    }));
+  for (const { node, pos } of changedTopLevelNodes(newDoc, newRanges)) {
+    kept.push(...matchesInLine(node, pos, query, opts));
+  }
+  kept.sort((a, b) => a.from - b.from || a.to - b.to);
+  return kept.filter(
+    (match, index) =>
+      index === 0 ||
+      match.from !== kept[index - 1].from ||
+      match.to !== kept[index - 1].to
   );
 }
 
@@ -104,9 +214,10 @@ export const FindReplace = Extension.create({
             matches: [],
             deco: DecorationSet.empty,
           }),
-          apply(tr, prev, _old, newState) {
+          apply(tr, prev, oldState, newState) {
             const meta = tr.getMeta(findPluginKey) as Partial<FindState> | undefined;
             let next = prev;
+            let searchChanged = false;
             if (meta) {
               next = { ...prev, ...meta };
               // A changed query / option resets the cursor to the first match.
@@ -119,21 +230,51 @@ export const FindReplace = Extension.create({
                 meta.wholeWord !== undefined && meta.wholeWord !== prev.wholeWord;
               const elementChanged =
                 meta.element !== undefined && meta.element !== prev.element;
-              if (queryChanged || caseChanged || wordChanged || elementChanged) {
+              searchChanged = queryChanged || caseChanged || wordChanged || elementChanged;
+              if (searchChanged) {
                 next.active = 0;
               }
             }
 
-            if (meta || tr.docChanged) {
-              const matches = findMatches(newState.doc, next.query, {
-                caseSensitive: next.caseSensitive,
-                wholeWord: next.wholeWord,
-                element: next.element,
-              });
+            const opts = {
+              caseSensitive: next.caseSensitive,
+              wholeWord: next.wholeWord,
+              element: next.element,
+            };
+            if (searchChanged) {
+              const matches = findMatches(newState.doc, next.query, opts);
               const active = matches.length
                 ? Math.min(Math.max(next.active, 0), matches.length - 1)
                 : 0;
               next = { ...next, matches, active, deco: buildDeco(newState.doc, matches, active) };
+            } else if (tr.docChanged) {
+              const matches = updateMatches(
+                tr,
+                oldState.doc,
+                newState.doc,
+                prev.matches,
+                next.query,
+                opts
+              );
+              const active = matches.length
+                ? Math.min(Math.max(next.active, 0), matches.length - 1)
+                : 0;
+              const mapped = prev.deco.map(tr.mapping, tr.doc);
+              next = {
+                ...next,
+                matches,
+                active,
+                deco: reconcileDeco(newState.doc, mapped, matches, active),
+              };
+            } else if (meta) {
+              const active = next.matches.length
+                ? Math.min(Math.max(next.active, 0), next.matches.length - 1)
+                : 0;
+              next = {
+                ...next,
+                active,
+                deco: reconcileDeco(newState.doc, prev.deco, next.matches, active),
+              };
             } else {
               // Cheap path on selection-only changes: keep highlights mapped.
               next = { ...next, deco: prev.deco.map(tr.mapping, tr.doc) };

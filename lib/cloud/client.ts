@@ -18,6 +18,7 @@ const USER_KEY = "less:user";
  * softly and LESS stays local-only there.
  */
 export const isCloudConfigured = true;
+export const API_TIMEOUT_MS = 20_000;
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -117,21 +118,36 @@ function notifyAuth() {
  */
 export async function api<T>(
   path: string,
-  opts: { method?: string; body?: unknown; keepalive?: boolean } = {}
+  opts: { method?: string; body?: unknown; keepalive?: boolean; timeoutMs?: number } = {}
 ): Promise<T | null> {
   const token = getToken();
   if (!token) return null;
-  const res = await fetch(`/api/${path}`, {
-    method: opts.method ?? "GET",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    // keepalive lets a push survive the page unloading (tab close). The browser
-    // caps keepalive bodies at ~64KB, so callers only set it for small payloads.
-    keepalive: opts.keepalive,
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const request = fetch(`/api/${path}`, {
+      method: opts.method ?? "GET",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      // keepalive lets a push survive the page unloading (tab close). The browser
+      // caps keepalive bodies at ~64KB, so callers only set it for small payloads.
+      keepalive: opts.keepalive,
+      signal: controller?.signal,
+    });
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      controller?.abort();
+      reject(new Error("Cloud request timed out"));
+    }, opts.timeoutMs ?? API_TIMEOUT_MS);
   });
+  let res: Response;
+  try {
+    res = await Promise.race([request, timedOut]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
   if (res.status === 401) {
     // The session expired. Do NOT clear it (that would look like a sign-out
     // and trigger the local wipe of cloud-backed copies). Flag it, tell the

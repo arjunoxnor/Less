@@ -147,11 +147,32 @@ function get(key: string): string | null {
     return null;
   }
 }
+let notifyingStorageFull = false;
+
+function writeStorageValue(key: string, value: string | null): void {
+  if (value === null) window.localStorage.removeItem(key);
+  else window.localStorage.setItem(key, value);
+}
+
+function signalStorageFull(): void {
+  // dispatchEvent is synchronous. A listener may free recoverable storage, so
+  // the failed write gets one retry below. Guard re-entrancy because the
+  // listener's own bookkeeping writes can also hit the same full quota.
+  if (notifyingStorageFull) return;
+  notifyingStorageFull = true;
+  try {
+    window.dispatchEvent(new CustomEvent("less:storagefull"));
+  } catch {
+    /* ignore */
+  } finally {
+    notifyingStorageFull = false;
+  }
+}
+
 function set(key: string, value: string | null): boolean {
   if (typeof window === "undefined") return false;
   try {
-    if (value === null) window.localStorage.removeItem(key);
-    else window.localStorage.setItem(key, value);
+    writeStorageValue(key, value);
     return true;
   } catch {
     // Storage full or disabled. Return false so callers that persist real work
@@ -159,12 +180,31 @@ function set(key: string, value: string | null): boolean {
     // of showing a false "Saved". Also broadcast a global signal so writes that
     // do NOT thread the boolean back to the UI (folder state, cloud bookkeeping)
     // still make a full disk visible instead of silently corrupting sync state.
+    signalStorageFull();
+    // The storage-pressure handler runs synchronously and may have made room.
+    // Retrying here means the keystroke that discovered a full disk can still
+    // land; without it the writer had to type another character to retry.
     try {
-      window.dispatchEvent(new CustomEvent("less:storagefull"));
+      writeStorageValue(key, value);
+      return true;
     } catch {
-      /* ignore */
+      return false;
     }
-    return false;
+  }
+}
+
+/** Enumerate localStorage defensively. Private mode can throw even on length. */
+export function lsKeys(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const out: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key !== null) out.push(key);
+    }
+    return out;
+  } catch {
+    return [];
   }
 }
 

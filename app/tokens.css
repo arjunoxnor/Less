@@ -10,11 +10,13 @@
 :root {
   /* ---- Type (UI chrome) ------------------------------------------------- */
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --text-xs: 11px; /* micro labels, badges */
-  --text-sm: 12.5px; /* secondary, status bar, menu items */
-  --text-md: 14px; /* default controls, panel body */
-  --text-lg: 16px; /* panel titles, modal titles, doc title */
-  --text-xl: 22px; /* dashboard headings */
+  /* rem keeps browser/OS text-size preferences effective; screenplay type is
+     specified separately in print units and is intentionally unaffected. */
+  --text-xs: 0.6875rem; /* micro labels, badges */
+  --text-sm: 0.78125rem; /* secondary, status bar, menu items */
+  --text-md: 0.875rem; /* default controls, panel body */
+  --text-lg: 1rem; /* panel titles, modal titles, doc title */
+  --text-xl: 1.375rem; /* dashboard headings */
 
   /* ---- Color, light ------------------------------------------------------ */
   --desk: #ececea; /* warm gray desk behind the page */
@@ -23,13 +25,24 @@
   --surface-2: #efefed; /* hover fill, recessed wells */
   --ink: #17171a; /* text + active states */
   --muted: #63636b; /* secondary text; 4.6:1 on --surface */
-  --hairline: #dededa;
+  --hairline: #85858c; /* >=3.10:1 against every light chrome surface */
+  --placeholder: var(--muted);
   --selection: rgba(47, 109, 246, 0.25); /* the only blues left, with find */
   --find-hit: rgba(47, 109, 246, 0.2);
   --find-hit-active: rgba(47, 109, 246, 0.38);
-  --ok: #2fbf71; /* sync dot */
-  --warn: #e2b53b;
-  --danger: #e0533b; /* destructive actions */
+  --ok: #137a44; /* >=4.68:1 against every light chrome surface */
+  --warn: #7a5200; /* >=6.01:1 against every light chrome surface */
+  --danger: #b42318; /* destructive text/icons; >=5.71:1 on light chrome */
+  --danger-fill: #b42318;
+  --on-danger: #ffffff; /* 6.57:1 on --danger-fill */
+  /* Rich-text palette rendering. Stored authoring values are mapped to these
+     theme-aware colors in globals.css so the same document passes both themes. */
+  --doc-gray: #6b7280;
+  --doc-red: #d83a3a;
+  --doc-orange: #a84200;
+  --doc-green: #16753c;
+  --doc-blue: #2f6df6;
+  --doc-purple: #7c3aed;
   --ring: #17171a; /* :focus-visible */
   /* Inverted surface for toasts and sticky banners (finding B6 colors). */
   --inverse-surface: #17171a;
@@ -76,12 +89,24 @@
   --surface-2: #232328;
   --ink: #e9e9ed;
   --muted: #a0a0a8;
-  --hairline: #2a2a30;
+  --hairline: #6d6d77; /* >=3.06:1 against every dark chrome surface */
+  --placeholder: var(--muted);
+  --ok: #4ade80;
+  --warn: #f5c451;
+  --danger: #ff8a78; /* destructive text/icons; >=6.82:1 on dark chrome */
+  --danger-fill: #b42318;
+  --on-danger: #ffffff;
+  --doc-gray: #b8c0cc;
+  --doc-red: #ff8a80;
+  --doc-orange: #d97316;
+  --doc-green: #68d391;
+  --doc-blue: #8ab4ff;
+  --doc-purple: #c4a7ff;
   --ring: #e9e9ed;
   --inverse-surface: #e9e9ed;
   --inverse-ink: #17171a;
   --sheet-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 8px 32px -16px rgba(0, 0, 0, 0.45);
-  /* Semantic and selection colors are unchanged in dark mode. */
+  /* Selection colors are unchanged; semantic colors are theme-specific. */
 }
 
 /* ---- Accessibility floor (Part 2H) -------------------------------------- */
@@ -94,19 +119,20 @@
 }
 
 /* ---- Reduced motion ------------------------------------------------------ */
-/* Everything collapses to a quick opacity change; nothing translates or
-   scales. The durations shrink too so var()-driven transitions follow. */
+/* Motion collapses to an effectively instantaneous state change, including
+   var()-driven transitions; animations and smooth scrolling are disabled. */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --dur-1: 80ms;
-    --dur-2: 80ms;
-    --dur-3: 80ms;
+    --dur-1: 0.01ms;
+    --dur-2: 0.01ms;
+    --dur-3: 0.01ms;
   }
   *,
   *::before,
   *::after {
-    transition-property: opacity !important;
-    transition-duration: 80ms !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     animation: none !important;
   }
 }

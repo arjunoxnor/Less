@@ -11,7 +11,8 @@ describe("async editor plugin teardown", () => {
 
   it("guards font-ready pagination work after the view is destroyed", () => {
     const source = readFileSync(resolve(process.cwd(), "lib/editor/pagination.ts"), "utf8");
-    expect(source).toContain("if (destroyed) return;\n                metrics.clear();");
+    expect(source).toContain("if (destroyed) return;\n                cache.metrics.clear();");
+    expect(source).toContain("blocks: WeakMap<PMNode, CachedBlockGeometry>");
     expect(source).toContain("destroyed = true;\n              if (raf)");
   });
 

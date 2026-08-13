@@ -83,6 +83,7 @@ export function useProjects(user: User | null) {
   const refresh = useCallback(() => setProjects(listProjects()), []);
   const [folders, setFoldersState] = useState<Folder[]>([]);
   const refreshFolders = useCallback(() => setFoldersState(listFolders()), []);
+  const reconcileInFlight = useRef<{ userId: string; promise: Promise<boolean> } | null>(null);
 
   // Migrate the legacy single doc once, before the first render of the list.
   const migrated = useRef(false);
@@ -154,13 +155,19 @@ export function useProjects(user: User | null) {
   const remove = useCallback(
     (id: string) => {
       const wasCloud = getProjectMeta(id)?.cloudCreated;
-      localDelete(id);
+      // deleteProject first archives the body and durably queues a tombstone.
+      // If either safety write fails, leave the live project and cloud row alone.
+      if (!localDelete(id)) {
+        refresh();
+        return;
+      }
       if (user) {
         if (wasCloud) {
           if (online()) {
             deleteScript(id)
               .then((deleted) => {
-                if (!deleted) markDeletedTombstone(id);
+                if (deleted) clearTombstone(id);
+                else markDeletedTombstone(id);
               })
               .catch((e) => {
                 console.error("cloud delete failed", e);
@@ -175,7 +182,11 @@ export function useProjects(user: User | null) {
           // that in-flight create leaves behind (the server delete is idempotent).
           markDeletedTombstone(id);
           if (online()) {
-            deleteScript(id).catch((e) => console.error("cloud delete failed", e));
+            deleteScript(id)
+              .then((deleted) => {
+                if (deleted) clearTombstone(id);
+              })
+              .catch((e) => console.error("cloud delete failed", e));
           }
         }
       }
@@ -343,7 +354,7 @@ export function useProjects(user: User | null) {
 
   // One pass that pushes anonymous meaningful local projects to the cloud, pulls
   // cloud-only projects into the local index, and flushes delete tombstones.
-  const reconcile = useCallback(
+  const runReconcile = useCallback(
     async (u: User): Promise<boolean> => {
       // An expired session would 401 every one of the calls below: go quiet
       // and report failure instead of hammering the API. Nothing local is
@@ -501,9 +512,9 @@ export function useProjects(user: User | null) {
           const cloudStatusNewer = clockNewer(c.status_at, c.updated_at, lm.statusAt, lm.updatedAt);
 
           // Title: decide via the shared pure LWW rule (tested in lww.test.ts),
-          // then perform the side effect. A strictly-newer cloud title supersedes
-          // a pending local rename; otherwise the local rename is pushed (offline
-          // self-heal); otherwise a newer cloud title is adopted.
+          // then perform the side effect. A pending local rename is always
+          // pushed (device wall clocks are not trustworthy); otherwise a newer
+          // clean cloud title is adopted.
           switch (
             decideField({
               dirty: isTitleDirty(c.id),
@@ -637,6 +648,23 @@ export function useProjects(user: User | null) {
       }
     },
     [refresh, refreshFolders]
+  );
+
+  // Sign-in, reconnect, session restoration, and a manual click can all request
+  // the same reconcile at once. Share one pass per user so anonymous projects
+  // are not created twice and two metadata passes cannot finalize out of order.
+  const reconcile = useCallback(
+    (u: User): Promise<boolean> => {
+      const active = reconcileInFlight.current;
+      if (active?.userId === u.id) return active.promise;
+      const promise = runReconcile(u);
+      reconcileInFlight.current = { userId: u.id, promise };
+      void promise.finally(() => {
+        if (reconcileInFlight.current?.promise === promise) reconcileInFlight.current = null;
+      });
+      return promise;
+    },
+    [runReconcile]
   );
 
   // Run reconcile on a real sign-in; reset cloud-derived state on a real

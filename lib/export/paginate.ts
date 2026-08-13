@@ -89,7 +89,7 @@ interface Block {
   /** For a character cue: slots needed so the cue can legally start a page. */
   keepWithNextSlots?: number;
   /** 1-based scene number, set on scene_heading blocks (for margin printing). */
-  sceneNumber?: number;
+  sceneNumber?: string;
   /** True when the line is marked revised (prints a margin asterisk). */
   revised?: boolean;
 }
@@ -179,12 +179,16 @@ function buildBlocks(
     const line = lines[li];
     const kind = line.element;
     const el = LAYOUT[kind] ?? LAYOUT.action;
+    const numberedScene =
+      kind === "scene_heading" ? /\s+#([^#\r\n]+)#\s*$/.exec(line.text ?? "") : null;
+    const ordinalSceneNumber = kind === "scene_heading" ? String(++sceneCounter) : undefined;
     // Auto (CONT'D): a continuation cue prints NAME (CONT'D); the base name is
     // still recovered by cueBaseName, so currentCue and the cast stay correct.
-    const sourceText =
+    let sourceText =
       kind === "character" && contdFlags?.[li]
         ? (line.text ?? "") + CONTD
         : line.text ?? "";
+    if (numberedScene) sourceText = sourceText.slice(0, numberedScene.index);
     const rawText =
       kind === "parenthetical"
         ? ensureParentheticalParens(sourceText)
@@ -214,7 +218,10 @@ function buildBlocks(
       splittable: kind === "dialogue",
       dual: line.dual === true,
       cueName: kind === "dialogue" ? currentCue : undefined,
-      sceneNumber: kind === "scene_heading" ? ++sceneCounter : undefined,
+      sceneNumber:
+        kind === "scene_heading"
+          ? numberedScene?.[1] ?? ordinalSceneNumber
+          : undefined,
       revised: line.revised === true,
     });
   }
