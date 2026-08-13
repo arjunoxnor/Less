@@ -55,7 +55,13 @@ export type FieldAction =
  * whether we have a pending local edit (dirty) and whether the cloud's own
  * field clock is newer.
  *
- *   - A strictly-newer cloud value supersedes a pending local edit (pull).
+ *   - A strictly-newer cloud value supersedes a pending local edit (pull). This
+ *     is the F1/F41 class: rename offline on device A, rename on device B and
+ *     sync, then reconnect A. Without this branch A's stale rename destroys B's
+ *     everywhere. Clock skew is not a counter-argument here: a title that has
+ *     synced before carries a server-stamped clock, so skew can only affect a
+ *     value that has never reached the cloud, and such a value has no cloud
+ *     counterpart to lose to.
  *   - Otherwise a pending local edit is pushed (self-heal for offline edits),
  *     or the flag is cleared if it already matches the cloud.
  *   - With no pending edit, a differing newer cloud value is pulled.

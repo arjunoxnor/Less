@@ -11,7 +11,9 @@ import {
   listTombstones,
   markCloudCreated,
   markDeletedTombstone,
+  patchProjectMeta,
   renameProject,
+  setTitleDirty,
 } from "./projects";
 import { createFolder, listFolderTombstones } from "./folders";
 import { useProjects } from "./useProjects";
@@ -165,6 +167,78 @@ describe("project deletion convergence", () => {
 });
 
 describe("project metadata save races", () => {
+  it("does not pull an older cloud title just because cloud content is newer", async () => {
+    const project = createProject("plain", { title: "Newest title" });
+    markCloudCreated(project.id);
+    patchProjectMeta(project.id, { titleAt: "2026-08-05T00:00:00.000Z" });
+    setTitleDirty(project.id, false);
+    cloud.listScripts.mockResolvedValue([
+      {
+        id: project.id,
+        title: "Older title",
+        type: "plain",
+        status: "not_started",
+        updated_at: "2026-08-10T00:00:00.000Z", // newer body
+        title_at: "2026-08-01T00:00:00.000Z", // older title
+        status_at: "2026-08-01T00:00:00.000Z",
+      },
+    ]);
+
+    await mount();
+    await act(async () => { await projectsApi!.syncNow(); });
+    expect(getProjectMeta(project.id)?.title).toBe("Newest title");
+    expect(cloud.setScriptTitle).not.toHaveBeenCalled();
+  });
+
+  it("adopts a strictly-newer remote rename instead of clobbering it with a stale local one", async () => {
+    // F41: rename offline here, rename on another device which syncs, then
+    // reconnect. The remote rename is strictly newer and must survive. This is
+    // not a clock-skew case: a title that has synced before carries a
+    // server-stamped clock, so only never-synced values could be skewed, and
+    // those have no cloud counterpart to lose to.
+    const project = createProject("plain", { title: "Initial" });
+    markCloudCreated(project.id);
+    renameProject(project.id, "Stale local rename");
+    cloud.listScripts.mockResolvedValue([
+      {
+        id: project.id,
+        title: "Newer remote rename",
+        type: "plain",
+        status: "not_started",
+        updated_at: "2099-01-01T00:00:00.000Z",
+        title_at: "2099-01-01T00:00:00.000Z",
+        status_at: "2099-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    await mount();
+    await act(async () => { await projectsApi!.syncNow(); });
+    expect(cloud.setScriptTitle).not.toHaveBeenCalled();
+    expect(getProjectMeta(project.id)?.title).toBe("Newer remote rename");
+  });
+
+  it("pushes an unsynced rename when the cloud title has no newer claim", async () => {
+    const project = createProject("plain", { title: "Initial" });
+    markCloudCreated(project.id);
+    renameProject(project.id, "Offline local rename");
+    cloud.listScripts.mockResolvedValue([
+      {
+        id: project.id,
+        title: "Old cloud title",
+        type: "plain",
+        status: "not_started",
+        updated_at: "2020-01-01T00:00:00.000Z",
+        title_at: "2020-01-01T00:00:00.000Z",
+        status_at: "2020-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    await mount();
+    await vi.waitFor(() => expect(cloud.setScriptTitle).toHaveBeenCalled());
+    expect(cloud.setScriptTitle).toHaveBeenCalledWith(project.id, "Offline local rename");
+    expect(getProjectMeta(project.id)?.title).toBe("Offline local rename");
+  });
+
   it("does not clear a newer rename when an older reconcile request finishes", async () => {
     const project = createProject("screenplay", { title: "Initial" });
     markCloudCreated(project.id);
@@ -196,5 +270,37 @@ describe("project metadata save races", () => {
 
     expect(getProjectMeta(project.id)?.title).toBe("Second local title");
     expect(isTitleDirty(project.id)).toBe(true);
+  });
+
+  it("shares one reconcile when the same project list is reconciled twice concurrently", async () => {
+    await mount();
+    await vi.waitFor(() => expect(cloud.listScripts).toHaveBeenCalled());
+    await act(async () => {
+      await projectsApi!.syncNow();
+    });
+    vi.clearAllMocks();
+    cloud.listCloudFolders.mockResolvedValue([]);
+    cloud.listCloudFolderTombstones.mockResolvedValue([]);
+    let finishList: ((rows: never[]) => void) | null = null;
+    cloud.listScripts.mockImplementation(
+      () => new Promise<never[]>((resolve) => { finishList = resolve; })
+    );
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    await act(async () => {
+      first = projectsApi!.syncNow();
+      second = projectsApi!.syncNow();
+      await Promise.resolve();
+    });
+    expect(cloud.listCloudFolders).toHaveBeenCalledTimes(1);
+    expect(cloud.listScripts).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishList?.([]);
+      await Promise.all([first, second]);
+    });
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
   });
 });

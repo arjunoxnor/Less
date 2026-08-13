@@ -80,6 +80,9 @@ const STYLE_ELEMENT: Record<string, ElementType> = {
 
 function pushLine(out: ScriptLine[], element: ElementType, text: string): void {
   // Collapse tabs / soft breaks / runs of spaces so one paragraph = one line.
+  // This is not cosmetic: .sp-line renders white-space: pre-wrap, so a literal
+  // tab from a hand-formatted Word script would be visible on screen, while the
+  // PDF wrapper splits on /\s+/ and drops it. Collapsing keeps them agreeing.
   let t = text.replace(/\s+/g, " ").trim();
   if (!t) return;
   if (element === "parenthetical" && !/^\(.*\)$/.test(t)) t = `(${t})`;
@@ -187,7 +190,21 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
 // ZIP-based formats (.docx, .odt): unzip one entry, parse its XML.
 // ---------------------------------------------------------------------------
 
-async function unzipEntry(buf: ArrayBuffer, path: string): Promise<string | null> {
+interface ZipEntry {
+  path: string;
+  /**
+   * The entry the import cannot proceed without. A body part must be real UTF-8
+   * XML (every producer writes it that way), so bad bytes there mean a corrupt
+   * file and are refused. A supporting part like styles.xml is decoded leniently
+   * instead: losing the style names costs heuristics, not the whole script.
+   */
+  required?: boolean;
+}
+
+async function unzipEntries(
+  buf: ArrayBuffer,
+  entries: readonly ZipEntry[]
+): Promise<Map<string, string | null>> {
   const { unzipSync } = await import("fflate");
   let files: Record<string, Uint8Array>;
   try {
@@ -195,9 +212,28 @@ async function unzipEntry(buf: ArrayBuffer, path: string): Promise<string | null
   } catch {
     throw new Error("That file is not a valid Word or OpenDocument file.");
   }
-  const bytes = files[path];
-  if (!bytes) return null;
-  return new TextDecoder("utf-8").decode(bytes);
+  const out = new Map<string, string | null>();
+  for (const entry of entries) {
+    const bytes = files[entry.path];
+    if (!bytes) {
+      out.set(entry.path, null);
+      continue;
+    }
+    if (!entry.required) {
+      out.set(entry.path, new TextDecoder("utf-8").decode(bytes));
+      continue;
+    }
+    try {
+      out.set(entry.path, new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    } catch {
+      throw new Error("The document contains invalid UTF-8 XML.");
+    }
+  }
+  return out;
+}
+
+async function unzipEntry(buf: ArrayBuffer, path: string): Promise<string | null> {
+  return (await unzipEntries(buf, [{ path, required: true }])).get(path) ?? null;
 }
 
 function parseXml(xml: string): Document {
@@ -277,10 +313,12 @@ function docxParaAlign(p: Element): string | undefined {
 }
 
 export async function docxToLines(buf: ArrayBuffer): Promise<ScriptLine[]> {
-  const [xml, stylesXml] = await Promise.all([
-    unzipEntry(buf, "word/document.xml"),
-    unzipEntry(buf, "word/styles.xml"),
+  const files = await unzipEntries(buf, [
+    { path: "word/document.xml", required: true },
+    { path: "word/styles.xml" },
   ]);
+  const xml = files.get("word/document.xml") ?? null;
+  const stylesXml = files.get("word/styles.xml") ?? null;
   if (!xml) throw new Error("That .docx file has no document body.");
   const doc = parseXml(xml);
   const styleNames = docxStyleNames(stylesXml);
@@ -391,12 +429,17 @@ const RTF_ALIGN_RIGHT = "\uE001";
 const RTF_ALIGN_LEFT = "\uE002";
 
 function rtfToParagraphs(rtf: string): Para[] {
+  rtf = rtf.replace(/^\uFEFF/, "");
+  if (rtf.includes("\0")) {
+    throw new Error("This RTF file contains NUL bytes and cannot be read safely.");
+  }
   const n = rtf.length;
   let text = "";
   const stack: { ignore: boolean; ucskip: number }[] = [{ ignore: false, ucskip: 1 }];
   let top = stack[0];
   let skip = 0; // count of fallback chars to swallow after a \uN unicode escape
   let i = 0;
+  let unbalanced = false;
 
   const emit = (ch: string): void => {
     if (!top.ignore) text += ch;
@@ -413,6 +456,7 @@ function rtfToParagraphs(rtf: string): Para[] {
     }
     if (c === "}") {
       if (stack.length > 1) stack.pop();
+      else unbalanced = true;
       top = stack[stack.length - 1];
       i++;
       continue;
@@ -504,6 +548,10 @@ function rtfToParagraphs(rtf: string): Para[] {
     i++;
   }
 
+  if (unbalanced || stack.length !== 1) {
+    throw new Error("This RTF file has unbalanced braces.");
+  }
+
   let align: string | undefined;
   return text.split("\n").map((raw) => {
     const value = raw.replace(/[\uE000-\uE002]/g, (marker) => {
@@ -512,7 +560,7 @@ function rtfToParagraphs(rtf: string): Para[] {
       else align = undefined;
       return "";
     });
-    return { text: value.replace(/\s+$/, ""), align };
+    return { text: value, align };
   });
 }
 

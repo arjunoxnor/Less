@@ -370,6 +370,8 @@ interface MeasuredBlock {
   pos: number;
   node: PMNode;
   el: HTMLElement;
+  /** The block's rendered height with any hosted split widget subtracted. */
+  cleanHeight: number;
   element: string;
   dual: boolean;
   /** Real CSS margins in px (the DOM always renders them; page gaps absorb
@@ -438,6 +440,19 @@ interface KindMetrics {
   lineH: number;
 }
 type MetricsCache = Map<string, KindMetrics>;
+
+/*
+ * Block HEIGHTS are deliberately NOT cached. An earlier revision kept them in a
+ * WeakMap keyed on ProseMirror node identity, which does not hold: the same
+ * node object returns on a different DOM element after a delete plus undo (a
+ * stale element measures nothing, so the pass forced full mode forever and
+ * mid-block splits stopped happening), one node object can render at two
+ * positions after a duplicate paste, and a height can change with no change of
+ * identity at all (the (CONT'D) widget wrapping a long cue). Measured in the
+ * feature-length benchmark, that cache was worth about 1 ms in a 69 ms pass:
+ * the per-kind metrics above are the expensive lookup, and unlike heights they
+ * are a pure function of the class list.
+ */
 
 /** The block's own pixel height with any hosted split widgets subtracted, so
     a block already carrying a split measures its clean text height. Uses
@@ -513,6 +528,7 @@ function compute(
       pos: offset,
       node,
       el: dom,
+      cleanHeight: cleanBlockHeight(dom),
       element,
       dual: node.attrs.dual === true,
       mt: 0,
@@ -561,7 +577,7 @@ function compute(
         continue;
       }
     }
-    b.rows = Math.max(1, Math.round(cleanBlockHeight(b.el) / lineH));
+    b.rows = Math.max(1, Math.round(b.cleanHeight / lineH));
   }
 
   const capacity = Math.max(1, Math.floor((TEXT_H + 0.5) / lineH)); // 54 at 16px
@@ -686,6 +702,28 @@ function compute(
   };
 }
 
+/** Exercise real cold and post-edit DOM passes in feature-length benchmarks. */
+export function benchmarkPaginationPass(view: EditorView): {
+  coldMs: number;
+  editMs: number;
+} {
+  const metrics: MetricsCache = new Map();
+  const coldStarted = performance.now();
+  compute(view, metrics);
+  const coldMs = performance.now() - coldStarted;
+  const samples: number[] = [];
+  for (let sample = 0; sample < 3; sample++) {
+    if (!view.state.doc.lastChild) break;
+    const textEnd = view.state.doc.content.size - 1;
+    view.dispatch(view.state.tr.insertText("x", textEnd));
+    const started = performance.now();
+    compute(view, metrics);
+    samples.push(performance.now() - started);
+  }
+  samples.sort((a, b) => a - b);
+  return { coldMs, editMs: samples[Math.floor(samples.length / 2)] ?? 0 };
+}
+
 /**
  * Canonical signature over widget entries: sorted by position with the spec
  * key as the tiebreak, so the comparison is independent of enumeration order.
@@ -776,6 +814,8 @@ export const Pagination = Extension.create<PaginationOptions>({
         },
         view(view) {
           const timers: ReturnType<typeof setTimeout>[] = [];
+          let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+          let firstQueuedAt = 0;
           let destroyed = false;
           const run = () => {
             raf = 0;
@@ -783,14 +823,14 @@ export const Pagination = Extension.create<PaginationOptions>({
             // Never reflow mid-composition: IME text is not yet real content
             // and a dispatch would disturb it. Try again shortly after.
             if (view.composing) {
-              timers.push(setTimeout(schedule, 250));
+              timers.push(setTimeout(() => schedule(true), 250));
               return;
             }
             // No layout, no pagination. A hidden or collapsed container measures
             // zero wide, every line wraps to one character, and the page count
-            // explodes. Re-scheduling on the frame loop is self-healing: the
-            // callback lands once the editor is visible again, and the width
-            // observer above fires the moment the column has a real width.
+            // explodes. Re-scheduling is self-healing: the callback lands once
+            // the editor is visible again, and the width observer below fires
+            // the moment the column has a real width.
             if (!view.dom.isConnected || view.dom.clientWidth <= 0) {
               schedule();
               return;
@@ -801,7 +841,7 @@ export const Pagination = Extension.create<PaginationOptions>({
               onLayout?.();
               if (passes < 4) {
                 passes++;
-                schedule();
+                schedule(true);
               }
             } else {
               passes = 0;
@@ -811,11 +851,31 @@ export const Pagination = Extension.create<PaginationOptions>({
               onPages?.(pages);
             }
           };
-          const schedule = () => {
+          const queueFrame = () => {
             if (destroyed) return;
             if (!raf) raf = requestAnimationFrame(run);
           };
-          schedule();
+          const schedule = (immediate = false) => {
+            if (destroyed) return;
+            if (immediate) {
+              if (debounceTimer) clearTimeout(debounceTimer);
+              debounceTimer = null;
+              firstQueuedAt = 0;
+              queueFrame();
+              return;
+            }
+            const now = Date.now();
+            if (firstQueuedAt === 0) firstQueuedAt = now;
+            if (debounceTimer) clearTimeout(debounceTimer);
+            const elapsed = now - firstQueuedAt;
+            const delay = Math.max(0, Math.min(80, 260 - elapsed));
+            debounceTimer = setTimeout(() => {
+              debounceTimer = null;
+              firstQueuedAt = 0;
+              queueFrame();
+            }, delay);
+          };
+          schedule(true);
           // Only recompute when the editor's WIDTH changes (which re-wraps text
           // and changes block heights). Ignore height-only changes: inserting our
           // own page spacers changes view.dom's height, which would otherwise make
@@ -846,9 +906,11 @@ export const Pagination = Extension.create<PaginationOptions>({
               })
               .catch(() => {});
           }
-          timers.push(setTimeout(schedule, 60));
-          timers.push(setTimeout(schedule, 300));
-          timers.push(setTimeout(schedule, 1000));
+          // Wrapped: setTimeout hands the timer id to its callback, and a
+          // truthy first argument would mean "immediate" to schedule().
+          timers.push(setTimeout(() => schedule(), 60));
+          timers.push(setTimeout(() => schedule(), 300));
+          timers.push(setTimeout(() => schedule(), 1000));
 
           return {
             update(v, prev) {
@@ -860,6 +922,7 @@ export const Pagination = Extension.create<PaginationOptions>({
             destroy() {
               destroyed = true;
               if (raf) cancelAnimationFrame(raf);
+              if (debounceTimer) clearTimeout(debounceTimer);
               timers.forEach(clearTimeout);
               ro.disconnect();
             },

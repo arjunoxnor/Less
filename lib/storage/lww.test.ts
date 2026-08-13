@@ -56,6 +56,15 @@ describe("decideField (title/status conflict)", () => {
     expect(decideField({ dirty: true, cloudNewer: true, ...T })).toBe("pull");
   });
 
+  it("still pushes a pending edit whenever the cloud value has no claim", () => {
+    // Skew only matters for a value that never reached the cloud, and such a
+    // value has no cloud counterpart: an absent/equal cloud value never wins.
+    expect(decideField({ dirty: true, cloudNewer: true, localValue: "A", cloudValue: "" })).toBe(
+      "push"
+    );
+    expect(decideField({ dirty: true, cloudNewer: false, ...T })).toBe("push");
+  });
+
   it("just clears the dirty flag when our value already matches the cloud", () => {
     expect(
       decideField({ dirty: true, cloudNewer: false, localValue: "A", cloudValue: "A" })
@@ -65,6 +74,17 @@ describe("decideField (title/status conflict)", () => {
   it("never pulls an empty/absent cloud value over a local one", () => {
     expect(
       decideField({ dirty: false, cloudNewer: true, localValue: "A", cloudValue: "" })
+    ).toBe("noop");
+  });
+
+  it("pulls newer clean content metadata without pulling an independently older title", () => {
+    expect(
+      decideField({
+        dirty: false,
+        cloudNewer: false,
+        localValue: "New local title",
+        cloudValue: "Old cloud title",
+      })
     ).toBe("noop");
   });
 });

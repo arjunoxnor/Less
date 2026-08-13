@@ -98,6 +98,30 @@ function linesToPlainDoc(lines: ScriptLine[]): JSONContent {
 
 export type ImportKind = "screenplay" | "plain";
 
+/**
+ * Decode a text file leniently. Deliberately NOT fatal: Word on Windows writes
+ * "Save As > Plain Text" in CP1252, where a curly apostrophe is the lone byte
+ * 0x92 and is not valid UTF-8. Screenwriters import exactly those files, so a
+ * mis-encoded byte becomes U+FFFD and the script still opens. Genuinely binary
+ * input is caught downstream (NUL bytes, looksBinary), not by encoding.
+ */
+async function readText(file: File): Promise<string> {
+  return new TextDecoder("utf-8").decode(await file.arrayBuffer());
+}
+
+async function readRtf(file: File): Promise<string> {
+  const bytes = await file.arrayBuffer();
+  // RTF's \ansi payload is Windows-1252 unless Unicode is carried by \uN, but
+  // some producers write literal UTF-8 instead. Prefer UTF-8 when the bytes
+  // really are UTF-8 (pure ASCII decodes identically either way) and fall back
+  // to Windows-1252 only when they are not.
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
+}
+
 export async function importFile(file: File): Promise<{
   doc: JSONContent;
   titlePage: TitlePage | null;
@@ -119,7 +143,7 @@ export async function importFile(file: File): Promise<{
     name.endsWith(".spmd");
 
   if (name.endsWith(".fdx") || name.endsWith(".xml")) {
-    const r = parseFdx(await file.text());
+    const r = parseFdx(await readText(file));
     lines = r.lines;
     titlePage = r.titlePage;
   } else if (name.endsWith(".docx")) {
@@ -127,7 +151,7 @@ export async function importFile(file: File): Promise<{
   } else if (name.endsWith(".odt")) {
     lines = await odtToLines(await file.arrayBuffer());
   } else if (name.endsWith(".rtf")) {
-    lines = rtfToLines(await file.text());
+    lines = rtfToLines(await readRtf(file));
   } else if (name.endsWith(".doc")) {
     throw new Error(
       "Old .doc files are not supported. In Word, choose File then Save As and pick .docx or .rtf, then import that."
@@ -148,13 +172,13 @@ export async function importFile(file: File): Promise<{
     name.endsWith(".md") ||
     name.endsWith(".markdown")
   ) {
-    const r = parseFountain(await file.text());
+    const r = parseFountain(await readText(file));
     lines = r.lines;
     titlePage = r.titlePage;
   } else {
     // Unknown extension: if it decodes as text, treat it as Fountain / plain
     // text; otherwise refuse rather than dumping binary into the editor.
-    const text = await file.text();
+    const text = await readText(file);
     if (looksBinary(text)) {
       throw new Error(
         "Unsupported file type. Import a Word (.docx), Final Draft (.fdx), Fountain (.fountain, .txt), Rich Text (.rtf), or OpenDocument (.odt) file."

@@ -1,7 +1,8 @@
-import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Extension, getChangedRanges } from "@tiptap/core";
+import { Plugin, PluginKey, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { changedTopLevelNodes } from "./changedRanges";
 
 /**
  * Find and replace, built as a ProseMirror plugin that keeps ALL match state
@@ -41,50 +42,207 @@ export const findPluginKey = new PluginKey<FindState>("screenplayFind");
 /** Keep the decoration tree bounded while retaining the complete match list. */
 const MAX_DECORATIONS = 5000;
 
+function matchesInLine(
+  node: PMNode,
+  offset: number,
+  query: string,
+  opts: FindOpts
+): Match[] {
+  if (!query || node.type.name !== "screenplayLine") return [];
+  const scope = opts.element && opts.element !== "all" ? opts.element : null;
+  if (scope && node.attrs.element !== scope) return [];
+
+  const matches: Match[] = [];
+  const needle = opts.caseSensitive ? query : query.toLowerCase();
+  const raw = node.textContent;
+  const hay = opts.caseSensitive ? raw : raw.toLowerCase();
+  const nlen = needle.length;
+  let index = hay.indexOf(needle);
+  while (index !== -1) {
+    const before = index > 0 ? hay[index - 1] : undefined;
+    const after = index + nlen < hay.length ? hay[index + nlen] : undefined;
+    const wordOk = !opts.wholeWord || (!isWordChar(before) && !isWordChar(after));
+    if (wordOk) {
+      const from = offset + 1 + index;
+      matches.push({ from, to: from + nlen });
+    }
+    index = hay.indexOf(needle, index + nlen);
+  }
+  return matches;
+}
+
 /** All non-overlapping matches of `query` within the lines of `doc`. */
 export function findMatches(doc: PMNode, query: string, opts: FindOpts): Match[] {
   if (!query) return [];
   const matches: Match[] = [];
-  const needle = opts.caseSensitive ? query : query.toLowerCase();
-  const nlen = needle.length;
-
-  const scope = opts.element && opts.element !== "all" ? opts.element : null;
-
   doc.forEach((node, offset) => {
-    if (node.type.name !== "screenplayLine") return;
-    if (scope && node.attrs.element !== scope) return;
-    const raw = node.textContent;
-    const hay = opts.caseSensitive ? raw : raw.toLowerCase();
-    let i = hay.indexOf(needle);
-    while (i !== -1) {
-      const before = i > 0 ? hay[i - 1] : undefined;
-      const after = i + nlen < hay.length ? hay[i + nlen] : undefined;
-      const wordOk = !opts.wholeWord || (!isWordChar(before) && !isWordChar(after));
-      if (wordOk) {
-        const from = offset + 1 + i;
-        matches.push({ from, to: from + nlen });
-      }
-      i = hay.indexOf(needle, i + nlen); // non-overlapping
-    }
+    matches.push(...matchesInLine(node, offset, query, opts));
   });
   return matches;
 }
 
+function matchKey(match: Match): string {
+  return `${match.from}:${match.to}`;
+}
+
+function visibleMatches(matches: Match[], active: number): Match[] {
+  const visible = matches.slice(0, MAX_DECORATIONS);
+  if (active >= MAX_DECORATIONS && matches[active]) visible.push(matches[active]);
+  return visible;
+}
+
 function buildDeco(doc: PMNode, matches: Match[], active: number): DecorationSet {
-  const visible = matches.slice(0, MAX_DECORATIONS).map((match, index) => ({
-    match,
-    index,
-  }));
-  if (active >= MAX_DECORATIONS && matches[active]) {
-    visible.push({ match: matches[active], index: active });
-  }
   return DecorationSet.create(
     doc,
-    visible.map(({ match, index }) =>
-      Decoration.inline(match.from, match.to, {
-        class: index === active ? "find-mark find-mark-active" : "find-mark",
-      })
+    visibleMatches(matches, active).map((match) =>
+      Decoration.inline(
+        match.from,
+        match.to,
+        {
+          class: match === matches[active] ? "find-mark find-mark-active" : "find-mark",
+        },
+        { findActive: match === matches[active] }
+      )
     )
+  );
+}
+
+/**
+ * Keep the mapped decoration tree and reconcile only membership/active styling.
+ * At most MAX_DECORATIONS entries are inspected; unchanged marks retain their
+ * Decoration objects instead of rebuilding a thousand DOM decorations per key.
+ */
+function reconcileDeco(
+  doc: PMNode,
+  mapped: DecorationSet,
+  matches: Match[],
+  active: number
+): DecorationSet {
+  const desired = visibleMatches(matches, active);
+  const desiredKeys = new Set(desired.map(matchKey));
+  const activeKey = matches[active] ? matchKey(matches[active]) : null;
+  const current = mapped.find();
+  const remove = current.filter((deco) => {
+    const key = matchKey(deco);
+    return (
+      !desiredKeys.has(key) ||
+      key === activeKey ||
+      (deco.spec as { findActive?: boolean }).findActive === true
+    );
+  });
+  let next = remove.length ? mapped.remove(remove) : mapped;
+  const currentKeys = new Set(next.find().map((deco) => matchKey(deco)));
+  const additions: Decoration[] = [];
+  for (const match of desired) {
+    const key = matchKey(match);
+    if (currentKeys.has(key)) continue;
+    const isActive = key === activeKey;
+    additions.push(
+      Decoration.inline(
+        match.from,
+        match.to,
+        { class: isActive ? "find-mark find-mark-active" : "find-mark" },
+        { findActive: isActive }
+      )
+    );
+  }
+  if (additions.length) next = next.add(doc, additions);
+  return next;
+}
+
+/**
+ * Whether a match sits inside one of `spans`. The spans are whole top-level
+ * line extents: disjoint and sorted, so a binary search answers this without
+ * turning a 20,000-match update into a quadratic scan.
+ */
+function insideSpan(spans: readonly [number, number][], match: Match): boolean {
+  let lo = 0;
+  let hi = spans.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (spans[mid][1] <= match.from) lo = mid + 1;
+    else if (spans[mid][0] > match.from) hi = mid - 1;
+    else return match.from >= spans[mid][0] && match.to <= spans[mid][1];
+  }
+  return false;
+}
+
+function spansOf(nodes: { node: PMNode; pos: number }[]): [number, number][] {
+  return nodes.map(({ node, pos }) => [pos, pos + node.nodeSize] as [number, number]);
+}
+
+/**
+ * Rescan only the top-level lines an edit touched and map every other match.
+ *
+ * The invariant that makes this sound: every line whose matches are discarded
+ * must also be rescanned in its new form. Changed ranges alone do not give
+ * that. Undoing a line deletion, for instance, reports an empty old range
+ * (which touches the two lines around the insertion point) and a new range
+ * covering only the restored line, so the neighbours' matches were dropped and
+ * never re-found; find state then silently lost matches until the query was
+ * retyped, and Replace All left those occurrences in the script. So the old
+ * touched lines are mapped forward and rescanned too, and any surviving match
+ * that lands inside a rescanned line is dropped in favour of the fresh scan.
+ */
+function updateMatches(
+  transaction: Transaction,
+  oldDoc: PMNode,
+  newDoc: PMNode,
+  previous: Match[],
+  query: string,
+  opts: FindOpts
+): Match[] {
+  const changes = getChangedRanges(transaction);
+  const mapMatch = (match: Match): Match => ({
+    from: transaction.mapping.map(match.from, 1),
+    to: transaction.mapping.map(match.to, -1),
+  });
+  if (!changes.length) {
+    // No content moved (a mark-only or metadata step): positions still map.
+    return previous.map(mapMatch);
+  }
+  // A wholesale edit (Replace All, a paste over the script, a Duet catch-up)
+  // touches more lines than one authoritative scan of the document costs.
+  if (changes.length > 64) return findMatches(newDoc, query, opts);
+
+  const oldRanges = changes.map(
+    (change) => [change.oldRange.from, change.oldRange.to] as [number, number]
+  );
+  const oldSpans = spansOf(changedTopLevelNodes(oldDoc, oldRanges));
+
+  // Rescan the lines the edit landed in, plus wherever the lines it touched in
+  // the old document now live.
+  const rescanRanges = changes.map(
+    (change) => [change.newRange.from, change.newRange.to] as [number, number]
+  );
+  for (const [from, to] of oldSpans) {
+    rescanRanges.push([
+      transaction.mapping.map(from, -1),
+      transaction.mapping.map(to, 1),
+    ]);
+  }
+  const rescan = changedTopLevelNodes(newDoc, rescanRanges);
+  const newSpans = spansOf(rescan);
+
+  const next: Match[] = [];
+  for (const match of previous) {
+    if (insideSpan(oldSpans, match)) continue;
+    const mapped = mapMatch(match);
+    // Edited through: the mapping collapsed or stretched it. It cannot be
+    // trusted as a match any more.
+    if (mapped.to - mapped.from !== match.to - match.from) continue;
+    if (insideSpan(newSpans, mapped)) continue; // the fresh scan below owns it
+    next.push(mapped);
+  }
+  for (const { node, pos } of rescan) {
+    for (const match of matchesInLine(node, pos, query, opts)) next.push(match);
+  }
+  next.sort((a, b) => a.from - b.from || a.to - b.to);
+  return next.filter(
+    (match, index) =>
+      index === 0 ||
+      match.from !== next[index - 1].from ||
+      match.to !== next[index - 1].to
   );
 }
 
@@ -104,9 +262,10 @@ export const FindReplace = Extension.create({
             matches: [],
             deco: DecorationSet.empty,
           }),
-          apply(tr, prev, _old, newState) {
+          apply(tr, prev, oldState, newState) {
             const meta = tr.getMeta(findPluginKey) as Partial<FindState> | undefined;
             let next = prev;
+            let searchChanged = false;
             if (meta) {
               next = { ...prev, ...meta };
               // A changed query / option resets the cursor to the first match.
@@ -119,21 +278,51 @@ export const FindReplace = Extension.create({
                 meta.wholeWord !== undefined && meta.wholeWord !== prev.wholeWord;
               const elementChanged =
                 meta.element !== undefined && meta.element !== prev.element;
-              if (queryChanged || caseChanged || wordChanged || elementChanged) {
+              searchChanged = queryChanged || caseChanged || wordChanged || elementChanged;
+              if (searchChanged) {
                 next.active = 0;
               }
             }
 
-            if (meta || tr.docChanged) {
-              const matches = findMatches(newState.doc, next.query, {
-                caseSensitive: next.caseSensitive,
-                wholeWord: next.wholeWord,
-                element: next.element,
-              });
+            const opts = {
+              caseSensitive: next.caseSensitive,
+              wholeWord: next.wholeWord,
+              element: next.element,
+            };
+            if (searchChanged) {
+              const matches = findMatches(newState.doc, next.query, opts);
               const active = matches.length
                 ? Math.min(Math.max(next.active, 0), matches.length - 1)
                 : 0;
               next = { ...next, matches, active, deco: buildDeco(newState.doc, matches, active) };
+            } else if (tr.docChanged) {
+              const matches = updateMatches(
+                tr,
+                oldState.doc,
+                newState.doc,
+                prev.matches,
+                next.query,
+                opts
+              );
+              const active = matches.length
+                ? Math.min(Math.max(next.active, 0), matches.length - 1)
+                : 0;
+              const mapped = prev.deco.map(tr.mapping, tr.doc);
+              next = {
+                ...next,
+                matches,
+                active,
+                deco: reconcileDeco(newState.doc, mapped, matches, active),
+              };
+            } else if (meta) {
+              const active = next.matches.length
+                ? Math.min(Math.max(next.active, 0), next.matches.length - 1)
+                : 0;
+              next = {
+                ...next,
+                active,
+                deco: reconcileDeco(newState.doc, prev.deco, next.matches, active),
+              };
             } else {
               // Cheap path on selection-only changes: keep highlights mapped.
               next = { ...next, deco: prev.deco.map(tr.mapping, tr.doc) };
