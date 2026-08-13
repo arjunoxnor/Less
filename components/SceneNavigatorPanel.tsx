@@ -1,13 +1,13 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { SceneEntry } from "@/types/screenplay";
 
 /**
  * The scene navigator: every scene heading in order, click to jump. The scene
  * the caret is currently in is highlighted and scrolled into view.
  */
-export const SceneNavigatorPanel = memo(function SceneNavigatorPanel({
+export function SceneNavigatorPanel({
   scenes,
   currentSceneNumber,
   onJump,
@@ -19,30 +19,6 @@ export const SceneNavigatorPanel = memo(function SceneNavigatorPanel({
   onClose: () => void;
 }) {
   const currentRef = useRef<HTMLLIElement>(null);
-  const latestScenes = useRef(scenes);
-  latestScenes.current = scenes;
-
-  // A scene's number and position both move when an earlier scene is inserted.
-  // Heading + occurrence gives React a steadier key, so a focused row is not
-  // needlessly replaced by routine edits above it.
-  const rows = useMemo(() => {
-    const seen = new Map<string, number>();
-    return scenes.map((scene) => {
-      const occurrence = seen.get(scene.heading) ?? 0;
-      seen.set(scene.heading, occurrence + 1);
-      return { scene, key: `${scene.heading}\u0000${occurrence}` };
-    });
-  }, [scenes]);
-
-  const jump = (snapshot: SceneEntry) => {
-    // Resolve through the newest props. Requiring the old number and heading
-    // means a detached row cannot silently become a different renumbered scene.
-    const live = latestScenes.current.find(
-      (scene) =>
-        scene.number === snapshot.number && scene.heading === snapshot.heading
-    );
-    if (live) onJump(live.pos);
-  };
 
   useEffect(() => {
     currentRef.current?.scrollIntoView({ block: "nearest" });
@@ -63,15 +39,15 @@ export const SceneNavigatorPanel = memo(function SceneNavigatorPanel({
         </div>
       ) : (
         <ul className="side-panel-list">
-          {rows.map(({ scene, key }) => {
+          {scenes.map((scene) => {
             const current = scene.number === currentSceneNumber;
             return (
-              <li key={key} ref={current ? currentRef : undefined}>
+              <li key={scene.number} ref={current ? currentRef : undefined}>
                 <button
                   type="button"
                   className={"scene-item" + (current ? " scene-item-current" : "")}
                   title={scene.heading}
-                  onClick={() => jump(scene)}
+                  onClick={() => onJump(scene.pos)}
                 >
                   <span className="scene-num">{scene.number}.</span>
                   <span className="scene-text">
@@ -88,8 +64,4 @@ export const SceneNavigatorPanel = memo(function SceneNavigatorPanel({
       )}
     </aside>
   );
-}, (previous, next) =>
-  previous.scenes === next.scenes &&
-  previous.currentSceneNumber === next.currentSceneNumber &&
-  previous.onJump === next.onJump
-);
+}

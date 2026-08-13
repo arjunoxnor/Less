@@ -1,11 +1,10 @@
-import { Extension, getChangedRanges } from "@tiptap/core";
-import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { Extension } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { NSpell } from "nspell";
 import { addUserWord } from "./userDictionary";
 import type { Outline } from "@/types/screenplay";
-import { changedTopLevelNodes } from "./changedRanges";
 
 /**
  * Screenplay-aware spell check, built as a ProseMirror plugin in the same spirit
@@ -35,8 +34,6 @@ export interface SpellState {
 
 interface SpellPluginState {
   deco: DecorationSet;
-  /** null requests a full pass; otherwise ranges use current-document positions. */
-  dirty: [number, number][] | null;
 }
 
 export const spellKey = new PluginKey<SpellPluginState>("screenplaySpell");
@@ -63,17 +60,14 @@ const SCREENPLAY_TERMS = new Set<string>([
 ]);
 
 const TOKEN = /[A-Za-z][A-Za-z'’-]*/g;
-// Hundreds of visible misspellings already identify a systemic issue (usually
-// one repeated proper noun). Capping at 500 avoids thousands of inline DOM
-// spans freezing the editor; Ignore/Add immediately clears the repeated word.
-const MAX_MARKS = 500;
+const MAX_MARKS = 2000;
 
 /** Words ignored for this session only (the "Ignore" action). Lowercased. */
 const sessionIgnore = new Set<string>();
 /** The resolved checker, shared across helpers once the engine loads. */
 let speller: NSpell | null = null;
 /** Per-view immediate rescan triggers, so the helpers can refresh underlines. */
-const viewScanners = new WeakMap<EditorView, (full?: boolean) => void>();
+const viewScanners = new WeakMap<EditorView, () => void>();
 
 /** Lowercased set of every word in the outline's names, so they never flag. */
 function buildNameSet(outline: Outline): Set<string> {
@@ -103,128 +97,28 @@ function isAcceptable(sp: NSpell, raw: string): boolean {
   return false;
 }
 
-function decorationsForLine(
-  node: PMNode,
-  offset: number,
-  sp: NSpell,
-  names: Set<string>,
-  acceptable: Map<string, boolean>,
-  limit: number
-): Decoration[] {
-  if (limit <= 0 || node.type.name !== "screenplayLine") return [];
-  const element = node.attrs.element as string;
-  if (element !== "action" && element !== "dialogue" && element !== "parenthetical") {
-    return [];
-  }
-
-  const decos: Decoration[] = [];
-  const text = node.textContent;
-  TOKEN.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = TOKEN.exec(text)) !== null && decos.length < limit) {
-    const raw = match[0];
-    if (raw.length < 2) continue;
-    const lower = raw.toLowerCase();
-    if (names.has(lower) || SCREENPLAY_TERMS.has(lower) || sessionIgnore.has(lower)) continue;
-    let correct = acceptable.get(raw);
-    if (correct === undefined) {
-      correct = isAcceptable(sp, raw);
-      acceptable.set(raw, correct);
-    }
-    if (correct) continue;
-    const from = offset + 1 + match.index;
-    decos.push(Decoration.inline(from, from + raw.length, { class: "spell-mark" }));
-  }
-  return decos;
-}
-
 /** Build the underline decorations for the whole document. */
 function computeDeco(doc: PMNode, sp: NSpell, names: Set<string>): DecorationSet {
   const decos: Decoration[] = [];
-  // Feature scripts repeat a small working vocabulary tens of thousands of
-  // times. Hunspell lookup is substantially dearer than tokenization, so keep
-  // one scan-local result per exact spelling/casing. The map is released when
-  // the pass ends and can never retain a document or grow across projects.
-  const acceptable = new Map<string, boolean>();
   doc.forEach((node, offset) => {
     if (decos.length >= MAX_MARKS) return;
-    decos.push(
-      ...decorationsForLine(
-        node,
-        offset,
-        sp,
-        names,
-        acceptable,
-        MAX_MARKS - decos.length
-      )
-    );
+    if (node.type.name !== "screenplayLine") return;
+    const el = node.attrs.element as string;
+    if (el !== "action" && el !== "dialogue" && el !== "parenthetical") return;
+    const text = node.textContent;
+    TOKEN.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = TOKEN.exec(text)) !== null && decos.length < MAX_MARKS) {
+      const raw = m[0];
+      if (raw.length < 2) continue;
+      const lw = raw.toLowerCase();
+      if (names.has(lw) || SCREENPLAY_TERMS.has(lw) || sessionIgnore.has(lw)) continue;
+      if (isAcceptable(sp, raw)) continue;
+      const from = offset + 1 + m.index;
+      decos.push(Decoration.inline(from, from + raw.length, { class: "spell-mark" }));
+    }
   });
   return DecorationSet.create(doc, decos);
-}
-
-function mergeRanges(ranges: [number, number][]): [number, number][] {
-  ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const merged: [number, number][] = [];
-  for (const range of ranges) {
-    const previous = merged[merged.length - 1];
-    if (previous && range[0] <= previous[1] + 1) {
-      previous[1] = Math.max(previous[1], range[1]);
-    } else {
-      merged.push([...range]);
-    }
-  }
-  return merged;
-}
-
-function dirtyAfterTransaction(
-  dirty: [number, number][] | null,
-  tr: Transaction
-): [number, number][] | null {
-  if (dirty === null) return null;
-  const mapped = dirty.map(
-    ([from, to]) => [tr.mapping.map(from, -1), tr.mapping.map(to, 1)] as [number, number]
-  );
-  for (const change of getChangedRanges(tr)) {
-    mapped.push([change.newRange.from, change.newRange.to]);
-  }
-  return mergeRanges(mapped);
-}
-
-/** Recheck only dirty top-level lines; the state already mapped all other marks. */
-function updateDeco(
-  doc: PMNode,
-  previous: DecorationSet,
-  dirty: [number, number][],
-  sp: NSpell,
-  names: Set<string>
-): DecorationSet {
-  let next = previous;
-  let count = next.find().length;
-  const wasCapped = count >= MAX_MARKS;
-  const acceptable = new Map<string, boolean>();
-  for (const { node, pos } of changedTopLevelNodes(doc, dirty)) {
-    const remove = next.find(pos, pos + node.nodeSize);
-    if (remove.length) {
-      next = next.remove(remove);
-      count -= remove.length;
-    }
-    const additions = decorationsForLine(
-      node,
-      pos,
-      sp,
-      names,
-      acceptable,
-      Math.max(0, MAX_MARKS - count)
-    );
-    if (additions.length) {
-      next = next.add(doc, additions);
-      count += additions.length;
-    }
-  }
-  // If fixing a visible mark opened a slot at the cap, refill from the rest of
-  // the script so later misspellings do not remain hidden forever.
-  if (wasCapped && count < MAX_MARKS) return computeDeco(doc, sp, names);
-  return next;
 }
 
 /**
@@ -247,16 +141,11 @@ export function buildSpellcheck(
       let nameSetFor: Outline | null = null;
       const ensureNames = () => {
         const o = getOutline();
-        let changed = false;
         if (o !== nameSetFor) {
-          const next = buildNameSet(o);
-          changed =
-            next.size !== nameSet.size ||
-            [...next].some((name) => !nameSet.has(name));
-          nameSet = next;
+          nameSet = buildNameSet(o);
           nameSetFor = o;
         }
-        return { names: nameSet, changed };
+        return nameSet;
       };
 
       const openMenuFor = (view: EditorView, from: number, to: number) => {
@@ -278,20 +167,11 @@ export function buildSpellcheck(
         new Plugin<SpellPluginState>({
           key: spellKey,
           state: {
-            init: () => ({ deco: DecorationSet.empty, dirty: null }),
+            init: () => ({ deco: DecorationSet.empty }),
             apply(tr, prev) {
-              const meta = tr.getMeta(spellKey) as
-                | { deco?: DecorationSet; dirty?: [number, number][] | null }
-                | undefined;
-              if (meta && meta.deco !== undefined) {
-                return { deco: meta.deco, dirty: meta.dirty ?? [] };
-              }
-              if (tr.docChanged) {
-                return {
-                  deco: prev.deco.map(tr.mapping, tr.doc),
-                  dirty: dirtyAfterTransaction(prev.dirty, tr),
-                };
-              }
+              const meta = tr.getMeta(spellKey) as { deco?: DecorationSet } | undefined;
+              if (meta && meta.deco !== undefined) return { deco: meta.deco };
+              if (tr.docChanged) return { deco: prev.deco.map(tr.mapping, tr.doc) };
               return prev;
             },
           },
@@ -325,15 +205,14 @@ export function buildSpellcheck(
             let timer: ReturnType<typeof setTimeout> | null = null;
             let destroyed = false;
 
-            const scanNow = (forceFull = false) => {
+            const scanNow = () => {
               if (destroyed) return;
               if (!isEnabled()) {
-                const current = spellKey.getState(view.state);
-                const cur = current?.deco ?? DecorationSet.empty;
-                if (cur.find().length || current?.dirty === null) {
+                const cur = spellKey.getState(view.state)?.deco ?? DecorationSet.empty;
+                if (cur.find().length) {
                   view.dispatch(
                     view.state.tr
-                      .setMeta(spellKey, { deco: DecorationSet.empty, dirty: [] })
+                      .setMeta(spellKey, { deco: DecorationSet.empty })
                       .setMeta("addToHistory", false)
                   );
                 }
@@ -344,38 +223,23 @@ export function buildSpellcheck(
                   .then((s) => {
                     if (destroyed) return;
                     speller = s;
-                    if (isEnabled()) scanNow(true);
+                    if (isEnabled()) scanNow();
                   })
                   .catch(() => {
                     /* leave the editor usable; native fallback stays available */
                   });
                 return;
               }
-              const current = spellKey.getState(view.state);
-              const outlineNames = ensureNames();
-              const full = forceFull || current?.dirty === null || outlineNames.changed;
-              const dirty = current?.dirty ?? [];
-              if (!full && dirty.length === 0) return;
-              const deco = full
-                ? computeDeco(view.state.doc, speller, outlineNames.names)
-                : updateDeco(
-                    view.state.doc,
-                    current?.deco ?? DecorationSet.empty,
-                    dirty,
-                    speller,
-                    outlineNames.names
-                  );
+              const deco = computeDeco(view.state.doc, speller, ensureNames());
               view.dispatch(
-                view.state.tr
-                  .setMeta(spellKey, { deco, dirty: [] })
-                  .setMeta("addToHistory", false)
+                view.state.tr.setMeta(spellKey, { deco }).setMeta("addToHistory", false)
               );
             };
 
             const schedule = () => {
               if (destroyed) return;
               if (timer) clearTimeout(timer);
-              timer = setTimeout(() => scanNow(false), 400);
+              timer = setTimeout(scanNow, 400);
             };
 
             viewScanners.set(view, scanNow);
@@ -415,7 +279,7 @@ export function acceptSpellFix(
 /** Ignore a word for the rest of this session (clears its underlines now). */
 export function ignoreWord(view: EditorView, word: string): void {
   sessionIgnore.add(word.toLowerCase());
-  viewScanners.get(view)?.(true);
+  viewScanners.get(view)?.();
   view.focus();
 }
 
@@ -423,18 +287,11 @@ export function ignoreWord(view: EditorView, word: string): void {
 export function addWord(view: EditorView, word: string): void {
   addUserWord(word);
   if (speller) speller.add(word);
-  viewScanners.get(view)?.(true);
+  viewScanners.get(view)?.();
   view.focus();
 }
 
 /** Force an immediate rescan, e.g. when the Spelling toggle flips. */
 export function rescanSpelling(view: EditorView): void {
-  viewScanners.get(view)?.(true);
-}
-
-/** Flush pending changed-line work for the feature-length benchmark. */
-export function benchmarkIncrementalSpellScan(view: EditorView): number {
-  const started = performance.now();
-  viewScanners.get(view)?.(false);
-  return performance.now() - started;
+  viewScanners.get(view)?.();
 }

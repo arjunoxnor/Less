@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import {
   BREAKDOWN_CATEGORIES,
   categoryById,
@@ -13,7 +13,7 @@ import {
  * see them highlighted in the script, and read the live per-scene and
  * per-category rollups. Tag from a selection in the script, or type a name.
  */
-export const BreakdownPanel = memo(function BreakdownPanel({
+export function BreakdownPanel({
   result,
   items,
   highlightOn,
@@ -41,11 +41,6 @@ export const BreakdownPanel = memo(function BreakdownPanel({
   const [category, setCategory] = useState(BREAKDOWN_CATEGORIES[2].id); // Props
   const [name, setName] = useState("");
   const [view, setView] = useState<"category" | "scene">("category");
-  const latestItems = useRef(items);
-  const latestResult = useRef(result);
-  latestItems.current = items;
-  latestResult.current = result;
-  const liveItemIds = useMemo(() => new Set(items.map((item) => item.id)), [items]);
 
   const add = () => {
     const t = name.trim();
@@ -120,7 +115,6 @@ export const BreakdownPanel = memo(function BreakdownPanel({
               type="button"
               className={"seg" + (view === "category" ? " seg-active" : "")}
               onClick={() => setView("category")}
-              aria-pressed={view === "category"}
             >
               By category
             </button>
@@ -128,7 +122,6 @@ export const BreakdownPanel = memo(function BreakdownPanel({
               type="button"
               className={"seg" + (view === "scene" ? " seg-active" : "")}
               onClick={() => setView("scene")}
-              aria-pressed={view === "scene"}
             >
               By scene
             </button>
@@ -147,9 +140,7 @@ export const BreakdownPanel = memo(function BreakdownPanel({
                     <span className="bd-group-count">{g.items.length}</span>
                   </div>
                   <ul className="side-panel-list">
-                    {g.items
-                      .filter((row) => liveItemIds.has(row.item.id))
-                      .map((row) => (
+                    {g.items.map((row) => (
                       <li key={row.item.id} className="bd-item">
                         <span className="bd-item-name">{row.item.name}</span>
                         <span className="bd-item-metrics">
@@ -160,22 +151,13 @@ export const BreakdownPanel = memo(function BreakdownPanel({
                         <button
                           type="button"
                           className="bd-item-remove"
-                          onClick={() => {
-                            if (
-                              latestItems.current.some(
-                                (item) => item.id === row.item.id
-                              )
-                            ) {
-                              onRemove(row.item.id);
-                            }
-                          }}
+                          onClick={() => onRemove(row.item.id)}
                           title="Remove this tag"
-                          aria-label={`Remove ${row.item.name}`}
                         >
                           ×
                         </button>
                       </li>
-                      ))}
+                    ))}
                   </ul>
                 </div>
               ))
@@ -187,22 +169,14 @@ export const BreakdownPanel = memo(function BreakdownPanel({
                     <button
                       type="button"
                       className="bd-scene-title"
-                      onClick={() => {
-                        const live = latestResult.current.scenes.find(
-                          (scene) =>
-                            scene.number === sc.number && scene.heading === sc.heading
-                        );
-                        if (live) onJumpScene(live.number);
-                      }}
+                      onClick={() => onJumpScene(sc.number)}
                       title="Jump to this scene"
                     >
                       <span className="bd-scene-n">{sc.number}</span>
                       <span className="bd-scene-h">{sc.heading || "(untitled scene)"}</span>
                     </button>
                     <ul className="side-panel-list">
-                      {sc.matches
-                        .filter((m) => liveItemIds.has(m.item.id))
-                        .map((m) => {
+                      {sc.matches.map((m) => {
                         const cat = categoryById(m.item.category);
                         return (
                           <li key={m.item.id} className="bd-item">
@@ -214,7 +188,7 @@ export const BreakdownPanel = memo(function BreakdownPanel({
                             </span>
                           </li>
                         );
-                        })}
+                      })}
                     </ul>
                   </div>
                 ))
@@ -223,14 +197,4 @@ export const BreakdownPanel = memo(function BreakdownPanel({
       )}
     </aside>
   );
-}, (previous, next) =>
-  previous.result === next.result &&
-  previous.items === next.items &&
-  previous.highlightOn === next.highlightOn &&
-  previous.hasSelection === next.hasSelection &&
-  previous.onAdd === next.onAdd &&
-  previous.onTagSelection === next.onTagSelection &&
-  previous.onRemove === next.onRemove &&
-  previous.onJumpScene === next.onJumpScene &&
-  previous.onExport === next.onExport
-);
+}

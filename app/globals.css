@@ -31,6 +31,12 @@ body {
   --btn-active-bg: var(--surface-2);
   --btn-active-fg: var(--ink);
   --shadow: var(--sheet-shadow);
+  /* Deliberately lighter than --muted: a hint on the page, not text. */
+  --placeholder: #bdbdc6;
+}
+
+:root[data-theme="dark"] {
+  --placeholder: #5b5b66;
 }
 
 body {
@@ -38,33 +44,6 @@ body {
   color: var(--toolbar-fg);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
-}
-
-/* The audit's touch floor applies to the interactive box, not merely its
-   visible glyph. Text controls stay fluid so the floor cannot force overflow;
-   checkbox and radio labels provide their larger hit area below. */
-:where(
-    button,
-    [role="button"],
-    input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
-    select,
-    textarea
-  ) {
-  min-block-size: 44px;
-}
-:where(
-    .tb-icon,
-    .rail-btn,
-    .fh-kebab,
-    .film-caret,
-    .swatch,
-    .history-x,
-    .side-panel-x,
-    .note-remove,
-    .bd-item-remove,
-    .hint-card-x
-  ) {
-  min-inline-size: 44px;
 }
 
 
@@ -118,8 +97,6 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  height: 100dvh;
-  min-height: 0;
 }
 
 .toolbar-group {
@@ -158,6 +135,14 @@ body {
   /* Active states are carried by weight and contrast, not color (D2). */
   font-weight: 600;
 }
+.tb-key {
+  font-size: var(--text-xs);
+  opacity: 0.6;
+  border: 1px solid currentColor;
+  border-radius: var(--r-sm);
+  padding: 0 4px;
+  line-height: 14px;
+}
 .tb-select {
   padding: 5px 8px;
   font-size: var(--text-sm);
@@ -186,6 +171,24 @@ body {
   border-radius: var(--r-sm);
   box-shadow: var(--e2);
   z-index: var(--z-menus);
+}
+.tb-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--toolbar-fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tb-menu-item:hover {
+  background: var(--btn-bg);
+  border-color: var(--accent);
 }
 .tb-file-input {
   display: none;
@@ -235,6 +238,7 @@ body {
   right: 0.55in;
   font-size: var(--text-xs);
   color: var(--muted);
+  opacity: 0.4;
   font-variant-numeric: tabular-nums;
 }
 /* The editor text overlays the sheets. */
@@ -327,10 +331,9 @@ body {
 .status-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 14px;
-  min-height: 44px;
-  padding: 4px 12px;
+  height: 26px;
+  padding: 0 12px;
   font-size: var(--text-sm);
   background: var(--toolbar-bg);
   color: var(--muted);
@@ -340,13 +343,16 @@ body {
 .status-spacer {
   flex: 1 1 auto;
 }
+.status-sub {
+  opacity: 0.7;
+}
 .status-saved {
   min-width: 56px;
   text-align: right;
 }
 .status-save-error {
-  color: var(--on-danger);
-  background: var(--danger-fill);
+  color: #fff;
+  background: var(--danger);
   font-weight: 700;
   padding: 0 8px;
   border-radius: var(--r-sm);
@@ -358,7 +364,7 @@ body {
   padding: 0 6px;
   font-weight: 600;
   font-size: var(--text-xs);
-  line-height: 1.4;
+  line-height: 16px;
 }
 .status-duet {
   color: var(--accent);
@@ -402,7 +408,7 @@ body {
   font: inherit;
   font-size: var(--text-xs);
   cursor: pointer;
-  line-height: 1.4;
+  line-height: 16px;
 }
 .dual-chip:hover {
   color: var(--ink);
@@ -431,9 +437,7 @@ body {
 .sp-prose .sp-line {
   margin: 0;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
   min-height: 16px;
-  position: relative;
 }
 
 /* Vertical spacing between elements (a "blank line" is 16px). */
@@ -514,6 +518,10 @@ body {
 }
 
 
+.sync-label {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
 .sync-dot {
   width: 8px;
   height: 8px;
@@ -553,13 +561,9 @@ body {
   left: -2px;
   bottom: 100%;
   border-radius: 3px 3px 3px 0;
-  /* Green and orange participant colors only reach 3.77:1 and 3.19:1 with
-     white. A tokenized surface keeps names readable; the caret still carries
-     the participant color. */
-  background: var(--inverse-surface) !important;
-  color: var(--inverse-ink);
+  color: #fff;
   font-family: system-ui, sans-serif;
-  font-size: 0.625rem;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.4;
   padding: 1px 4px;
@@ -575,16 +579,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  overflow: auto;
   z-index: var(--z-modal);
 }
 .modal {
   width: 380px;
   max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
-  max-height: calc(100dvh - 32px);
-  overflow: auto;
   background: var(--toolbar-bg);
   color: var(--toolbar-fg);
   border: 1px solid var(--border);
@@ -632,7 +631,7 @@ body {
   border-color: var(--accent);
 }
 .modal-error {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  background: rgba(224, 83, 59, 0.12);
   color: var(--danger);
   border-radius: var(--r-md);
   padding: 8px 10px;
@@ -951,14 +950,9 @@ body {
 .find-check {
   display: flex;
   align-items: center;
-  min-height: 44px;
   gap: 6px;
   font-size: var(--text-sm);
   color: var(--muted);
-}
-.find-check input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
 }
 .find-check-select {
   gap: 8px;
@@ -1086,6 +1080,15 @@ body {
 }
 
 
+.tb-btn-danger {
+  color: var(--danger);
+}
+.tb-btn-danger:hover {
+  border-color: var(--danger);
+  background: rgba(224, 83, 59, 0.12);
+}
+
+
 /* View swap (2E): the incoming view fades in with a 4px rise; no exit. */
 @keyframes view-in {
   from {
@@ -1110,9 +1113,8 @@ body {
 .home-topbar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
-  min-height: 48px;
+  height: 48px;
   flex: 0 0 auto;
   padding: 0 var(--space-3);
   background: var(--surface);
@@ -1132,7 +1134,7 @@ body {
 .home-search {
   flex: 0 1 280px;
   min-width: 90px;
-  height: 44px;
+  height: 30px;
   padding: 0 10px;
   font: inherit;
   font-size: var(--text-md);
@@ -1155,7 +1157,7 @@ body {
   border-radius: 50%;
   background: var(--ink);
   color: var(--surface);
-  font-size: 0.6875rem;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1;
   user-select: none;
@@ -1224,13 +1226,13 @@ body {
 /* ---- Folder color swatches (shared by the film color modal) -------------- */
 .folder-swatches {
   display: grid;
-  grid-template-columns: repeat(auto-fit, 44px);
+  grid-template-columns: repeat(9, 1fr);
   gap: 6px;
-  max-width: 100%;
+  max-width: 232px;
 }
 .swatch {
-  width: 44px;
-  height: 44px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
@@ -1300,7 +1302,7 @@ body {
   top: 0;
   bottom: 0;
   width: 0;
-  background: color-mix(in srgb, var(--danger) 35%, transparent);
+  background: rgba(224, 83, 59, 0.35);
   pointer-events: none;
 }
 .hold-btn.holding .hold-fill {
@@ -1338,13 +1340,12 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.75rem;
+  font-size: 12px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 600;
   padding: 0 8px 8px;
-  cursor: grab;
 }
 /* A folded section keeps its count: the one clue to what is inside. */
 .band-ct {
@@ -1359,6 +1360,93 @@ body {
 }
 
 
+.film {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 8px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease);
+}
+.film:hover {
+  background: var(--surface);
+}
+.film.dropping {
+  background: var(--surface-2);
+}
+.film-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+/* The color mark: the folder's color as an 18x4 dash; implicit films wear
+   the muted token. Stretches on drag-over as the "yes, drop here" cue. */
+.film-mark {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fc, var(--muted));
+  flex: 0 0 auto;
+  align-self: center;
+  transition: transform var(--dur-1) var(--ease);
+  transform-origin: left center;
+}
+.film.dropping .film-mark {
+  transform: scaleX(1.6);
+}
+.film-name {
+  font-size: 20px;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The name as the doorway to the film's page: a plain word until hovered. */
+button.film-name-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.film-name-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.film-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  padding: 0 4px;
+  border: none;
+  border-bottom: 1px solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+}
+.film-rename:focus {
+  outline: none;
+}
+.film-state {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding-left: 28px; /* the mark (18) plus its gap (10) */
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .film-when {
   white-space: nowrap;
 }
@@ -1384,8 +1472,25 @@ body {
   background: var(--ok);
 }
 
+/* The lead: the same line, simply bigger, with the Now writing eyebrow. */
+.film.lead {
+  padding: 18px 8px 16px;
+}
+.film.lead .film-name {
+  font-size: 30px;
+}
+.film.lead .film-rename {
+  font-size: 30px;
+}
+.film.lead .film-state {
+  font-size: 13.5px;
+}
+.film-continue {
+  color: var(--ink);
+  font-weight: 600;
+}
 .lead-label {
-  font-size: 0.65625rem;
+  font-size: 10.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1418,7 +1523,7 @@ body {
 }
 .band-rename {
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink);
@@ -1482,8 +1587,10 @@ body {
 .pcard.dragging,
 .fh-item.dragging,
 .shelf.dragging {
-  outline: 2px dashed var(--ink);
-  outline-offset: 2px;
+  opacity: 0.4;
+}
+.fh-item {
+  cursor: grab;
 }
 .fh-item:active {
   cursor: grabbing;
@@ -1516,7 +1623,7 @@ body {
   padding: 0;
   margin: 0;
   font: inherit;
-  font-size: 1.0625rem;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--ink);
@@ -1532,13 +1639,13 @@ body {
   text-underline-offset: 3px;
 }
 .pcard.lead .pcard-name {
-  font-size: 1.5rem;
+  font-size: 24px;
 }
 .pcard-rename {
   flex: 1 1 auto;
   min-width: 0;
   font: inherit;
-  font-size: 1.0625rem;
+  font-size: 17px;
   font-weight: 700;
   padding: 0 4px;
   border: none;
@@ -1555,7 +1662,7 @@ body {
   flex-wrap: wrap;
   gap: 4px 12px;
   margin-top: 4px;
-  font-size: 0.78125rem;
+  font-size: 12.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1565,7 +1672,7 @@ body {
   border: none;
   padding: 0;
   font: inherit;
-  font-size: 0.78125rem;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
@@ -1576,10 +1683,10 @@ body {
   text-underline-offset: 3px;
 }
 .pcard.lead .pcard-meta {
-  font-size: 0.84375rem;
+  font-size: 13.5px;
 }
 .pcard.lead .pcard-continue {
-  font-size: 0.84375rem;
+  font-size: 13.5px;
 }
 .pcard-list {
   border-top: 1px solid var(--hairline);
@@ -1609,7 +1716,7 @@ body {
   gap: 8px;
   width: 100%;
   padding: 10px 14px 4px;
-  font-size: 0.65625rem;
+  font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1658,7 +1765,7 @@ body {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 0.84375rem;
+  font-size: 13.5px;
   cursor: pointer;
   text-align: center;
 }
@@ -1686,7 +1793,7 @@ body {
   cursor: pointer;
   /* A folder that folds should look like one, so the caret is always there,
      quiet until you reach for it. */
-  opacity: 1;
+  opacity: 0.45;
   transform: rotate(-90deg);
   transition:
     transform var(--dur-1) var(--ease),
@@ -1695,11 +1802,17 @@ body {
 .film-caret.open {
   transform: rotate(0deg);
 }
+.film:hover .film-caret,
 .pcard:hover .film-caret,
 .desk-section:hover .band-caret,
 .film-caret:hover,
 .film-caret:focus-visible {
   opacity: 1;
+}
+/* A folded folder shows its caret a touch stronger: it is the only sign
+   left that there is anything inside. */
+.film-caret:not(.open) {
+  opacity: 0.75;
 }
 .band-caret {
   margin-left: -2px;
@@ -1708,13 +1821,19 @@ body {
   margin: 0 -2px 0 0;
 }
 
+.film-items {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  padding-left: 28px; /* aligns under the name, past the mark */
+}
 .fh-item {
   display: flex;
   align-items: baseline;
   gap: 10px;
   padding: 6px 8px;
   border-radius: var(--r-sm);
-  cursor: grab;
+  cursor: pointer;
   transition: background-color var(--dur-1) var(--ease);
 }
 .fh-item:hover {
@@ -1724,9 +1843,10 @@ body {
   color: var(--muted);
   align-self: center;
   flex: 0 0 auto;
+  opacity: 0.8;
 }
 .fh-item-title {
-  font-size: 0.90625rem;
+  font-size: 14.5px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1737,7 +1857,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  font-size: 0.78125rem;
+  font-size: 12.5px;
   color: var(--muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1750,10 +1870,12 @@ body {
   margin: 10px 8px 6px;
 }
 .band.dragging {
-  outline: 2px dashed var(--ink);
-  outline-offset: 2px;
+  opacity: 0.4;
 }
 /* A heading can be picked up and rearranged; its own buttons still click. */
+.band {
+  cursor: grab;
+}
 .band:active {
   cursor: grabbing;
 }
@@ -1767,7 +1889,7 @@ body {
   background: var(--ink);
 }
 .fh-item-current {
-  font-size: 0.625rem;
+  font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1777,7 +1899,6 @@ body {
 }
 .fh-item .fh-kebab {
   opacity: 0;
-  margin-left: 0;
 }
 .fh-item:hover .fh-kebab,
 .fh-item .fh-kebab:focus-visible {
@@ -1800,11 +1921,10 @@ body {
   background: var(--surface);
 }
 .idea.dragging {
-  outline: 2px dashed var(--ink);
-  outline-offset: 2px;
+  opacity: 0.4;
 }
 .idea-title {
-  font-size: 0.9375rem;
+  font-size: 15px;
   font-weight: 500;
   min-width: 0;
   overflow: hidden;
@@ -1828,7 +1948,7 @@ body {
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 0.9375rem;
+  font-size: 15px;
   padding: 6px 0;
   border-bottom: 1px solid var(--hairline);
   border-radius: 0;
@@ -1859,7 +1979,8 @@ body {
   opacity: 0;
 }
 /* Idea and page lines put the timestamp at the far right; the kebab follows. */
-.idea .fh-kebab {
+.idea .fh-kebab,
+.fh-item .fh-kebab {
   margin-left: 0;
 }
 .idea:hover .fh-kebab,
@@ -1900,7 +2021,7 @@ body {
   background: var(--surface);
 }
 .fh-hit-title {
-  font-size: 0.9375rem;
+  font-size: 15px;
   font-weight: 500;
   min-width: 0;
   overflow: hidden;
@@ -1927,12 +2048,21 @@ body {
   overflow: hidden;
   white-space: nowrap;
 }
+.fh-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+
+
 /* Inline rename inside a line, on the hairline-underline pattern. */
 .line-rename {
   flex: 1 1 auto;
   min-width: 0;
   font: inherit;
-  font-size: 0.9375rem;
+  font-size: 15px;
   font-weight: 500;
   padding: 0 2px;
   border: none;
@@ -2005,6 +2135,12 @@ body {
   .fh-page {
     padding: 24px 16px 48px;
   }
+  .film.lead .film-name {
+    font-size: 26px;
+  }
+  .film.lead .film-rename {
+    font-size: 26px;
+  }
 }
 
 
@@ -2023,7 +2159,7 @@ body {
   color: var(--page-fg);
   padding: 1in;
   font-family: var(--doc-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
-  font-size: max(1rem, var(--doc-font-size, 1rem));
+  font-size: var(--doc-font-size, 16px);
   line-height: 1.7;
   overflow-wrap: anywhere;
   outline: none;
@@ -2110,34 +2246,6 @@ body {
      the light highlight wash stays readable in dark mode too. */
   color: #1a1a1a !important;
 }
-.pl-prose mark * {
-  color: #1a1a1a !important;
-}
-/* The editor stores its authoring palette as fixed colors. Map those known
-   values to theme-aware rendering tokens; attribute selectors cover both the
-   authored hex and the browser-normalized rgb serialization. */
-.pl-prose :is([style*="#6b7280" i], [style*="107, 114, 128"]) {
-  color: var(--doc-gray) !important;
-}
-.pl-prose :is([style*="#d83a3a" i], [style*="216, 58, 58"]) {
-  color: var(--doc-red) !important;
-}
-.pl-prose :is([style*="#d97316" i], [style*="217, 115, 22"]) {
-  color: var(--doc-orange) !important;
-}
-.pl-prose :is([style*="#1f8f4e" i], [style*="31, 143, 78"]) {
-  color: var(--doc-green) !important;
-}
-.pl-prose :is([style*="#2f6df6" i], [style*="47, 109, 246"]) {
-  color: var(--doc-blue) !important;
-}
-.pl-prose :is([style*="#7c3aed" i], [style*="124, 58, 237"]) {
-  color: var(--doc-purple) !important;
-}
-/* A highlight is always a light wash, so it wins over nested text colors. */
-.pl-prose mark :is([style]) {
-  color: #1a1a1a !important;
-}
 .pl-prose code {
   font-family: var(--font-courier-prime), "Courier New", monospace;
   font-size: 0.9em;
@@ -2167,14 +2275,8 @@ body {
   gap: 8px;
 }
 .pl-prose ul[data-type="taskList"] li > label {
-  width: 44px;
-  min-width: 44px;
-  min-height: 44px;
-  margin-top: 0;
+  margin-top: 0.3em;
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   user-select: none;
 }
 .pl-prose ul[data-type="taskList"] li > div {
@@ -2182,8 +2284,8 @@ body {
   min-width: 0;
 }
 .pl-prose ul[data-type="taskList"] input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   cursor: pointer;
 }
 
@@ -2355,7 +2457,7 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--warn);
+  background: #e0a23b;
 }
 .notes-add {
   display: flex;
@@ -2425,6 +2527,9 @@ body {
 }
 
 /* ---- Inline element-type icon at the active line (Arc-derived) ---------- */
+.sp-prose .sp-line {
+  position: relative;
+}
 .sp-elem-icon {
   position: absolute;
   left: -1.6em;
@@ -2432,6 +2537,7 @@ body {
   width: 14px;
   height: 14px;
   color: var(--muted);
+  opacity: 0.65;
   pointer-events: none;
   user-select: none;
 }
@@ -2455,17 +2561,12 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: max(16px, 12vh) 16px 16px;
-  overflow: auto;
+  padding-top: 12vh;
   z-index: var(--z-palette);
 }
 .cmd-palette {
   width: 560px;
-  max-width: 100%;
-  max-height: calc(100vh - 32px);
-  max-height: calc(100dvh - 32px);
-  display: flex;
-  flex-direction: column;
+  max-width: calc(100vw - 32px);
   background: var(--toolbar-bg);
   color: var(--toolbar-fg);
   border: 1px solid var(--border);
@@ -2485,8 +2586,6 @@ body {
 }
 .cmd-list {
   max-height: 52vh;
-  min-height: 0;
-  flex: 1 1 auto;
   overflow: auto;
   padding: 6px;
 }
@@ -2560,7 +2659,6 @@ body {
 .bd-highlight-toggle {
   display: flex;
   align-items: center;
-  min-height: 44px;
   gap: 6px;
   font-size: var(--text-sm);
   color: var(--muted);
@@ -2736,10 +2834,10 @@ body {
 }
 
 /* ============================ Mobile / tablet ============================= */
-/* At tablet width the 8.5in sheet becomes full width with percentage indents.
+/* Under 720px the 8.5in sheet becomes full width with percentage indents.
    Screenplay pagination measures the narrower rendered page. Toolbars become
    swipeable strips, panels go full screen, and touch targets get room. */
-@media (max-width: 900px) {
+@media (max-width: 720px) {
   /* The plain formatting row: one swipeable strip instead of a tall stack. */
   .editor-secondrow {
     flex-wrap: nowrap;
@@ -2756,15 +2854,6 @@ body {
     flex: 0 0 auto;
     flex-wrap: nowrap;
   }
-  /* Absolute popovers would be clipped by the horizontally scrollable row.
-     On compact/zoomed layouts they become a viewport-anchored bottom sheet. */
-  .tb-menu-list {
-    position: fixed;
-    inset: auto 8px 8px;
-    max-height: calc(100dvh - 16px);
-    margin: 0;
-    overflow: auto;
-  }
   .tb-btn {
     padding: 8px 10px; /* comfortable touch target */
     white-space: nowrap;
@@ -2779,6 +2868,7 @@ body {
   }
   .page-sheet {
     width: 100%;
+    border-radius: 0;
   }
   .sp-editor .sp-prose {
     width: 100%;
@@ -2806,28 +2896,6 @@ body {
   }
   .sp-prose .sp-parenthetical[data-dual="true"] {
     margin-left: 48%;
-  }
-  .pm-split-more,
-  .pm-split-contd {
-    height: auto;
-    min-height: 16px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .show-scene-numbers .sp-prose .sp-scene_heading::before {
-    left: -6%;
-  }
-  .show-scene-numbers .sp-prose .sp-scene_heading::after {
-    right: -4%;
-  }
-  .sp-prose .sp-line[data-note]::before {
-    left: -5%;
-  }
-  .sp-prose .sp-line[data-revised]::after {
-    right: -4%;
-  }
-  .sp-elem-icon {
-    left: -1.1em;
   }
 
   /* Plain documents keep their narrow-screen text measure and page margins. */
@@ -2877,8 +2945,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  overflow: auto;
   z-index: var(--z-modal);
   animation: ui-fade-in var(--dur-2) var(--ease);
 }
@@ -2886,8 +2952,7 @@ body {
   min-width: 360px;
   max-width: 440px;
   width: max-content;
-  max-height: calc(100vh - 32px);
-  max-height: calc(100dvh - 32px);
+  max-height: calc(100vh - 64px);
   overflow: auto;
   overscroll-behavior: contain;
   background: var(--paper);
@@ -2922,7 +2987,6 @@ body {
 }
 .ui-modal-actions {
   display: flex;
-  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
   margin-top: var(--space-5);
@@ -2931,13 +2995,12 @@ body {
 .duet-link-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
   margin: var(--space-3) 0;
 }
 .duet-link-row input {
   min-width: 0;
-  flex: 1 1 12rem;
+  flex: 1 1 auto;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
@@ -2977,8 +3040,8 @@ body {
   font-weight: 600;
 }
 .ui-btn-danger {
-  background: var(--danger-fill);
-  color: var(--on-danger);
+  background: var(--danger);
+  color: #fff;
   font-weight: 600;
 }
 
@@ -2992,15 +3055,12 @@ body {
 .ui-choice label {
   display: flex;
   align-items: flex-start;
-  min-height: 44px;
   gap: var(--space-2);
   font-size: var(--text-md);
   line-height: 1.45;
   cursor: pointer;
 }
 .ui-choice input {
-  width: 20px;
-  height: 20px;
   margin-top: 3px;
 }
 .ui-choice-sub {
@@ -3027,8 +3087,8 @@ body {
   animation: ui-toast-in var(--dur-2) var(--ease);
 }
 .ui-toast-danger {
-  background: var(--danger-fill);
-  color: var(--on-danger);
+  background: var(--danger);
+  color: #fff;
 }
 
 
@@ -3036,8 +3096,8 @@ body {
   position: fixed;
   z-index: var(--z-menus);
   min-width: 180px;
-  max-width: min(320px, calc(100vw - 16px));
-  max-height: min(60vh, 420px, calc(100dvh - 16px));
+  max-width: 320px;
+  max-height: min(60vh, 420px);
   overflow: auto;
   padding: 4px;
   background: var(--paper);
@@ -3133,22 +3193,21 @@ body {
 .editor-topbar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
-  min-height: 48px;
+  height: 48px;
   padding: 0 var(--space-3);
   background: var(--surface);
   color: var(--ink);
   border-bottom: 1px solid var(--hairline);
 }
 
-/* Icon buttons shared by the top bar use the 44px touch floor. */
+/* 32px icon buttons shared by the top bar. */
 .tb-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   border: none;
   border-radius: var(--r-sm);
@@ -3325,8 +3384,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
   border: none;
   border-radius: var(--r-md);
   background: none;
@@ -3586,7 +3645,6 @@ body {
 .shortcuts-row {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
   gap: var(--space-2);
   margin-bottom: var(--space-1);
   font-size: var(--text-sm);
@@ -3597,359 +3655,4 @@ body {
   min-width: 108px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
-}
-
-/* Narrow layout and high zoom share the same effective CSS viewport. Keep
-   names and menu content reflowable instead of truncating essential text. */
-@media (max-width: 900px) {
-  .pcard-name,
-  .fh-item-title,
-  .idea-title,
-  .fh-hit-title,
-  .docs-item-title,
-  .scene-text,
-  .report-scene-h,
-  .note-line,
-  .bd-item-name,
-  .bd-scene-h,
-  .cmd-label {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .fh-item,
-  .idea,
-  .fh-hit,
-  .docs-item,
-  .scene-item,
-  .report-row,
-  .report-scene,
-  .bd-item,
-  .bd-scene-title {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-  .fh-item-meta,
-  .report-metrics {
-    white-space: normal;
-  }
-  .duet-person {
-    max-width: none;
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-    overflow-wrap: anywhere;
-  }
-  .ui-menu-item {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-}
-
-@media (max-width: 600px) {
-  .home-topbar,
-  .editor-topbar {
-    height: auto;
-    min-height: 56px;
-    padding: 6px 8px;
-  }
-  .home-search,
-  .topbar-title {
-    min-width: 0;
-    max-width: none;
-  }
-  .home-search {
-    flex: 1 1 calc(100% - 6rem);
-  }
-  .topbar-title {
-    flex: 1 1 calc(100% - 52px);
-  }
-  .topbar-sync,
-  .topbar-sync-btn,
-  .status-duet {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .home-topbar > .toolbar-spacer,
-  .editor-topbar > .toolbar-spacer {
-    flex: 0 0 100%;
-    height: 0;
-  }
-  .status-bar {
-    justify-content: flex-start;
-    gap: 4px 8px;
-  }
-  .status-spacer {
-    display: none;
-  }
-  .session-banner {
-    flex-wrap: wrap;
-  }
-  .hint-card {
-    left: 8px;
-    max-width: calc(100vw - 16px);
-  }
-  .shortcuts-keys {
-    min-width: 0;
-  }
-}
-
-/* Hover-revealed controls must be discoverable on touch hardware. */
-@media (hover: none), (pointer: coarse) {
-  .dock-inner .cast-rename,
-  .dock-inner .note-remove,
-  .dock-inner .bd-item-remove,
-  .dock-inner .history-restore,
-  .band-kebab,
-  .fh-item .fh-kebab,
-  .film-caret {
-    opacity: 1;
-  }
-}
-
-/* A stronger author-requested contrast mode keeps secondary copy and control
-   boundaries close to the primary ink while preserving the theme. */
-@media (prefers-contrast: more) {
-  :root {
-    --muted: #3f3f46;
-    --hairline: #3f3f46;
-  }
-  :root[data-theme="dark"] {
-    --muted: #c7c7cf;
-    --hairline: #c7c7cf;
-  }
-  .tb-btn-active,
-  .seg-active,
-  .ui-menu-item-active,
-  .rail-btn-active,
-  .docs-item-current,
-  .scene-item-current,
-  .move-current {
-    outline: 2px solid var(--ink);
-    outline-offset: -2px;
-  }
-}
-
-/* System forced colours remove custom fills, so state also gets a structural
-   cue. Hue pickers retain their hues because choosing a hue is their purpose,
-   while a system-colour border keeps each target visible. */
-@media (forced-colors: active) {
-  :root,
-  :root[data-theme="dark"] {
-    --desk: Canvas;
-    --paper: Canvas;
-    --surface: Canvas;
-    --surface-2: Canvas;
-    --ink: CanvasText;
-    --muted: CanvasText;
-    --hairline: CanvasText;
-    --placeholder: CanvasText;
-    --ok: CanvasText;
-    --warn: CanvasText;
-    --danger: CanvasText;
-    --danger-fill: CanvasText;
-    --on-danger: Canvas;
-    --ring: Highlight;
-    --inverse-surface: CanvasText;
-    --inverse-ink: Canvas;
-    --selection: Highlight;
-    --find-hit: Highlight;
-    --find-hit-active: Highlight;
-  }
-  .tb-btn-active,
-  .seg-active,
-  .ui-menu-item-active,
-  .rail-btn-active,
-  .docs-item-current,
-  .scene-item-current,
-  .move-current,
-  .dual-chip-on {
-    outline: 2px solid Highlight;
-    outline-offset: -2px;
-  }
-  .sync-dot,
-  .dot,
-  .sp-prose .sp-line[data-note]::before,
-  .bd-swatch,
-  .pcard-spine,
-  .shelf-dot {
-    background: CanvasText;
-    border: 1px solid Canvas;
-  }
-  .sp-bd {
-    background: transparent;
-    border-bottom: 2px solid CanvasText;
-  }
-  .status-save-error,
-  .modal-error,
-  .ui-btn-danger,
-  .ui-toast-danger {
-    border: 2px solid CanvasText;
-  }
-  .swatch,
-  .pt-swatch-dot,
-  .duet-person-dot,
-  .collaboration-carets__caret {
-    forced-color-adjust: none;
-  }
-  .swatch {
-    border: 1px solid ButtonText;
-  }
-}
-
-/* Print the editor content as real Letter pages. Screen-only gaps become
-   fragmentation breaks, chrome and desk treatments disappear, and named page
-   rules preserve the screenplay's asymmetric left margin. */
-@media print {
-  @page {
-    size: Letter;
-    margin: 1in;
-  }
-  @page screenplay {
-    size: Letter;
-    margin: 1in 1in 1in 1.5in;
-  }
-  @page document {
-    size: Letter;
-    margin: 1in;
-  }
-
-  .editor-topbar-slot,
-  .editor-secondrow,
-  .editor-rail,
-  .editor-dock,
-  .dock-scrim,
-  .status-bar,
-  .hint-card,
-  .page-backdrop,
-  .duet-editor-loading,
-  .duet-initializing-overlay,
-  .storage-banner,
-  .session-banner,
-  .ui-toast,
-  .ui-tooltip,
-  .ui-menu,
-  .cmd-backdrop,
-  .modal-backdrop,
-  .ui-modal-scrim,
-  .sp-elem-icon,
-  .sp-ghost-hint,
-  .collaboration-carets__caret,
-  .collaboration-carets__label {
-    display: none !important;
-  }
-
-  html,
-  body,
-  .app,
-  .editor-shell,
-  .editor-body,
-  .editor-page-col,
-  .page-scroll,
-  .page-wrap,
-  .page-host,
-  .sp-editor,
-  .pl-doc {
-    display: block !important;
-    width: auto !important;
-    height: auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-    background: #fff !important;
-    color: #000 !important;
-    box-shadow: none !important;
-  }
-  .page-host-sp,
-  .sp-editor .sp-prose {
-    page: screenplay;
-  }
-  .page-host-pl,
-  .pl-prose {
-    page: document;
-  }
-  .sp-editor .sp-prose,
-  .pl-prose {
-    width: auto !important;
-    max-width: none !important;
-    min-height: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    background: #fff !important;
-    color: #000 !important;
-    box-shadow: none !important;
-  }
-  .sp-prose .sp-character {
-    margin-left: 2in;
-  }
-  .sp-prose .sp-parenthetical {
-    margin-left: 1.5in;
-    margin-right: 2in;
-  }
-  .sp-prose .sp-dialogue {
-    margin-left: 1in;
-    margin-right: 1.5in;
-  }
-  .sp-prose .sp-line[data-dual="true"] {
-    width: 2.7in;
-    margin-left: 3in;
-    margin-right: 0;
-  }
-  .sp-prose .sp-character[data-dual="true"] {
-    margin-left: 3.3in;
-  }
-  .sp-prose .sp-parenthetical[data-dual="true"] {
-    margin-left: 3.2in;
-  }
-  .show-scene-numbers .sp-prose .sp-scene_heading::before {
-    left: -1.15in;
-  }
-  .show-scene-numbers .sp-prose .sp-scene_heading::after {
-    right: -0.8in;
-  }
-  .sp-prose .sp-line[data-note]::before,
-  .sp-elem-icon {
-    left: -0.5in;
-  }
-  .sp-prose .sp-line[data-revised]::after {
-    right: -0.5in;
-  }
-  .pm-split-more,
-  .pm-split-contd {
-    height: 16px;
-    min-height: 16px;
-    white-space: nowrap;
-  }
-  .sp-prose *,
-  .pl-prose * {
-    color: #000 !important;
-    text-shadow: none !important;
-  }
-  .pl-prose code,
-  .pl-prose pre,
-  .pl-prose mark,
-  .sp-bd {
-    background: transparent !important;
-  }
-  .pl-prose pre {
-    border: 1px solid #000;
-  }
-  .sp-prose .is-empty::before,
-  .parenthetical-placeholder {
-    display: none !important;
-  }
-  .spell-mark {
-    text-decoration: none;
-  }
-  .pm-page-gap,
-  .doc-page-gap {
-    display: block !important;
-    height: 0 !important;
-    min-height: 0 !important;
-    break-before: page;
-    page-break-before: always;
-  }
 }

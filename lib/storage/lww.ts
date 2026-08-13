@@ -55,10 +55,9 @@ export type FieldAction =
  * whether we have a pending local edit (dirty) and whether the cloud's own
  * field clock is newer.
  *
- *   - A pending local edit is never discarded based on wall-clock order. Device
- *     clocks can be hours wrong; the dirty bit is the durable evidence that the
- *     writer changed this value and it has not reached the cloud yet.
- *   - A pending edit is pushed, or the flag is cleared if it already matches.
+ *   - A strictly-newer cloud value supersedes a pending local edit (pull).
+ *   - Otherwise a pending local edit is pushed (self-heal for offline edits),
+ *     or the flag is cleared if it already matches the cloud.
  *   - With no pending edit, a differing newer cloud value is pulled.
  */
 export function decideField(opts: {
@@ -68,6 +67,7 @@ export function decideField(opts: {
   cloudValue: string | null | undefined;
 }): FieldAction {
   const { dirty, cloudNewer, localValue, cloudValue } = opts;
+  if (dirty && cloudNewer && cloudValue && cloudValue !== localValue) return "pull";
   if (dirty) return localValue && localValue !== cloudValue ? "push" : "clearDirty";
   if (cloudNewer && cloudValue && cloudValue !== localValue) return "pull";
   return "noop";

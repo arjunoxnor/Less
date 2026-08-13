@@ -370,8 +370,6 @@ interface MeasuredBlock {
   pos: number;
   node: PMNode;
   el: HTMLElement;
-  /** Clean text height cached by immutable ProseMirror node identity. */
-  cleanHeight: number;
   element: string;
   dual: boolean;
   /** Real CSS margins in px (the DOM always renders them; page gaps absorb
@@ -441,21 +439,6 @@ interface KindMetrics {
 }
 type MetricsCache = Map<string, KindMetrics>;
 
-interface CachedBlockGeometry {
-  el: HTMLElement;
-  cleanHeight: number;
-}
-
-interface PaginationCache {
-  metrics: MetricsCache;
-  /** Weak keys ensure switching documents cannot retain old scripts. */
-  blocks: WeakMap<PMNode, CachedBlockGeometry>;
-}
-
-function createPaginationCache(): PaginationCache {
-  return { metrics: new Map(), blocks: new WeakMap() };
-}
-
 /** The block's own pixel height with any hosted split widgets subtracted, so
     a block already carrying a split measures its clean text height. Uses
     offsetHeight for the block (no rect allocation); the split wrapper is
@@ -510,19 +493,14 @@ function resolveLineStartOffset(
 
 function compute(
   view: EditorView,
-  cache: PaginationCache,
+  metrics: MetricsCache,
   full = false
 ): { decos: DecorationSet; pages: number; sig: string } {
   const measured: MeasuredBlock[] = [];
   let currentCue: string | null = null;
   view.state.doc.forEach((node, offset) => {
-    let geometry = cache.blocks.get(node);
-    if (!geometry) {
-      const dom = view.nodeDOM(offset) as HTMLElement | null;
-      if (!dom || dom.nodeType !== 1) return;
-      geometry = { el: dom, cleanHeight: cleanBlockHeight(dom) };
-      cache.blocks.set(node, geometry);
-    }
+    const dom = view.nodeDOM(offset) as HTMLElement | null;
+    if (!dom || dom.nodeType !== 1) return;
     const element = (node.attrs.element as string) ?? "action";
     // Track the nearest preceding speaker, mirroring the export engine.
     if (element === "character") {
@@ -534,8 +512,7 @@ function compute(
     measured.push({
       pos: offset,
       node,
-      el: geometry.el,
-      cleanHeight: geometry.cleanHeight,
+      el: dom,
       element,
       dual: node.attrs.dual === true,
       mt: 0,
@@ -559,7 +536,7 @@ function compute(
   for (let i = 0; i < n; i++) {
     const b = measured[i];
     const cacheKey = `${b.el.className}|${b.dual ? 1 : 0}${i === 0 ? "|first" : ""}`;
-    let m = cache.metrics.get(cacheKey);
+    let m = metrics.get(cacheKey);
     if (!m) {
       const cs = getComputedStyle(b.el);
       const lh = parseFloat(cs.lineHeight);
@@ -568,7 +545,7 @@ function compute(
         mb: parseFloat(cs.marginBottom) || 0,
         lineH: Number.isFinite(lh) && lh > 0 ? lh : DEFAULT_LINE_H,
       };
-      cache.metrics.set(cacheKey, m);
+      metrics.set(cacheKey, m);
     }
     if (i === 0) lineH = m.lineH;
     b.mt = m.mt;
@@ -584,7 +561,7 @@ function compute(
         continue;
       }
     }
-    b.rows = Math.max(1, Math.round(b.cleanHeight / lineH));
+    b.rows = Math.max(1, Math.round(cleanBlockHeight(b.el) / lineH));
   }
 
   const capacity = Math.max(1, Math.floor((TEXT_H + 0.5) / lineH)); // 54 at 16px
@@ -618,7 +595,7 @@ function compute(
     if (b.lineTops) continue; // full mode measured it up front
     const tops = textLineTops(b.el, lineH);
     if (tops.length !== b.rows) {
-      if (!full) return compute(view, cache, true);
+      if (!full) return compute(view, metrics, true);
       // Full mode and still no usable line boxes: leave lineTops null so the
       // replay degrades to letting the rest of the block flow on.
       b.lineTops = tops.length > 0 ? tops : null;
@@ -709,28 +686,6 @@ function compute(
   };
 }
 
-/** Exercise real cold and post-edit DOM passes in feature-length benchmarks. */
-export function benchmarkPaginationPass(view: EditorView): {
-  coldMs: number;
-  editMs: number;
-} {
-  const cache = createPaginationCache();
-  const coldStarted = performance.now();
-  compute(view, cache);
-  const coldMs = performance.now() - coldStarted;
-  const samples: number[] = [];
-  for (let sample = 0; sample < 3; sample++) {
-    if (!view.state.doc.lastChild) break;
-    const textEnd = view.state.doc.content.size - 1;
-    view.dispatch(view.state.tr.insertText("x", textEnd));
-    const started = performance.now();
-    compute(view, cache);
-    samples.push(performance.now() - started);
-  }
-  samples.sort((a, b) => a - b);
-  return { coldMs, editMs: samples[Math.floor(samples.length / 2)] ?? 0 };
-}
-
 /**
  * Canonical signature over widget entries: sorted by position with the spec
  * key as the tiebreak, so the comparison is independent of enumeration order.
@@ -801,7 +756,7 @@ export const Pagination = Extension.create<PaginationOptions>({
     let passes = 0;
     // Per-kind margin/line-height cache (see MetricsCache); cleared whenever
     // the editor width or the loaded font changes, since both re-style.
-    const cache = createPaginationCache();
+    const metrics: MetricsCache = new Map();
 
     return [
       new Plugin<PagState>({
@@ -821,8 +776,6 @@ export const Pagination = Extension.create<PaginationOptions>({
         },
         view(view) {
           const timers: ReturnType<typeof setTimeout>[] = [];
-          let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-          let firstQueuedAt = 0;
           let destroyed = false;
           const run = () => {
             raf = 0;
@@ -830,16 +783,16 @@ export const Pagination = Extension.create<PaginationOptions>({
             // Never reflow mid-composition: IME text is not yet real content
             // and a dispatch would disturb it. Try again shortly after.
             if (view.composing) {
-              timers.push(setTimeout(() => schedule(true), 250));
+              timers.push(setTimeout(schedule, 250));
               return;
             }
-            const { decos, pages, sig } = compute(view, cache);
+            const { decos, pages, sig } = compute(view, metrics);
             if (sig !== sigOfState(view.state)) {
               view.dispatch(view.state.tr.setMeta(key, { decos, pages }));
               onLayout?.();
               if (passes < 4) {
                 passes++;
-                schedule(true);
+                schedule();
               }
             } else {
               passes = 0;
@@ -849,31 +802,11 @@ export const Pagination = Extension.create<PaginationOptions>({
               onPages?.(pages);
             }
           };
-          const queueFrame = () => {
+          const schedule = () => {
             if (destroyed) return;
             if (!raf) raf = requestAnimationFrame(run);
           };
-          const schedule = (immediate = false) => {
-            if (destroyed) return;
-            if (immediate) {
-              if (debounceTimer) clearTimeout(debounceTimer);
-              debounceTimer = null;
-              firstQueuedAt = 0;
-              queueFrame();
-              return;
-            }
-            const now = Date.now();
-            if (firstQueuedAt === 0) firstQueuedAt = now;
-            if (debounceTimer) clearTimeout(debounceTimer);
-            const elapsed = now - firstQueuedAt;
-            const delay = Math.max(0, Math.min(80, 260 - elapsed));
-            debounceTimer = setTimeout(() => {
-              debounceTimer = null;
-              firstQueuedAt = 0;
-              queueFrame();
-            }, delay);
-          };
-          schedule(true);
+          schedule();
           // Only recompute when the editor's WIDTH changes (which re-wraps text
           // and changes block heights). Ignore height-only changes: inserting our
           // own page spacers changes view.dom's height, which would otherwise make
@@ -885,8 +818,7 @@ export const Pagination = Extension.create<PaginationOptions>({
             if (Math.abs(w - lastWidth) < 0.5) return;
             lastWidth = w;
             passes = 0;
-            cache.metrics.clear();
-            cache.blocks = new WeakMap();
+            metrics.clear();
             schedule();
           });
           ro.observe(view.dom);
@@ -900,8 +832,7 @@ export const Pagination = Extension.create<PaginationOptions>({
             document.fonts.ready
               .then(() => {
                 if (destroyed) return;
-                cache.metrics.clear();
-                cache.blocks = new WeakMap();
+                metrics.clear();
                 schedule();
               })
               .catch(() => {});
@@ -920,7 +851,6 @@ export const Pagination = Extension.create<PaginationOptions>({
             destroy() {
               destroyed = true;
               if (raf) cancelAnimationFrame(raf);
-              if (debounceTimer) clearTimeout(debounceTimer);
               timers.forEach(clearTimeout);
               ro.disconnect();
             },

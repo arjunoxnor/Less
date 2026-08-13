@@ -98,19 +98,6 @@ function linesToPlainDoc(lines: ScriptLine[]): JSONContent {
 
 export type ImportKind = "screenplay" | "plain";
 
-async function readUtf8(file: File): Promise<string> {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
-  } catch {
-    throw new Error("That text file is not valid UTF-8.");
-  }
-}
-
-async function readRtf(file: File): Promise<string> {
-  // RTF's \ansi payload is Windows-1252 unless Unicode is carried by \uN.
-  return new TextDecoder("windows-1252").decode(await file.arrayBuffer());
-}
-
 export async function importFile(file: File): Promise<{
   doc: JSONContent;
   titlePage: TitlePage | null;
@@ -132,7 +119,7 @@ export async function importFile(file: File): Promise<{
     name.endsWith(".spmd");
 
   if (name.endsWith(".fdx") || name.endsWith(".xml")) {
-    const r = parseFdx(await readUtf8(file));
+    const r = parseFdx(await file.text());
     lines = r.lines;
     titlePage = r.titlePage;
   } else if (name.endsWith(".docx")) {
@@ -140,7 +127,7 @@ export async function importFile(file: File): Promise<{
   } else if (name.endsWith(".odt")) {
     lines = await odtToLines(await file.arrayBuffer());
   } else if (name.endsWith(".rtf")) {
-    lines = rtfToLines(await readRtf(file));
+    lines = rtfToLines(await file.text());
   } else if (name.endsWith(".doc")) {
     throw new Error(
       "Old .doc files are not supported. In Word, choose File then Save As and pick .docx or .rtf, then import that."
@@ -161,13 +148,13 @@ export async function importFile(file: File): Promise<{
     name.endsWith(".md") ||
     name.endsWith(".markdown")
   ) {
-    const r = parseFountain(await readUtf8(file));
+    const r = parseFountain(await file.text());
     lines = r.lines;
     titlePage = r.titlePage;
   } else {
     // Unknown extension: if it decodes as text, treat it as Fountain / plain
     // text; otherwise refuse rather than dumping binary into the editor.
-    const text = await readUtf8(file);
+    const text = await file.text();
     if (looksBinary(text)) {
       throw new Error(
         "Unsupported file type. Import a Word (.docx), Final Draft (.fdx), Fountain (.fountain, .txt), Rich Text (.rtf), or OpenDocument (.odt) file."

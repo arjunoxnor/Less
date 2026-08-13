@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import type { NoteEntry } from "@/types/screenplay";
 
 /**
@@ -8,7 +8,7 @@ import type { NoteEntry } from "@/types/screenplay";
  * place, jump to any of them, or remove them. Notes live on the line as a sparse
  * attribute, so they sync and never touch the screenplay text or export.
  */
-export const NotesPanel = memo(function NotesPanel({
+export function NotesPanel({
   notes,
   onJump,
   onAddToCurrent,
@@ -22,41 +22,6 @@ export const NotesPanel = memo(function NotesPanel({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState("");
-  const panelRef = useRef<HTMLElement>(null);
-  const latestNotes = useRef(notes);
-  const focusedRow = useRef<number | null>(null);
-  latestNotes.current = notes;
-
-  const rows = useMemo(() => {
-    const seen = new Map<string, number>();
-    return notes.map((note) => {
-      const fingerprint = `${note.note}\u0000${note.lineText}\u0000${note.element}`;
-      const occurrence = seen.get(fingerprint) ?? 0;
-      seen.set(fingerprint, occurrence + 1);
-      return { note, fingerprint, occurrence, key: `${fingerprint}\u0000${occurrence}` };
-    });
-  }, [notes]);
-
-  const resolve = (snapshot: NoteEntry, fingerprint: string) => {
-    const matches = latestNotes.current.filter(
-      (note) => `${note.note}\u0000${note.lineText}\u0000${note.element}` === fingerprint
-    );
-    // Duplicate identical notes have no persistent identifier. Only reuse an
-    // old position for them; otherwise a deleted duplicate could target its
-    // neighbour. Unique notes can safely follow edits that shifted their pos.
-    if (matches.length === 1) return matches[0];
-    return matches.find((note) => note.pos === snapshot.pos);
-  };
-
-  useEffect(() => {
-    const row = focusedRow.current;
-    if (row == null || document.activeElement !== document.body) return;
-    const buttons = panelRef.current?.querySelectorAll<HTMLButtonElement>(
-      "[data-note-action]"
-    );
-    if (buttons?.length) buttons[Math.min(row * 2, buttons.length - 1)]?.focus();
-    else panelRef.current?.querySelector<HTMLTextAreaElement>(".notes-input")?.focus();
-  }, [notes]);
 
   const add = () => {
     const t = draft.trim();
@@ -66,7 +31,7 @@ export const NotesPanel = memo(function NotesPanel({
   };
 
   return (
-    <aside className="side-panel notes-panel" ref={panelRef}>
+    <aside className="side-panel notes-panel">
       <div className="side-panel-head">
         <strong>Notes</strong>
         <button type="button" className="side-panel-x" onClick={onClose} title="Close">
@@ -103,19 +68,12 @@ export const NotesPanel = memo(function NotesPanel({
             {notes.length === 1 ? "1 note" : `${notes.length} notes`}
           </div>
           <ul className="side-panel-list">
-            {rows.map(({ note: n, fingerprint, key }, rowIndex) => (
-              <li key={key} className="note-item">
+            {notes.map((n) => (
+              <li key={n.pos} className="note-item">
                 <button
                   type="button"
                   className="note-body"
-                  data-note-action
-                  onFocus={() => {
-                    focusedRow.current = rowIndex;
-                  }}
-                  onClick={() => {
-                    const live = resolve(n, fingerprint);
-                    if (live) onJump(live.pos);
-                  }}
+                  onClick={() => onJump(n.pos)}
                   title="Jump to this line"
                 >
                   <span className="note-text">{n.note}</span>
@@ -124,14 +82,7 @@ export const NotesPanel = memo(function NotesPanel({
                 <button
                   type="button"
                   className="note-remove"
-                  data-note-action
-                  onFocus={() => {
-                    focusedRow.current = rowIndex;
-                  }}
-                  onClick={() => {
-                    const live = resolve(n, fingerprint);
-                    if (live) onRemove(live.pos);
-                  }}
+                  onClick={() => onRemove(n.pos)}
                   title="Remove this note"
                 >
                   Remove
@@ -143,9 +94,4 @@ export const NotesPanel = memo(function NotesPanel({
       )}
     </aside>
   );
-}, (previous, next) =>
-  previous.notes === next.notes &&
-  previous.onJump === next.onJump &&
-  previous.onAddToCurrent === next.onAddToCurrent &&
-  previous.onRemove === next.onRemove
-);
+}

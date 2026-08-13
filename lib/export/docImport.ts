@@ -79,13 +79,11 @@ const STYLE_ELEMENT: Record<string, ElementType> = {
 };
 
 function pushLine(out: ScriptLine[], element: ElementType, text: string): void {
-  if (!text.trim()) return;
-  let value = text;
-  if (element === "parenthetical") {
-    const trimmed = text.trim();
-    value = /^\(.*\)$/.test(trimmed) ? trimmed : `(${trimmed})`;
-  }
-  out.push({ element, text: value });
+  // Collapse tabs / soft breaks / runs of spaces so one paragraph = one line.
+  let t = text.replace(/\s+/g, " ").trim();
+  if (!t) return;
+  if (element === "parenthetical" && !/^\(.*\)$/.test(t)) t = `(${t})`;
+  out.push({ element, text: t });
 }
 
 /**
@@ -123,7 +121,7 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
 
     const styled = STYLE_ELEMENT[normStyle(paras[i].style)];
     if (styled) {
-      pushLine(out, styled, paras[i].text);
+      pushLine(out, styled, t);
       inDialogue = styled === "dialogue" || styled === "character" || styled === "parenthetical";
       pendingDialogue = styled === "character" || styled === "parenthetical";
       continue;
@@ -131,20 +129,20 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
 
     // --- heuristic fallback (no usable style name) ---
     if (SCENE_PREFIX.test(t)) {
-      pushLine(out, "scene_heading", paras[i].text);
+      pushLine(out, "scene_heading", t);
       inDialogue = false;
       pendingDialogue = false;
       continue;
     }
     if (/^\(.*\)$/.test(t)) {
-      pushLine(out, "parenthetical", paras[i].text);
+      pushLine(out, "parenthetical", t);
       inDialogue = true;
       pendingDialogue = true;
       continue;
     }
     const align = paras[i].align;
     if (isAllCaps(t) && (/TO:\s*$/.test(t) || align === "right" || TERMINAL_TRANSITION.test(t))) {
-      pushLine(out, "transition", paras[i].text);
+      pushLine(out, "transition", t);
       inDialogue = false;
       pendingDialogue = false;
       continue;
@@ -167,18 +165,18 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
     // which strips to empty -> isAllCaps("") is false -> still counts.
     const dialogueFollows = nextRaw.length > 0 && !isAllCaps(nextCore);
     if (looksCharacter && (align === "center" || dialogueFollows)) {
-      pushLine(out, "character", paras[i].text);
+      pushLine(out, "character", t);
       inDialogue = true;
       pendingDialogue = true;
       continue;
     }
     if (inDialogue || pendingDialogue) {
-      pushLine(out, "dialogue", paras[i].text);
+      pushLine(out, "dialogue", t);
       inDialogue = true;
       pendingDialogue = false;
       continue;
     }
-    pushLine(out, "action", paras[i].text);
+    pushLine(out, "action", t);
     inDialogue = false;
   }
 
@@ -189,10 +187,7 @@ function classifyParagraphs(paras: Para[]): ScriptLine[] {
 // ZIP-based formats (.docx, .odt): unzip one entry, parse its XML.
 // ---------------------------------------------------------------------------
 
-async function unzipEntries(
-  buf: ArrayBuffer,
-  paths: readonly string[]
-): Promise<Map<string, string | null>> {
+async function unzipEntry(buf: ArrayBuffer, path: string): Promise<string | null> {
   const { unzipSync } = await import("fflate");
   let files: Record<string, Uint8Array>;
   try {
@@ -200,24 +195,9 @@ async function unzipEntries(
   } catch {
     throw new Error("That file is not a valid Word or OpenDocument file.");
   }
-  const out = new Map<string, string | null>();
-  for (const path of paths) {
-    const bytes = files[path];
-    if (!bytes) {
-      out.set(path, null);
-      continue;
-    }
-    try {
-      out.set(path, new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    } catch {
-      throw new Error("The document contains invalid UTF-8 XML.");
-    }
-  }
-  return out;
-}
-
-async function unzipEntry(buf: ArrayBuffer, path: string): Promise<string | null> {
-  return (await unzipEntries(buf, [path])).get(path) ?? null;
+  const bytes = files[path];
+  if (!bytes) return null;
+  return new TextDecoder("utf-8").decode(bytes);
 }
 
 function parseXml(xml: string): Document {
@@ -297,9 +277,10 @@ function docxParaAlign(p: Element): string | undefined {
 }
 
 export async function docxToLines(buf: ArrayBuffer): Promise<ScriptLine[]> {
-  const files = await unzipEntries(buf, ["word/document.xml", "word/styles.xml"]);
-  const xml = files.get("word/document.xml") ?? null;
-  const stylesXml = files.get("word/styles.xml") ?? null;
+  const [xml, stylesXml] = await Promise.all([
+    unzipEntry(buf, "word/document.xml"),
+    unzipEntry(buf, "word/styles.xml"),
+  ]);
   if (!xml) throw new Error("That .docx file has no document body.");
   const doc = parseXml(xml);
   const styleNames = docxStyleNames(stylesXml);
@@ -410,17 +391,12 @@ const RTF_ALIGN_RIGHT = "\uE001";
 const RTF_ALIGN_LEFT = "\uE002";
 
 function rtfToParagraphs(rtf: string): Para[] {
-  rtf = rtf.replace(/^\uFEFF/, "");
-  if (rtf.includes("\0")) {
-    throw new Error("This RTF file contains NUL bytes and cannot be read safely.");
-  }
   const n = rtf.length;
   let text = "";
   const stack: { ignore: boolean; ucskip: number }[] = [{ ignore: false, ucskip: 1 }];
   let top = stack[0];
   let skip = 0; // count of fallback chars to swallow after a \uN unicode escape
   let i = 0;
-  let unbalanced = false;
 
   const emit = (ch: string): void => {
     if (!top.ignore) text += ch;
@@ -437,7 +413,6 @@ function rtfToParagraphs(rtf: string): Para[] {
     }
     if (c === "}") {
       if (stack.length > 1) stack.pop();
-      else unbalanced = true;
       top = stack[stack.length - 1];
       i++;
       continue;
@@ -529,10 +504,6 @@ function rtfToParagraphs(rtf: string): Para[] {
     i++;
   }
 
-  if (unbalanced || stack.length !== 1) {
-    throw new Error("This RTF file has unbalanced braces.");
-  }
-
   let align: string | undefined;
   return text.split("\n").map((raw) => {
     const value = raw.replace(/[\uE000-\uE002]/g, (marker) => {
@@ -541,7 +512,7 @@ function rtfToParagraphs(rtf: string): Para[] {
       else align = undefined;
       return "";
     });
-    return { text: value, align };
+    return { text: value.replace(/\s+$/, ""), align };
   });
 }
 

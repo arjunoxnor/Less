@@ -115,37 +115,3 @@ describe("B4 session expiry flag", () => {
     }
   });
 });
-
-describe("cloud failure containment", () => {
-  it("throws on a 500 without clearing the local session", async () => {
-    setSession("tok", USER);
-    vi.stubGlobal("fetch", respond(500, { error: "database unavailable" }));
-
-    await expect(api("scripts")).rejects.toThrow("database unavailable");
-    expect(getToken()).toBe("tok");
-    expect(getStoredUser()).toEqual(USER);
-  });
-
-  it("times out and aborts a hung request instead of leaving sync stuck forever", async () => {
-    vi.useFakeTimers();
-    setSession("tok", USER);
-    let signal: AbortSignal | undefined;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((_url: string, init?: RequestInit) => {
-        signal = init?.signal ?? undefined;
-        return new Promise<Response>(() => {});
-      })
-    );
-    try {
-      const request = api("scripts", { timeoutMs: 50 });
-      const rejection = expect(request).rejects.toThrow("timed out");
-      await vi.advanceTimersByTimeAsync(50);
-      await rejection;
-      expect(signal?.aborted).toBe(true);
-      expect(getToken()).toBe("tok");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});

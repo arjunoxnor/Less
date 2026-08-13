@@ -2,19 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-let storageFullSeen = false;
-const storageFullSubscribers = new Set<() => void>();
-
-// Install as soon as the client module loads, before descendant components can
-// perform migration or startup writes. A useEffect-only listener can miss a
-// quota failure fired during that first render.
-if (typeof window !== "undefined") {
-  window.addEventListener("less:storagefull", () => {
-    storageFullSeen = true;
-    for (const subscriber of storageFullSubscribers) subscriber();
-  });
-}
-
 /**
  * A quiet, persistent notice shown when the browser's local storage is full or
  * blocked. Some writes (folder arrangement, sync bookkeeping) cannot thread a
@@ -23,17 +10,12 @@ if (typeof window !== "undefined") {
  * fail silently. It stays until the page is reloaded (the condition is sticky).
  */
 export function StorageBanner() {
-  // Keep the server and first client render identical; the effect immediately
-  // consumes the early sticky signal after hydration.
   const [full, setFull] = useState(false);
 
   useEffect(() => {
     const onFull = () => setFull(true);
-    storageFullSubscribers.add(onFull);
-    if (storageFullSeen) onFull();
-    return () => {
-      storageFullSubscribers.delete(onFull);
-    };
+    window.addEventListener("less:storagefull", onFull);
+    return () => window.removeEventListener("less:storagefull", onFull);
   }, []);
 
   if (!full) return null;

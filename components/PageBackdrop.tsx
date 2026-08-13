@@ -1,6 +1,5 @@
 "use client";
 
-import { memo } from "react";
 import { PAGE_H, STRIDE } from "@/lib/editor/pagination";
 
 /**
@@ -9,8 +8,8 @@ import { PAGE_H, STRIDE } from "@/lib/editor/pagination";
  * pagination plugin inserts spacers so the text lands within these sheets and
  * the gaps between them stay empty.
  */
-export const PageBackdrop = memo(function PageBackdrop({ pages }: { pages: number }) {
-  const n = Number.isFinite(pages) ? Math.max(1, Math.ceil(pages)) : 1;
+export function PageBackdrop({ pages }: { pages: number }) {
+  const n = Math.max(1, pages);
   return (
     <div className="page-backdrop" aria-hidden="true">
       {Array.from({ length: n }, (_, i) => (
@@ -20,4 +19,4 @@ export const PageBackdrop = memo(function PageBackdrop({ pages }: { pages: numbe
       ))}
     </div>
   );
-});
+}

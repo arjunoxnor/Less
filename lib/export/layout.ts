@@ -110,19 +110,6 @@ export function sanitizeLoose(text: string): string {
   return out;
 }
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-/** Screenplay columns count user-perceived characters, never UTF-16 halves. */
-export function graphemes(text: string): string[] {
-  return Array.from(graphemeSegmenter.segment(text), (part) => part.segment);
-}
-
-export function columnLength(text: string): number {
-  let count = 0;
-  for (const _part of graphemeSegmenter.segment(text)) count++;
-  return count;
-}
-
 /** Greedy word wrap to a monospaced column of `maxChars`. */
 export function wrap(text: string, maxChars: number): string[] {
   const words = text.split(/\s+/).filter((w) => w.length > 0);
@@ -131,18 +118,16 @@ export function wrap(text: string, maxChars: number): string[] {
   const lines: string[] = [];
   let cur = "";
   for (let w of words) {
-    let units = graphemes(w);
-    while (units.length > maxChars) {
+    while (w.length > maxChars) {
       if (cur) {
         lines.push(cur);
         cur = "";
       }
-      lines.push(units.slice(0, maxChars).join(""));
-      units = units.slice(maxChars);
+      lines.push(w.slice(0, maxChars));
+      w = w.slice(maxChars);
     }
-    w = units.join("");
     if (!cur) cur = w;
-    else if (columnLength(cur) + 1 + units.length <= maxChars) cur += ` ${w}`;
+    else if (cur.length + 1 + w.length <= maxChars) cur += ` ${w}`;
     else {
       lines.push(cur);
       cur = w;
@@ -154,5 +139,5 @@ export function wrap(text: string, maxChars: number): string[] {
 
 /** Right-aligned x for a line of `text` (used by transitions). */
 export function rightAlignX(text: string): number {
-  return Math.max(LEFT, RIGHT_EDGE - columnLength(text) * CHAR_W);
+  return Math.max(LEFT, RIGHT_EDGE - text.length * CHAR_W);
 }

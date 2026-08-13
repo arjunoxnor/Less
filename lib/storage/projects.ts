@@ -2,7 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
 import type { PageLock } from "@/lib/export/pageLock";
 import type { BreakdownItem } from "@/lib/editor/breakdown";
-import { lsGet, lsKeys, lsSet } from "./localStore";
+import { lsGet, lsSet } from "./localStore";
 import { broadcast } from "./broadcast";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
@@ -75,22 +75,11 @@ export const EMPTY_PLAIN_DOC: JSONContent = {
 };
 
 const INDEX_KEY = "less:projects:index";
-const INDEX_PENDING_KEY = `${INDEX_KEY}:pending`;
-const INDEX_BACKUP_KEY = `${INDEX_KEY}:backup`;
 const LAST_OPENED_KEY = "less:lastOpenedId";
-const OPENED_IDS_KEY = "less:projects:openedIds";
 const TOMBSTONE_KEY = "less:projects:tombstones";
-const TOMBSTONE_PENDING_KEY = `${TOMBSTONE_KEY}:pending`;
-const TOMBSTONE_BACKUP_KEY = `${TOMBSTONE_KEY}:backup`;
-const DELETED_COPIES_KEY = "less:projects:deletedCopies";
 
 const docKey = (id: string) => `less:project:${id}:doc`;
-const docPendingKey = (id: string) => `${docKey(id)}:pending`;
-const docBackupKey = (id: string) => `${docKey(id)}:backup`;
 const tpKey = (id: string) => `less:project:${id}:titlePage`;
-const tpPendingKey = (id: string) => `${tpKey(id)}:pending`;
-const tpBackupKey = (id: string) => `${tpKey(id)}:backup`;
-const tpClearedKey = (id: string) => `${tpKey(id)}:cleared`;
 const lockKey = (id: string) => `less:project:${id}:pageLock`;
 const breakdownKey = (id: string) => `less:project:${id}:breakdown`;
 const dirtyKey = (id: string) => `less:project:${id}:dirty`;
@@ -105,215 +94,37 @@ const LEGACY_ACTIVE = "less:activeScriptId";
 const LEGACY_LASTSAVED = "less:lastSavedAt";
 const LEGACY_DIRTY = "less:dirty";
 
-let evictionProtectionFailed = false;
-
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-type StoredDoc = { content: JSONContent; raw: string };
-
-const observedBodies = new Map<string, string>();
-const redirectedProjects = new Map<string, string>();
-
-function parseDoc(raw: string | null): StoredDoc | null {
-  if (!raw) return null;
-  try {
-    const content = JSON.parse(raw) as JSONContent;
-    return content && typeof content === "object" && !Array.isArray(content)
-      ? { content, raw }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Prefer a complete pending write, then the primary, then the last backup. */
-function readStoredDoc(id: string): StoredDoc | null {
-  for (const key of [docPendingKey(id), docKey(id), docBackupKey(id)]) {
-    const parsed = parseDoc(lsGet(key));
-    if (parsed) return parsed;
-  }
-  // If all body copies were damaged, a bounded local snapshot is still a
-  // usable recovery source. Do not write it back during a read; the next save
-  // goes through the recoverable transaction below.
-  const versions = lsGet(localVersKey(id));
-  if (versions) {
-    try {
-      const entries = JSON.parse(versions) as Array<{ content?: JSONContent }>;
-      if (Array.isArray(entries)) {
-        for (const entry of entries) {
-          if (entry?.content && typeof entry.content === "object") {
-            return { content: entry.content, raw: JSON.stringify(entry.content) };
-          }
-        }
-      }
-    } catch {
-      /* keep looking: the caller will block an unsafe empty-document open */
-    }
-  }
-  return null;
-}
-
-function validTime(value: unknown, fallback: string): string {
-  return typeof value === "string" && Number.isFinite(new Date(value).getTime())
-    ? value
-    : fallback;
-}
-
-function inferType(content: JSONContent | undefined): ProjectType {
-  return content?.content?.some((node) => node.type === "screenplayLine")
-    ? "screenplay"
-    : "plain";
-}
-
-function sanitizeMeta(value: unknown): ProjectMeta | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const raw = value as Partial<ProjectMeta>;
-  if (typeof raw.id !== "string" || !raw.id.trim()) return null;
-  const stored = readStoredDoc(raw.id);
-  const type = raw.type === "plain" || raw.type === "screenplay"
-    ? raw.type
-    : inferType(stored?.content);
-  const ts = nowIso();
-  const createdAt = validTime(raw.createdAt, validTime(raw.updatedAt, ts));
-  const updatedAt = validTime(raw.updatedAt, createdAt);
-  const status = raw.status === "not_started" || raw.status === "writing" || raw.status === "done"
-    ? raw.status
-    : stored && isMeaningfulForRecovery(type, stored.content)
-      ? "writing"
-      : "not_started";
-  const fallbackTitle = stored
-    ? deriveTitleFor(type, stored.content).trim() || "Untitled"
-    : "Untitled";
-  return {
-    ...raw,
-    id: raw.id,
-    title: typeof raw.title === "string" && raw.title.trim() ? raw.title : fallbackTitle,
-    type,
-    status,
-    createdAt,
-    updatedAt,
-    cloudCreated: raw.cloudCreated === true,
-    // An indexed project with no recoverable local body must never mount an
-    // empty editor and later push that blank document. EditorHost already has
-    // a guarded cloud-hydration path for this flag.
-    ...(!stored ? { bodyEvicted: true } : {}),
-  };
-}
-
-function isMeaningfulForRecovery(type: ProjectType, content: JSONContent): boolean {
-  return type === "screenplay" ? isMeaningfulDoc(content) : Boolean(deriveTitleFor(type, content));
-}
-
-function parseIndex(raw: string | null): ProjectMeta[] | null {
-  if (raw === null) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return null;
-    const out: ProjectMeta[] = [];
-    const seen = new Set<string>();
-    for (const value of parsed) {
-      const meta = sanitizeMeta(value);
-      if (!meta || seen.has(meta.id)) continue;
-      seen.add(meta.id);
-      out.push(meta);
-    }
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-function rawTombstones(): Set<string> {
-  for (const key of [TOMBSTONE_PENDING_KEY, TOMBSTONE_KEY, TOMBSTONE_BACKUP_KEY]) {
-    const raw = lsGet(key);
-    if (!raw) continue;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) {
-        return new Set(parsed.filter((id): id is string => typeof id === "string"));
-      }
-    } catch {
-      /* try the next recovery copy */
-    }
-  }
-  return new Set();
-}
-
-function recoverOrphanBodies(list: ProjectMeta[]): ProjectMeta[] {
-  const known = new Set(list.map((meta) => meta.id));
-  const tombed = rawTombstones();
-  const bodyIds = new Set<string>();
-  for (const key of lsKeys()) {
-    const match = /^less:project:(.+):doc(?::(?:pending|backup))?$/.exec(key);
-    if (match) bodyIds.add(match[1]);
-  }
-  const recovered = [...list];
-  for (const id of bodyIds) {
-    if (known.has(id) || tombed.has(id)) continue;
-    const stored = readStoredDoc(id);
-    if (!stored) continue;
-    const type = inferType(stored.content);
-    const ts = nowIso();
-    recovered.unshift({
-      id,
-      title: `${deriveTitleFor(type, stored.content).trim() || "Untitled"} (Recovered)`,
-      type,
-      status: isMeaningfulForRecovery(type, stored.content) ? "writing" : "not_started",
-      createdAt: ts,
-      updatedAt: ts,
-      cloudCreated: false,
-      titleManual: true,
-    });
-    known.add(id);
-  }
-  return recovered;
-}
-
 function readIndex(): ProjectMeta[] {
-  for (const key of [INDEX_PENDING_KEY, INDEX_KEY, INDEX_BACKUP_KEY]) {
-    const parsed = parseIndex(lsGet(key));
-    if (parsed !== null) return recoverOrphanBodies(parsed);
+  const raw = lsGet(INDEX_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as ProjectMeta[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
   }
-  // A corrupt/missing index is not an empty library. Rebuild its view from the
-  // independently stored bodies; a later mutation persists this recovered list.
-  return recoverOrphanBodies([]);
 }
 
-function storedExactly(key: string, payload: string): boolean {
-  return lsGet(key) === payload;
-}
-
-/**
- * Commit the index through a durable pending copy. A quota failure on the main
- * key leaves the complete pending index authoritative, rather than orphaning a
- * body or replacing the library with an empty array.
- */
-function writeIndex(list: ProjectMeta[]): boolean {
-  const payload = JSON.stringify(list);
-  if (!lsSet(INDEX_PENDING_KEY, payload) || !storedExactly(INDEX_PENDING_KEY, payload)) {
-    return false;
-  }
-  const mainOk = lsSet(INDEX_KEY, payload) && storedExactly(INDEX_KEY, payload);
-  if (mainOk) {
-    lsSet(INDEX_BACKUP_KEY, payload);
-  }
+function writeIndex(list: ProjectMeta[]): void {
+  lsSet(INDEX_KEY, JSON.stringify(list));
   broadcast({ type: "indexChanged" }); // let sibling tabs refresh the dashboard
-  return true; // pending is a complete durable commit even if the main write failed
 }
 
-function patchMeta(id: string, patch: Partial<ProjectMeta>): boolean {
+function patchMeta(id: string, patch: Partial<ProjectMeta>): void {
   const list = readIndex();
   const i = list.findIndex((m) => m.id === id);
-  if (i < 0) return false;
+  if (i < 0) return;
   list[i] = { ...list[i], ...patch };
-  return writeIndex(list);
+  writeIndex(list);
 }
 
 /** Public metadata patch (used by reconcile to adopt a newer cloud title/status). */
-export function patchProjectMeta(id: string, patch: Partial<ProjectMeta>): boolean {
-  return patchMeta(id, patch);
+export function patchProjectMeta(id: string, patch: Partial<ProjectMeta>): void {
+  patchMeta(id, patch);
 }
 
 /* --- Reads --------------------------------------------------------------- */
@@ -330,32 +141,23 @@ export function getProjectMeta(id: string): ProjectMeta | null {
 }
 
 export function loadProjectDoc(id: string): JSONContent | null {
-  const localId = redirectedProjects.get(id) ?? id;
-  const stored = readStoredDoc(localId);
-  if (!stored) return null;
-  observedBodies.set(localId, stored.raw);
-  if (localId !== id) observedBodies.set(id, stored.raw);
-  return stored.content;
+  const raw = lsGet(docKey(id));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as JSONContent;
+  } catch {
+    return null;
+  }
 }
 
 export function loadProjectTitlePage(id: string): TitlePage | null {
-  const localId = redirectedProjects.get(id) ?? id;
-  const pending = lsGet(tpPendingKey(localId));
-  const candidates = pending
-    ? [pending]
-    : lsGet(tpClearedKey(localId)) === "1"
-      ? []
-      : [lsGet(tpKey(localId)), lsGet(tpBackupKey(localId))];
-  for (const raw of candidates) {
-    if (!raw) continue;
-    try {
-      const parsed = JSON.parse(raw) as TitlePage;
-      if (parsed && typeof parsed === "object") return parsed;
-    } catch {
-      /* try the next recoverable copy */
-    }
+  const raw = lsGet(tpKey(id));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as TitlePage;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export function loadProject(id: string): Project | null {
@@ -415,29 +217,24 @@ export function addLocalVersion(
   titlePage?: TitlePage | null,
   label?: string,
   opts?: { force?: boolean }
-): boolean {
+): void {
   const now = Date.now();
   if (!opts?.force) {
     const last = Number(lsGet(localVersAtKey(id)) || "0");
-    if (now - last < LOCAL_VERS_THROTTLE_MS) return true;
+    if (now - last < LOCAL_VERS_THROTTLE_MS) return;
   }
-  const existing = listLocalVersions(id);
-  // Multiple forced actions can happen in one millisecond. Keep their ids
-  // distinct so History never renders one restore target as another.
-  const newestAt = existing[0] ? new Date(existing[0].at).getTime() : 0;
-  const entryTime = opts?.force && newestAt >= now ? newestAt + 1 : now;
   const entry: LocalVersion = {
-    at: new Date(entryTime).toISOString(),
+    at: new Date(now).toISOString(),
     content,
     titlePage: titlePage ?? null,
     ...(label ? { label } : {}),
   };
   const serializedDoc = JSON.stringify(content);
-  let ring = existing;
+  let ring = listLocalVersions(id);
   // Dedupe: skip an automatic snapshot identical to the newest one.
   if (!opts?.force && ring[0] && JSON.stringify(ring[0].content) === serializedDoc) {
     lsSet(localVersAtKey(id), String(now));
-    return true;
+    return;
   }
   ring = [entry, ...ring].slice(0, LOCAL_VERS_MAX);
   // Enforce the byte budget (keep at least the newest entry).
@@ -447,97 +244,16 @@ export function addLocalVersion(
     payload = JSON.stringify(ring);
   }
   // Quota-resilient write: drop oldest and retry until it fits or one remains.
-  let saved = lsSet(localVersKey(id), payload);
-  while (!saved && ring.length > 1) {
+  while (!lsSet(localVersKey(id), payload) && ring.length > 1) {
     ring = ring.slice(0, ring.length - 1);
     payload = JSON.stringify(ring);
-    saved = lsSet(localVersKey(id), payload);
   }
-  if (saved) lsSet(localVersAtKey(id), String(now));
-  return saved;
+  lsSet(localVersAtKey(id), String(now));
 }
 
 export function clearLocalVersions(id: string): void {
   lsSet(localVersKey(id), null);
   lsSet(localVersAtKey(id), null);
-}
-
-function writeProjectBody(id: string, payload: string): { ok: boolean; previous: StoredDoc | null } {
-  const previous = readStoredDoc(id);
-  if (previous?.raw === payload) return { ok: true, previous };
-
-  // Preserve the currently readable body before attempting to replace it. If
-  // there is not enough space for that safety copy, leave the primary alone and
-  // report a failed save; replacing the only durable copy is never acceptable.
-  if (
-    previous &&
-    (!lsSet(docBackupKey(id), previous.raw) || !storedExactly(docBackupKey(id), previous.raw))
-  ) {
-    return { ok: false, previous };
-  }
-  if (!lsSet(docPendingKey(id), payload) || !storedExactly(docPendingKey(id), payload)) {
-    return { ok: false, previous };
-  }
-  lsSet(docKey(id), payload);
-  // A complete pending value is itself durable. Keep it when the primary write
-  // throws or is silently truncated; loadProjectDoc always prefers it.
-  // Keep the complete mirror even after the primary succeeds. localStorage
-  // writes are atomic in conforming browsers, but damaged profiles and crash
-  // simulations do produce truncated values; the mirror retains the newest
-  // body while the backup retains the previous one.
-  return { ok: true, previous };
-}
-
-function uniqueProjectId(): string {
-  const used = new Set(readIndex().map((meta) => meta.id));
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const id = crypto.randomUUID();
-    if (!used.has(id) && !readStoredDoc(id)) return id;
-  }
-  // A hostile/broken randomUUID implementation must not make us overwrite an
-  // existing body. The fallback remains unique within this storage namespace.
-  let suffix = 0;
-  let id = `recovered-${Date.now()}-${suffix}`;
-  while (used.has(id) || readStoredDoc(id)) id = `recovered-${Date.now()}-${++suffix}`;
-  return id;
-}
-
-function saveConflictCopy(sourceId: string, content: JSONContent): boolean {
-  const source = getProjectMeta(sourceId);
-  const id = uniqueProjectId();
-  const payload = JSON.stringify(content);
-  if (!writeProjectBody(id, payload).ok) return false;
-  const sourceTitlePage = loadProjectTitlePage(sourceId);
-  if (sourceTitlePage) saveProjectTitlePage(id, sourceTitlePage);
-  const type = source?.type ?? inferType(content);
-  const ts = nowIso();
-  const meta: ProjectMeta = {
-    id,
-    title: `${source?.title || deriveTitleFor(type, content).trim() || "Untitled"} (Recovered conflict)`,
-    type,
-    status: source?.status ?? (isMeaningfulForRecovery(type, content) ? "writing" : "not_started"),
-    createdAt: ts,
-    updatedAt: ts,
-    cloudCreated: false,
-    titleManual: true,
-  };
-  const list = readIndex();
-  const recoveredIndex = list.findIndex((entry) => entry.id === id);
-  if (recoveredIndex >= 0) list[recoveredIndex] = meta;
-  else list.unshift(meta);
-  // Even if the index is completely unwritable, the independently keyed body
-  // remains discoverable by readIndex's orphan recovery on the next load.
-  writeIndex(list);
-  redirectedProjects.set(sourceId, id);
-  observedBodies.set(sourceId, payload);
-  observedBodies.set(id, payload);
-  broadcast({ type: "docSaved", id });
-  return true;
-}
-
-/** The local fork receiving this tab's edits after a cross-tab conflict. */
-export function localProjectIdFor(id: string): string {
-  return redirectedProjects.get(id) ?? id;
 }
 
 /* --- Storage eviction --------------------------------------------------------
@@ -550,51 +266,30 @@ export function localProjectIdFor(id: string): string {
    re-fetched from the cloud before the editor mounts (see EditorHost). */
 
 export function evictSyncedBodies(opts?: { exceptId?: string | null; max?: number }): number {
-  if (evictionProtectionFailed) return 0;
   const except = opts?.exceptId ?? getLastOpenedId();
   const max = opts?.max ?? 5;
-  const protectedIds = new Set<string>();
-  const openedRaw = lsGet(OPENED_IDS_KEY);
-  if (openedRaw) {
-    try {
-      const opened = JSON.parse(openedRaw) as unknown;
-      if (Array.isArray(opened)) {
-        for (const id of opened) if (typeof id === "string") protectedIds.add(id);
-      }
-    } catch {
-      // If the protection record is corrupt, do not evict anything. A false
-      // negative here could delete the body another tab is actively editing.
-      return 0;
-    }
-  }
   const candidates = readIndex()
     .filter(
       (m) =>
         m.cloudCreated &&
         !m.bodyEvicted &&
         m.id !== except &&
-        !protectedIds.has(m.id) &&
         lsGet(dirtyKey(m.id)) !== "1" && // no unsynced edits
         !!lsGet(lastSavedKey(m.id)) && // synced at least once
-        !!readStoredDoc(m.id) // has a body to free
+        !!lsGet(docKey(m.id)) // has a body to free
     )
     // Least-recently-edited first: the writer is least likely to miss these.
     .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : 1))
     .slice(0, max);
   for (const m of candidates) {
-    // Mark first. If the index cannot durably record that the body must be
-    // fetched, keep every body copy and skip this candidate.
-    if (!patchMeta(m.id, { bodyEvicted: true })) continue;
     lsSet(docKey(m.id), null);
-    lsSet(docPendingKey(m.id), null);
-    lsSet(docBackupKey(m.id), null);
-    // Version history is deliberately retained: an older draft may exist only
-    // there even though the current body is confirmed in the cloud.
+    clearLocalVersions(m.id);
     // Clearing lastSavedAt makes the open-time reconcile treat the cloud copy
     // as newer (belt and suspenders behind the bodyEvicted fetch path).
     lsSet(lastSavedKey(m.id), null);
+    patchMeta(m.id, { bodyEvicted: true });
   }
-  return candidates.filter((m) => getProjectMeta(m.id)?.bodyEvicted).length;
+  return candidates.length;
 }
 
 /** Called after the cloud body is re-fetched on open: store it and clear the flag. */
@@ -604,88 +299,49 @@ export function restoreEvictedBody(
   titlePage: TitlePage | null,
   cloudUpdatedAt: string
 ): boolean {
-  const ok = writeProjectBody(id, JSON.stringify(content)).ok;
-  if (!ok || !saveProjectTitlePage(id, titlePage)) return false;
-  if (!lsSet(lastSavedKey(id), cloudUpdatedAt)) return false;
-  return patchMeta(id, { bodyEvicted: false });
+  const ok = lsSet(docKey(id), JSON.stringify(content));
+  if (!ok) return false;
+  saveProjectTitlePage(id, titlePage);
+  lsSet(lastSavedKey(id), cloudUpdatedAt);
+  patchMeta(id, { bodyEvicted: false });
+  return true;
 }
 
 export function saveProjectDoc(id: string, content: JSONContent): boolean {
-  const localId = redirectedProjects.get(id) ?? id;
-  const payload = JSON.stringify(content);
-  const meta = getProjectMeta(localId);
-  if (!meta) return saveConflictCopy(id, content);
-
-  const current = readStoredDoc(localId);
-  const observed = observedBodies.get(localId) ?? (localId !== id ? observedBodies.get(id) : undefined);
-  if (observed !== undefined && current && current.raw !== observed && current.raw !== payload) {
-    // This tab began from an older body. Do not choose a winner and overwrite
-    // the sibling tab; continue this tab's work in a visible recovered project.
-    return saveConflictCopy(id, content);
-  }
-
-  const result = writeProjectBody(localId, payload);
-  const ok = result.ok;
+  const ok = lsSet(docKey(id), JSON.stringify(content));
   // If the body did not persist (storage full/disabled), do NOT bump updatedAt
   // or re-derive the title: that would advance the index past content we failed
   // to save and could push a stale/empty doc up on the next sync.
   if (!ok) return false;
-  observedBodies.set(localId, payload);
-  if (localId !== id) observedBodies.set(id, payload);
-  broadcast({ type: "docSaved", id: localId }); // sibling tabs can adopt the newer body
-  // The prior primary, not the just-written primary, belongs in History. The
-  // backup key remains an independent copy if the bounded ring cannot grow.
-  if (result.previous && result.previous.raw !== payload) {
-    addLocalVersion(localId, result.previous.content, loadProjectTitlePage(localId));
-  }
-  const liveMeta = getProjectMeta(localId);
-  if (liveMeta) {
+  broadcast({ type: "docSaved", id }); // sibling tabs can adopt the newer body
+  // On-device rollback safety net (throttled inside; ~1 snapshot per 3 min).
+  addLocalVersion(id, content, loadProjectTitlePage(id));
+  const meta = getProjectMeta(id);
+  if (meta) {
     const patch: Partial<ProjectMeta> = { updatedAt: nowIso() };
     // Auto-name only plain docs (Google-Docs style), and only while the writer
     // has not set a title. A screenplay's title is always explicit; deriving it
     // from the first line (a scene heading) would clobber the real title.
-    if (!liveMeta.titleManual && liveMeta.type === "plain") {
-      const derived = deriveTitleFor(liveMeta.type, content);
+    if (!meta.titleManual && meta.type === "plain") {
+      const derived = deriveTitleFor(meta.type, content);
       patch.title = derived;
       // A changed auto-title is a genuine local title change, so mark it dirty
       // and advance the title clock. The content save no longer carries the
       // title, so this is how a plain-doc rename-by-typing reaches the cloud
       // (via the title-only endpoint on the next push).
-      if (derived !== liveMeta.title) {
+      if (derived !== meta.title) {
         patch.titleAt = nowIso();
+        setTitleDirty(id, true);
       }
     }
-    if (!patchMeta(localId, patch)) return false;
-    if (patch.titleAt) setTitleDirty(localId, true);
+    patchMeta(id, patch);
   }
   return ok;
 }
 
-export function saveProjectTitlePage(id: string, tp: TitlePage | null): boolean {
-  const localId = redirectedProjects.get(id) ?? id;
-  const current = loadProjectTitlePage(localId);
-  const currentRaw = current ? JSON.stringify(current) : null;
-  if (currentRaw && (!lsSet(tpBackupKey(localId), currentRaw) || !storedExactly(tpBackupKey(localId), currentRaw))) {
-    return false;
-  }
-  if (tp === null) {
-    if (!lsSet(tpClearedKey(localId), "1") || lsGet(tpClearedKey(localId)) !== "1") return false;
-    if (!lsSet(tpPendingKey(localId), null) || lsGet(tpPendingKey(localId)) !== null) return false;
-    lsSet(tpKey(localId), null);
-  } else {
-    const payload = JSON.stringify(tp);
-    if (!lsSet(tpPendingKey(localId), payload) || !storedExactly(tpPendingKey(localId), payload)) {
-      return false;
-    }
-    const mainOk = lsSet(tpKey(localId), payload) && storedExactly(tpKey(localId), payload);
-    if (!mainOk) {
-      broadcast({ type: "titlePageSaved", id: localId });
-      return true; // the complete pending title page is authoritative
-    }
-    lsSet(tpClearedKey(localId), null);
-  }
-  broadcast({ type: "titlePageSaved", id: localId });
-  return true;
+export function saveProjectTitlePage(id: string, tp: TitlePage | null): void {
+  const ok = tp === null ? lsSet(tpKey(id), null) : lsSet(tpKey(id), JSON.stringify(tp));
+  if (ok) broadcast({ type: "titlePageSaved", id });
 }
 
 /* --- Page lock (local-only; production page-number freeze + A-pages) ------ */
@@ -736,7 +392,7 @@ export function createProject(
     status?: ProjectStatus;
   }
 ): Project {
-  const id = uniqueProjectId();
+  const id = crypto.randomUUID();
   const content =
     opts?.content ?? (type === "plain" ? EMPTY_PLAIN_DOC : EMPTY_SCREENPLAY);
   const ts = nowIso();
@@ -754,23 +410,17 @@ export function createProject(
     // so the very first cloud insert is filed, not loose-then-patched.
     ...(opts?.folderId ? { folderId: opts.folderId, placedAt: ts } : {}),
   };
-  const bodyOk = writeProjectBody(id, JSON.stringify(content)).ok;
-  // A blank new document still has to survive reload. Private mode used to
-  // return a convincing project object while persisting neither body nor index.
-  if (!bodyOk) {
+  const bodyOk = lsSet(docKey(id), JSON.stringify(content));
+  // If real content was provided (an import) and the body did not persist
+  // (storage full), fail loudly instead of committing a named-but-blank project
+  // to the index. The caller's try/catch surfaces it as a failed import.
+  if (!bodyOk && opts?.content) {
     throw new Error("Storage is full, so this document could not be saved on this device.");
   }
-  if (opts?.titlePage && !saveProjectTitlePage(id, opts.titlePage)) {
-    throw new Error("Storage is full, so this document's title page could not be saved.");
-  }
+  if (opts?.titlePage) saveProjectTitlePage(id, opts.titlePage);
   const list = readIndex();
-  const recovered = list.findIndex((entry) => entry.id === id);
-  if (recovered >= 0) list[recovered] = meta;
-  else list.unshift(meta);
-  if (!writeIndex(list)) {
-    throw new Error("Storage is full, so this document could not be added to the library.");
-  }
-  observedBodies.set(id, JSON.stringify(content));
+  list.unshift(meta);
+  writeIndex(list);
   return { ...meta, content, titlePage: opts?.titlePage ?? null };
 }
 
@@ -839,59 +489,10 @@ export function markCloudCreated(id: string, value = true): void {
   patchMeta(id, { cloudCreated: value });
 }
 
-interface DeletedProjectCopy {
-  deletedAt: string;
-  meta: ProjectMeta;
-  content: JSONContent;
-  titlePage: TitlePage | null;
-}
-
-function archiveDeletedProject(id: string): boolean {
-  const meta = getProjectMeta(id);
-  const stored = readStoredDoc(id);
-  if (!meta || !stored) return true;
-  let existing: DeletedProjectCopy[] = [];
-  const raw = lsGet(DELETED_COPIES_KEY);
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as DeletedProjectCopy[];
-      if (Array.isArray(parsed)) existing = parsed;
-    } catch {
-      // Do not overwrite a corrupt recovery archive. The live project remains.
-      return false;
-    }
-  }
-  const copy: DeletedProjectCopy = {
-    deletedAt: nowIso(),
-    meta,
-    content: stored.content,
-    titlePage: loadProjectTitlePage(id),
-  };
-  let next = [copy, ...existing].slice(0, 20);
-  let payload = JSON.stringify(next);
-  while (payload.length > 5_000_000 && next.length > 1) {
-    next = next.slice(0, -1);
-    payload = JSON.stringify(next);
-  }
-  return lsSet(DELETED_COPIES_KEY, payload) && storedExactly(DELETED_COPIES_KEY, payload);
-}
-
-export function deleteProject(id: string): boolean {
-  // Queue the delete and preserve an undo copy before removing either index or
-  // body. If quota/private mode prevents either safety write, leave the live
-  // project untouched.
-  if (!archiveDeletedProject(id) || !markDeletedTombstone(id)) return false;
-  if (!writeIndex(readIndex().filter((m) => m.id !== id))) {
-    clearTombstone(id);
-    return false;
-  }
+export function deleteProject(id: string): void {
+  writeIndex(readIndex().filter((m) => m.id !== id));
   lsSet(docKey(id), null);
-  lsSet(docPendingKey(id), null);
-  lsSet(docBackupKey(id), null);
   lsSet(tpKey(id), null);
-  lsSet(tpPendingKey(id), null);
-  lsSet(tpBackupKey(id), null);
-  lsSet(tpClearedKey(id), null);
   lsSet(lockKey(id), null);
   lsSet(breakdownKey(id), null);
   lsSet(dirtyKey(id), null);
@@ -901,8 +502,6 @@ export function deleteProject(id: string): boolean {
   lsSet(lastSavedKey(id), null);
   clearLocalVersions(id);
   if (getLastOpenedId() === id) setLastOpenedId(null);
-  observedBodies.delete(id);
-  return true;
 }
 
 /** Add a cloud-only project to the local index (lazy body, loaded on open). */
@@ -924,28 +523,6 @@ export function getLastOpenedId(): string | null {
   return lsGet(LAST_OPENED_KEY);
 }
 export function setLastOpenedId(id: string | null): void {
-  if (id) {
-    // This is intentionally a monotonic set, not a single shared "active id".
-    // Two tabs can be editing different projects; overwriting one id with the
-    // other made quota eviction delete the first tab's live body. Stale entries
-    // cost some eviction opportunities, which is the safe direction to err.
-    evictionProtectionFailed = true;
-    let opened: string[] = [];
-    const raw = lsGet(OPENED_IDS_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (!Array.isArray(parsed)) return;
-        opened = parsed.filter((entry): entry is string => typeof entry === "string");
-      } catch {
-        return;
-      }
-    }
-    if (!opened.includes(id)) opened.push(id);
-    const payload = JSON.stringify(opened);
-    if (!lsSet(OPENED_IDS_KEY, payload) || !storedExactly(OPENED_IDS_KEY, payload)) return;
-    evictionProtectionFailed = false;
-  }
   lsSet(LAST_OPENED_KEY, id);
 }
 
@@ -998,28 +575,24 @@ export function hasPendingCloudWork(): boolean {
 /* --- Tombstones (offline cloud deletes, flushed on reconnect) ------------ */
 
 function readTombstones(): string[] {
-  return [...rawTombstones()];
-}
-function writeTombstones(ids: string[]): boolean {
-  const payload = JSON.stringify([...new Set(ids)]);
-  if (!lsSet(TOMBSTONE_PENDING_KEY, payload) || !storedExactly(TOMBSTONE_PENDING_KEY, payload)) {
-    return false;
+  const raw = lsGet(TOMBSTONE_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as string[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
   }
-  const mainOk = lsSet(TOMBSTONE_KEY, payload) && storedExactly(TOMBSTONE_KEY, payload);
-  if (mainOk) {
-    lsSet(TOMBSTONE_BACKUP_KEY, payload);
-  }
-  return true;
 }
-export function markDeletedTombstone(id: string): boolean {
+export function markDeletedTombstone(id: string): void {
   const t = readTombstones();
-  return t.includes(id) ? true : writeTombstones([...t, id]);
+  if (!t.includes(id)) lsSet(TOMBSTONE_KEY, JSON.stringify([...t, id]));
 }
 export function listTombstones(): string[] {
   return readTombstones();
 }
-export function clearTombstone(id: string): boolean {
-  return writeTombstones(readTombstones().filter((x) => x !== id));
+export function clearTombstone(id: string): void {
+  lsSet(TOMBSTONE_KEY, JSON.stringify(readTombstones().filter((x) => x !== id)));
 }
 
 /* --- Sign-out resets ----------------------------------------------------- */
@@ -1045,12 +618,7 @@ export function dropCloudProjects(): void {
   for (const m of readIndex()) {
     if (m.cloudCreated) {
       lsSet(docKey(m.id), null);
-      lsSet(docPendingKey(m.id), null);
-      lsSet(docBackupKey(m.id), null);
       lsSet(tpKey(m.id), null);
-      lsSet(tpPendingKey(m.id), null);
-      lsSet(tpBackupKey(m.id), null);
-      lsSet(tpClearedKey(m.id), null);
       lsSet(lockKey(m.id), null);
       lsSet(breakdownKey(m.id), null);
       lsSet(dirtyKey(m.id), null);
@@ -1075,16 +643,9 @@ export function dropCloudProjects(): void {
  * than duplicating it. Legacy keys are left in place this release for rollback.
  */
 export function migrateLegacyDoc(): void {
-  // Any complete index generation (including a pending quota-recovery commit)
-  // is the idempotency guard. A corrupt main value alone is not: in that case
-  // the legacy original must still be offered for recovery.
-  if (
-    [INDEX_PENDING_KEY, INDEX_KEY, INDEX_BACKUP_KEY].some(
-      (key) => parseIndex(lsGet(key)) !== null
-    )
-  ) return;
+  if (lsGet(INDEX_KEY) !== null) return; // already initialized
 
-  let index: ProjectMeta[] = readIndex();
+  let index: ProjectMeta[] = [];
   const legacyRaw = lsGet(LEGACY_DOC);
   if (legacyRaw) {
     let doc: JSONContent | null = null;
@@ -1095,10 +656,7 @@ export function migrateLegacyDoc(): void {
     }
     if (doc) {
       const legacyActive = lsGet(LEGACY_ACTIVE);
-      // With no cloud id, derive a stable local id from the untouched legacy
-      // payload. If an index write fails, the next startup targets the same body
-      // instead of creating another orphan with a fresh random UUID.
-      const id = legacyActive || `legacy-${stableLegacyHash(legacyRaw)}`;
+      const id = legacyActive || crypto.randomUUID();
       const ts = nowIso();
       const meta: ProjectMeta = {
         id,
@@ -1109,36 +667,16 @@ export function migrateLegacyDoc(): void {
         updatedAt: ts,
         cloudCreated: Boolean(legacyActive),
       };
-      if (!writeProjectBody(id, JSON.stringify(doc)).ok) return;
+      lsSet(docKey(id), JSON.stringify(doc));
       const legacyTp = lsGet(LEGACY_TP);
-      if (legacyTp) {
-        try {
-          if (!saveProjectTitlePage(id, JSON.parse(legacyTp) as TitlePage)) return;
-        } catch {
-          // Preserve the original legacy key; never mark a malformed/truncated
-          // migration complete by writing an index that points at lost metadata.
-          return;
-        }
-      }
+      if (legacyTp) lsSet(tpKey(id), legacyTp);
       const legacyLastSaved = lsGet(LEGACY_LASTSAVED);
       if (legacyLastSaved) lsSet(lastSavedKey(id), legacyLastSaved);
       const legacyDirty = lsGet(LEGACY_DIRTY);
       if (legacyDirty) lsSet(dirtyKey(id), legacyDirty);
-      const existing = index.findIndex((entry) => entry.id === id);
-      if (existing >= 0) index[existing] = meta;
-      else index.unshift(meta);
-      if (writeIndex(index)) setLastOpenedId(id);
-      return;
+      index = [meta];
+      setLastOpenedId(id);
     }
   }
-  writeIndex(index); // a valid empty index is also an idempotency guard
-}
-
-function stableLegacyHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index++) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
+  writeIndex(index); // existence of INDEX_KEY is the idempotency guard
 }

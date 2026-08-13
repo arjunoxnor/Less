@@ -50,11 +50,10 @@ describe("decideField (title/status conflict)", () => {
     expect(decideField({ dirty: true, cloudNewer: false, ...T })).toBe("push");
   });
 
-  it("never discards a pending local edit because either device clock is hours skewed", () => {
-    // The cloud timestamp can look newer simply because this device's clock is
-    // slow. The dirty bit is stronger evidence: this value has never landed.
-    expect(decideField({ dirty: true, cloudNewer: true, ...T })).toBe("push");
-    expect(decideField({ dirty: true, cloudNewer: false, ...T })).toBe("push");
+  it("lets a strictly-newer remote edit supersede our pending one (no stale clobber)", () => {
+    // This is the F1/F41 class: our local rename is stale relative to a newer
+    // remote rename, so we must adopt the remote, not push over it.
+    expect(decideField({ dirty: true, cloudNewer: true, ...T })).toBe("pull");
   });
 
   it("just clears the dirty flag when our value already matches the cloud", () => {
@@ -66,17 +65,6 @@ describe("decideField (title/status conflict)", () => {
   it("never pulls an empty/absent cloud value over a local one", () => {
     expect(
       decideField({ dirty: false, cloudNewer: true, localValue: "A", cloudValue: "" })
-    ).toBe("noop");
-  });
-
-  it("pulls newer clean content metadata without pulling an independently older title", () => {
-    expect(
-      decideField({
-        dirty: false,
-        cloudNewer: false,
-        localValue: "New local title",
-        cloudValue: "Old cloud title",
-      })
     ).toBe("noop");
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createSyncCode,
   adoptSyncCode,
@@ -8,25 +8,8 @@ import {
   signInWithGoogle,
 } from "@/lib/cloud/auth";
 import { listScripts } from "@/lib/cloud/scripts";
-import { Modal } from "./ui/Modal";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-
-async function copyText(value: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-  const input = document.createElement("textarea");
-  input.value = value;
-  input.style.position = "fixed";
-  input.style.opacity = "0";
-  document.body.appendChild(input);
-  input.select();
-  const copied = document.execCommand("copy");
-  input.remove();
-  if (!copied) throw new Error("Copy failed");
-}
 
 /**
  * Sign in to sync. Primary path is "Sign in with Google" (when a client id is
@@ -39,32 +22,22 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
   const [entry, setEntry] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [googleError, setGoogleError] = useState<string | null>(null);
-  const [linking, setLinking] = useState(false);
   const googleHostRef = useRef<HTMLDivElement>(null);
-  const copyRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
-  const aliveRef = useRef(true);
-  const linkAttemptRef = useRef(0);
-  const linkingRef = useRef(false);
   onCloseRef.current = onClose;
 
+  // Esc dismisses the modal. Capture phase with stopPropagation, matching
+  // ui/Modal, so the shell's window-level Escape handler (dock, focus mode)
+  // never acts behind a still-open dialog.
   useEffect(() => {
-    aliveRef.current = true;
-    return () => {
-      aliveRef.current = false;
-      linkAttemptRef.current++;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCloseRef.current();
     };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, []);
-
-  useLayoutEffect(() => {
-    if (created) copyRef.current?.focus();
-  }, [created]);
-
-  const close = () => {
-    linkAttemptRef.current++;
-    linkingRef.current = false;
-    onCloseRef.current();
-  };
 
   // Render the Google Identity Services button.
   useEffect(() => {
@@ -74,12 +47,11 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
       if (!resp.credential) return;
       setGoogleError(null);
       const { error } = await signInWithGoogle(resp.credential);
-      if (cancelled || !aliveRef.current) return;
       if (error) {
         setGoogleError("Google sign-in failed. Make sure you are added as a test user on the consent screen.");
         return;
       }
-      close();
+      onCloseRef.current();
     };
     const init = () => {
       const g = (window as unknown as { google?: GoogleNS }).google;
@@ -116,39 +88,28 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
     };
   }, [created]);
 
-  const create = () => {
-    setCopied(false);
-    setCreated(createSyncCode());
-  };
+  const create = () => setCreated(createSyncCode());
   const copy = () => {
     if (!created) return;
-    void copyText(formatSyncCode(created)).then(
-      () => {
-        if (aliveRef.current) setCopied(true);
-      },
-      () => {
-        if (aliveRef.current) setCopied(false);
-      }
+    navigator.clipboard?.writeText(formatSyncCode(created)).then(
+      () => setCopied(true),
+      () => setCopied(false)
     );
   };
+  const [linking, setLinking] = useState(false);
   const link = async () => {
-    if (linkingRef.current) return;
     setError(null);
     if (!adoptSyncCode(entry)) {
       setError("That code looks too short. Paste the full code from your other device.");
       return;
     }
-    linkingRef.current = true;
     setLinking(true);
-    const attempt = ++linkAttemptRef.current;
     try {
       // A code is just an identity, so a typo links to a valid-but-empty account.
       // Peek at the cloud: if there is nothing there, keep the modal open with a
       // hint instead of dropping the writer into a blank workspace.
       const scripts = await listScripts();
-      if (!aliveRef.current || attempt !== linkAttemptRef.current) return;
       if (scripts.length === 0) {
-        linkingRef.current = false;
         setLinking(false);
         setError(
           "Linked, but this code has no scripts in the cloud yet. If you expected your work here, double-check the code. Otherwise you can keep going."
@@ -158,42 +119,35 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
     } catch {
       /* network issue: fall through and let reconcile handle it */
     }
-    if (!aliveRef.current || attempt !== linkAttemptRef.current) return;
-    linkingRef.current = false;
     setLinking(false);
-    close();
+    onClose();
   };
 
   if (created) {
     return (
-      <Modal
-        title="Your sync is on"
-        onClose={close}
-        actions={[{ label: "Done", variant: "solid", onClick: close }]}
-      >
+      <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h2 className="modal-title">Your sync is on</h2>
           <p className="modal-sub">
             This is your private sync code. Save it somewhere safe. It is the only way to reach
             your work on another device, so treat it like a key.
           </p>
           <div className="synccode-box">{formatSyncCode(created)}</div>
-          <button
-            ref={copyRef}
-            type="button"
-            className="modal-primary"
-            onClick={copy}
-          >
+          <button type="button" className="modal-primary" onClick={copy}>
             {copied ? "Copied" : "Copy code"}
           </button>
-      </Modal>
+          <button type="button" className="modal-close" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Modal
-      title="Sign in to sync"
-      onClose={close}
-      actions={[{ label: "Keep writing without sync", onClick: close }]}
-    >
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2 className="modal-title">Sign in to sync</h2>
         <p className="modal-sub">
           Your work is saved on this device already. Sign in to back it up and open it from your
           other computers.
@@ -202,7 +156,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
         {GOOGLE_CLIENT_ID && (
           <>
             <div className="google-btn-host" ref={googleHostRef} />
-            {googleError && <div className="modal-error" role="alert">{googleError}</div>}
+            {googleError && <div className="modal-error">{googleError}</div>}
             <div className="modal-divider">
               <span>or use a sync code</span>
             </div>
@@ -222,24 +176,23 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
             placeholder="ABCD-EFGH-..."
             autoComplete="off"
             spellCheck={false}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void link();
-              }
-            }}
           />
         </label>
-        {error && <div className="modal-error" role="alert">{error}</div>}
+        {error && <div className="modal-error">{error}</div>}
         <button
           type="button"
           className="modal-primary modal-secondary"
           onClick={() => void link()}
           disabled={linking}
         >
-          {linking ? "Linking…" : "Link this device"}
+          {linking ? "Linking" : "Link this device"}
         </button>
-    </Modal>
+
+        <button type="button" className="modal-close" onClick={onClose}>
+          Keep writing without sync
+        </button>
+      </div>
+    </div>
   );
 }
 

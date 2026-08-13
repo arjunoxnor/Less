@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { shareLink, type DuetShareRecord } from "@/lib/collab/duet";
 import { Modal } from "./ui/Modal";
 import { showToast } from "./ui/Toast";
@@ -38,35 +38,16 @@ export function DuetShareModal({
 }) {
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const mounted = useRef(true);
-  const stopInFlight = useRef(false);
   const link = shareLink(record.token);
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
   const stop = async () => {
-    if (stopInFlight.current) return;
-    stopInFlight.current = true;
     setStopping(true);
     setError(null);
     try {
       await onStop();
-      if (mounted.current) {
-        stopInFlight.current = false;
-        setStopping(false);
-        onClose();
-      }
     } catch (cause) {
-      if (mounted.current) {
-        stopInFlight.current = false;
-        setError(cause instanceof Error ? cause.message : "Sharing could not be stopped.");
-        setStopping(false);
-      }
+      setError(cause instanceof Error ? cause.message : "Sharing could not be stopped.");
+      setStopping(false);
     }
   };
 
@@ -112,7 +93,7 @@ export function DuetShareModal({
           placeholder="Name"
         />
       </label>
-      {error && <p className="modal-error" role="alert">{error}</p>}
+      {error && <p className="modal-error">{error}</p>}
     </Modal>
   );
 }

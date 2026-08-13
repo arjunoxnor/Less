@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AcItem } from "@/lib/editor/autocomplete";
 import { positionAutocompleteMenu } from "@/lib/editor/autocompletePosition";
 
@@ -13,7 +13,7 @@ import { positionAutocompleteMenu } from "@/lib/editor/autocompletePosition";
  * bottom of the window it flips above the caret instead of being cut off, and
  * it never runs past the right edge.
  */
-export const AutocompleteMenu = memo(function AutocompleteMenu({
+export function AutocompleteMenu({
   items,
   active,
   coords,
@@ -25,25 +25,7 @@ export const AutocompleteMenu = memo(function AutocompleteMenu({
   onPick: (index: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const latestItems = useRef(items);
-  const latestOnPick = useRef(onPick);
-  const listId = useId();
   const [pos, setPos] = useState({ left: coords.left, top: coords.bottom + 2 });
-  latestItems.current = items;
-  latestOnPick.current = onPick;
-  const safeActive = items.length
-    ? Math.min(Math.max(active, 0), items.length - 1)
-    : 0;
-
-  const pick = (snapshot: AcItem) => {
-    const index = latestItems.current.findIndex(
-      (item) =>
-        item.text === snapshot.text &&
-        item.hint === snapshot.hint &&
-        item.retypeTo === snapshot.retypeTo
-    );
-    if (index >= 0) latestOnPick.current(index);
-  };
 
   // Measure after render (the item list decides the height), then position:
   // below the caret when it fits, above it when the viewport bottom is near.
@@ -66,7 +48,7 @@ export const AutocompleteMenu = memo(function AutocompleteMenu({
     ref.current
       ?.querySelector(".ac-item-active")
       ?.scrollIntoView({ block: "nearest" });
-  }, [safeActive, items]);
+  }, [active, items]);
 
   return (
     <div
@@ -74,23 +56,18 @@ export const AutocompleteMenu = memo(function AutocompleteMenu({
       className="ac-menu"
       style={{ position: "fixed", left: pos.left, top: pos.top }}
       role="listbox"
-      id={listId}
-      aria-label="Suggestions"
-      aria-activedescendant={items.length ? `${listId}-option-${safeActive}` : undefined}
     >
       {items.map((item, i) => (
         <button
-          key={`${item.text}\u0000${item.hint}\u0000${item.retypeTo ?? ""}\u0000${i}`}
-          id={`${listId}-option-${i}`}
+          key={item.text}
           type="button"
           role="option"
-          tabIndex={-1}
-          aria-selected={i === safeActive}
-          className={"ac-item" + (i === safeActive ? " ac-item-active" : "")}
+          aria-selected={i === active}
+          className={"ac-item" + (i === active ? " ac-item-active" : "")}
           onMouseDown={(e) => {
             e.preventDefault();
+            onPick(i);
           }}
-          onClick={() => pick(item)}
         >
           <span className="ac-text">{item.text}</span>
           {item.hint && <span className="ac-hint">{item.hint}</span>}
@@ -98,10 +75,4 @@ export const AutocompleteMenu = memo(function AutocompleteMenu({
       ))}
     </div>
   );
-}, (previous, next) =>
-  previous.items === next.items &&
-  previous.active === next.active &&
-  previous.coords.left === next.coords.left &&
-  previous.coords.top === next.coords.top &&
-  previous.coords.bottom === next.coords.bottom
-);
+}

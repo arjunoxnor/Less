@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CastEntry, LocationEntry } from "@/types/screenplay";
 
 /**
@@ -10,7 +10,7 @@ import type { CastEntry, LocationEntry } from "@/types/screenplay";
  * headings" surface: a typo is fixed once, everywhere, and stops polluting
  * autocomplete. Arc auto-learns names but gives no clean way to clean them up.
  */
-export const CastListPanel = memo(function CastListPanel({
+export function CastListPanel({
   cast,
   locations,
   onJump,
@@ -28,101 +28,22 @@ export const CastListPanel = memo(function CastListPanel({
   // Which row is being renamed, keyed by "char:NAME" / "loc:NAME".
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const panelRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const cancellingRef = useRef(false);
-  const focusAfterEdit = useRef<{
-    kind: "char" | "loc";
-    from: string;
-    to: string;
-  } | null>(null);
-  const latestCast = useRef(cast);
-  const latestLocations = useRef(locations);
-  latestCast.current = cast;
-  latestLocations.current = locations;
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  useEffect(() => {
-    if (!editing) return;
-    const split = editing.indexOf(":");
-    const kind = editing.slice(0, split);
-    const name = editing.slice(split + 1);
-    const stillExists =
-      kind === "char"
-        ? cast.some((entry) => entry.name === name)
-        : locations.some((entry) => entry.name === name);
-    if (!stillExists) {
-      focusAfterEdit.current = {
-        kind: kind === "char" ? "char" : "loc",
-        from: name,
-        to: name,
-      };
-      setEditing(null);
-    }
-  }, [cast, editing, locations]);
-
-  useEffect(() => {
-    if (editing || !focusAfterEdit.current || document.activeElement !== document.body) {
-      return;
-    }
-    const pending = focusAfterEdit.current;
-    const rows = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>("[data-cast-kind]") ?? []
-    );
-    const target =
-      rows.find(
-        (row) =>
-          row.dataset.castKind === pending.kind &&
-          row.dataset.castName === pending.to
-      ) ??
-      rows.find(
-        (row) =>
-          row.dataset.castKind === pending.kind &&
-          row.dataset.castName === pending.from
-      );
-    target?.querySelector<HTMLButtonElement>("button")?.focus();
-    if (!target) panelRef.current?.querySelector<HTMLButtonElement>(".side-panel-x")?.focus();
-    if (!target || target.dataset.castName === pending.to) {
-      focusAfterEdit.current = null;
-    }
-  }, [cast, editing, locations]);
-
   const begin = (key: string, name: string) => {
-    cancellingRef.current = false;
     setDraft(name);
     setEditing(key);
   };
   const commit = (kind: "char" | "loc", from: string) => {
-    if (cancellingRef.current) {
-      cancellingRef.current = false;
-      setEditing(null);
-      return;
-    }
     const to = draft.trim();
-    const sourceStillExists =
-      kind === "char"
-        ? latestCast.current.some((entry) => entry.name === from)
-        : latestLocations.current.some((entry) => entry.name === from);
-    const willRename =
-      sourceStillExists && !!to && to.toUpperCase() !== from.toUpperCase();
-    if (willRename) {
+    if (to && to.toUpperCase() !== from.toUpperCase()) {
       if (kind === "char") onRenameCharacter(from, to);
       else onRenameLocation(from, to);
     }
-    focusAfterEdit.current = {
-      kind,
-      from,
-      to: willRename ? to.toUpperCase() : from,
-    };
-    setEditing(null);
-  };
-
-  const cancel = (kind: "char" | "loc", name: string) => {
-    cancellingRef.current = true;
-    focusAfterEdit.current = { kind, from: name, to: name };
     setEditing(null);
   };
 
@@ -133,7 +54,6 @@ export const CastListPanel = memo(function CastListPanel({
         <input
           ref={inputRef}
           className="manage-rename"
-          aria-label={`Rename ${name}`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => commit(kind, name)}
@@ -142,8 +62,7 @@ export const CastListPanel = memo(function CastListPanel({
               e.preventDefault();
               commit(kind, name);
             } else if (e.key === "Escape") {
-              e.preventDefault();
-              cancel(kind, name);
+              setEditing(null);
             }
           }}
         />
@@ -158,8 +77,8 @@ export const CastListPanel = memo(function CastListPanel({
           onClick={() => {
             const pos =
               kind === "char"
-                ? latestCast.current.find((c) => c.name === name)?.pos
-                : latestLocations.current.find((l) => l.name === name)?.pos;
+                ? cast.find((c) => c.name === name)?.pos
+                : locations.find((l) => l.name === name)?.pos;
             if (pos != null) onJump(pos);
           }}
         >
@@ -178,7 +97,7 @@ export const CastListPanel = memo(function CastListPanel({
   };
 
   return (
-    <aside className="side-panel cast-panel" ref={panelRef}>
+    <aside className="side-panel cast-panel">
       <div className="side-panel-head">
         <strong>Cast and Locations</strong>
         <button type="button" className="side-panel-x" onClick={onClose} title="Close">
@@ -192,12 +111,7 @@ export const CastListPanel = memo(function CastListPanel({
       ) : (
         <ul className="side-panel-list">
           {cast.map((c) => (
-            <li
-              key={c.name}
-              className="cast-item"
-              data-cast-kind="char"
-              data-cast-name={c.name}
-            >
+            <li key={c.name} className="cast-item">
               {renameRow("char", c.name)}
               {editing !== `char:${c.name}` && (
                 <span className="cast-metrics">
@@ -216,12 +130,7 @@ export const CastListPanel = memo(function CastListPanel({
       ) : (
         <ul className="side-panel-list">
           {locations.map((l) => (
-            <li
-              key={l.name}
-              className="cast-item"
-              data-cast-kind="loc"
-              data-cast-name={l.name}
-            >
+            <li key={l.name} className="cast-item">
               {renameRow("loc", l.name)}
               {editing !== `loc:${l.name}` && (
                 <span className="cast-metrics">
@@ -234,10 +143,4 @@ export const CastListPanel = memo(function CastListPanel({
       )}
     </aside>
   );
-}, (previous, next) =>
-  previous.cast === next.cast &&
-  previous.locations === next.locations &&
-  previous.onJump === next.onJump &&
-  previous.onRenameCharacter === next.onRenameCharacter &&
-  previous.onRenameLocation === next.onRenameLocation
-);
+}

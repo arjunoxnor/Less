@@ -9,7 +9,6 @@ import {
   PAGENO_Y,
   CHAR_W,
   LINE,
-  columnLength,
   sanitize,
   sanitizeLoose,
   wrap,
@@ -95,63 +94,8 @@ function drawText(page: PDFPage, font: PDFFont, text: string, x: number, y: numb
   }
 }
 
-export interface TitlePageLine {
-  text: string;
-  x: number;
-  y: number;
-}
-
-/** Pure title-page line data, exposed so boundary behavior is testable. */
-export function titlePageLineData(
-  tp: TitlePage,
-  clean: (text: string) => string = sanitizeLoose
-): TitlePageLine[] {
-  if (!hasTitlePage(tp)) return [];
-  const ops: TitlePageLine[] = [];
-  const rows = (text: string | undefined) =>
-    text
-      ? text.split("\n").flatMap((line) => wrap(clean(line), 58))
-      : [];
-  const centered = (text: string | undefined, y: number) => {
-    for (const row of rows(text)) {
-      ops.push({ text: row, x: (PAGE_W - columnLength(row) * CHAR_W) / 2, y });
-      y -= LINE;
-    }
-    return y;
-  };
-
-  let y = PAGE_H * 0.62;
-  y = centered(tp.title?.toUpperCase(), y);
-  y -= LINE * 2;
-  y = centered(tp.credit, y);
-  y = centered(tp.author, y);
-  if (tp.source) {
-    y -= LINE;
-    centered(tp.source, y);
-  }
-
-  // Anchor lower blocks by their final row so wrapping grows upward, never
-  // below the printable page. Contact and copyright share the left stack.
-  const leftRows = [...rows(tp.contact), ...rows(tp.copyright)];
-  const lowerY = 1.6 * 72;
-  for (let i = 0; i < leftRows.length; i++) {
-    ops.push({
-      text: leftRows[i],
-      x: LEFT,
-      y: lowerY + (leftRows.length - 1 - i) * LINE,
-    });
-  }
-
-  const dateRows = rows(tp.draftDate);
-  for (let i = 0; i < dateRows.length; i++) {
-    const row = dateRows[i];
-    ops.push({
-      text: row,
-      x: Math.max(LEFT, RIGHT_EDGE - columnLength(row) * CHAR_W),
-      y: lowerY + (dateRows.length - 1 - i) * LINE,
-    });
-  }
-  return ops;
+function drawCentered(page: PDFPage, font: PDFFont, text: string, y: number) {
+  drawText(page, font, text, (PAGE_W - text.length * CHAR_W) / 2, y);
 }
 
 /**
@@ -165,8 +109,47 @@ function drawTitlePage(
   clean: (text: string) => string
 ) {
   const page = pdf.addPage([PAGE_W, PAGE_H]);
-  for (const op of titlePageLineData(tp, clean)) {
-    drawText(page, font, op.text, op.x, op.y);
+
+  // Draw a (possibly wrapped) centered field; returns the y below it.
+  const centered = (text: string | undefined, y: number) => {
+    if (!text) return y;
+    for (const row of wrap(clean(text), 58)) {
+      drawCentered(page, font, row, y);
+      y -= LINE;
+    }
+    return y;
+  };
+  // Draw a (possibly wrapped) left-aligned field; returns the y below it.
+  const leftBlock = (text: string | undefined, y: number) => {
+    if (!text) return y;
+    for (const ln of text.split("\n")) {
+      for (const row of wrap(clean(ln), 58)) {
+        drawText(page, font, row, LEFT, y);
+        y -= LINE;
+      }
+    }
+    return y;
+  };
+
+  let y = PAGE_H * 0.62;
+  y = centered(tp.title?.toUpperCase(), y);
+  y -= LINE * 2;
+  y = centered(tp.credit, y);
+  y = centered(tp.author, y);
+  if (tp.source) {
+    y -= LINE;
+    y = centered(tp.source, y);
+  }
+
+  // Lower-left: contact (possibly multi-line) then copyright.
+  let by = 1.6 * 72;
+  by = leftBlock(tp.contact, by);
+  leftBlock(tp.copyright, by);
+
+  // Lower-right: draft date, clamped so a long value never runs off the left.
+  if (tp.draftDate) {
+    const t = clean(tp.draftDate);
+    drawText(page, font, t, Math.max(LEFT, RIGHT_EDGE - t.length * CHAR_W), 1.6 * 72);
   }
 }
 
@@ -197,7 +180,7 @@ export async function exportPdf(
     const numText = lockLabels?.get(p.number) ?? String(p.number);
     if (p.number > 1 || (lockLabels && numText !== "1")) {
       const label = `${numText}.`;
-      drawText(page, faces.regular, label, RIGHT_EDGE - columnLength(label) * CHAR_W, PAGENO_Y);
+      drawText(page, faces.regular, label, RIGHT_EDGE - label.length * CHAR_W, PAGENO_Y);
     }
   }
 

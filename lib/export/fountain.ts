@@ -48,21 +48,9 @@ function isAllCaps(text: string): boolean {
   return text.toUpperCase() !== text.toLowerCase() && text === text.toUpperCase();
 }
 
-/**
- * Backslash-escape syntax that would otherwise be consumed by our importer.
- * Besides emphasis, this protects literal notes/boneyards and terminal markers
- * whose position carries Fountain meaning.
- */
+/** Backslash-escape literal emphasis markers so they survive a round trip. */
 function escapeInline(text: string): string {
-  let out = text
-    .replace(/\\/g, "\\\\")
-    .replace(/\/\*/g, "\\/*")
-    .replace(/\[\[/g, "\\[[")
-    .replace(/([*_])/g, "\\$1");
-  if (/^[.@!>~#=]/.test(out)) out = `\\${out}`;
-  if (out.endsWith("^")) out = `${out.slice(0, -1)}\\^`;
-  if (out.endsWith("<")) out = `${out.slice(0, -1)}\\<`;
-  return out;
+  return text.replace(/([*_])/g, "\\$1");
 }
 
 /**
@@ -75,11 +63,7 @@ function stripInline(text: string): string {
   let out = "";
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (
-      ch === "\\" &&
-      text[i + 1] != null &&
-      "\\*_/.@!>~#=[]^<".includes(text[i + 1])
-    ) {
+    if (ch === "\\" && (text[i + 1] === "*" || text[i + 1] === "_")) {
       out += text[i + 1];
       i++;
       continue;
@@ -99,23 +83,7 @@ function stripInline(text: string): string {
  */
 function actionNeedsForce(text: string): boolean {
   const t = text.trim();
-  const key = /^([^:]+):/.exec(t)?.[1].trim().toLowerCase();
-  return isAllCaps(t) || /^[.@!>~#=(]/.test(t) || (key != null && TITLE_PAGE_KEYS.has(key));
-}
-
-/** True when the last non-space character is not backslash-escaped. */
-function hasTerminalMarker(text: string, marker: string): boolean {
-  let end = text.length - 1;
-  while (end >= 0 && /\s/.test(text[end])) end--;
-  if (end < 0 || text[end] !== marker) return false;
-  let slashes = 0;
-  for (let i = end - 1; i >= 0 && text[i] === "\\"; i--) slashes++;
-  return slashes % 2 === 0;
-}
-
-function removeTerminalMarker(text: string, marker: string): string {
-  if (!hasTerminalMarker(text, marker)) return text;
-  return text.replace(new RegExp(`\\${marker}\\s*$`), "").trimEnd();
+  return isAllCaps(t) || /^[.@!>~#=(]/.test(t);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,11 +97,11 @@ function toFountainTitlePage(tp: TitlePage): string {
     if (!value) return;
     const parts = value.split("\n");
     if (parts.length === 1) {
-      out.push(`${key}: ${escapeInline(parts[0])}`);
+      out.push(`${key}: ${parts[0]}`);
     } else {
       // Multi-line value: key on its own line, continuations indented 3 spaces.
       out.push(`${key}:`);
-      for (const p of parts) out.push(`   ${escapeInline(p)}`);
+      for (const p of parts) out.push(`   ${p}`);
     }
   };
   emit("Title", tp.title);
@@ -157,9 +125,7 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       // Start a cue cluster: the character line plus the parentheticals and
       // dialogue that immediately follow, joined by single newlines so they
       // re-import as one cue (no blank line breaks the cluster).
-      // Always force a cue. Besides allowing mixed case, this keeps a literal
-      // leading Fountain control character from being reclassified.
-      const cue = `@${escapeInline(text)}`;
+      const cue = isAllCaps(text) ? escapeInline(text) : `@${escapeInline(text)}`;
       // A dual (right-column) cue carries a trailing caret.
       const cluster: string[] = [lines[i].dual ? `${cue} ^` : cue];
       i++;
@@ -172,9 +138,7 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
           l.element === "parenthetical"
             ? escapeInline(ensureParentheticalParens(l.text))
             : l.text
-              ? /^\(.*\)$/.test(l.text.trim())
-                ? `~${escapeInline(l.text)}`
-                : escapeInline(l.text)
+              ? escapeInline(l.text)
               : "~"
         );
         i++;
@@ -241,8 +205,7 @@ function parseTitleBlock(blockLines: string[]): TitlePage {
     const val = m[2].trim();
     if (val) map[currentKey].push(val);
   }
-  const get = (k: string) =>
-    map[k]?.length ? stripInline(map[k].join("\n")) : undefined;
+  const get = (k: string) => (map[k]?.length ? map[k].join("\n") : undefined);
   const tp: TitlePage = {};
   if (get("title")) tp.title = get("title");
   if (get("credit")) tp.credit = get("credit");
@@ -260,14 +223,10 @@ export function parseFountain(text: string): {
 } {
   // Normalize newlines, then strip boneyard (spans line breaks) and inline
   // notes before any line-by-line work so neither pollutes the body.
-  if (text.includes("\0")) {
-    throw new Error("This Fountain file contains NUL bytes and cannot be read safely.");
-  }
   let body = text
-    .replace(/^\uFEFF/, "")
     .replace(/\r\n?/g, "\n")
-    .replace(/(?<!\\)\/\*[\s\S]*?\*\//g, "")
-    .replace(/(?<!\\)\[\[[\s\S]*?\]\]/g, "");
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\[\[[\s\S]*?\]\]/g, "");
 
   // Drop a leading title-page block, but ONLY when it genuinely is one: the
   // first non-blank line must be "Key: ..." with a recognized title-page key,
@@ -340,8 +299,8 @@ export function parseFountain(text: string): {
     }
     if (line.startsWith("@")) {
       const cueBody = line.slice(1).trim();
-      const isDual = hasTerminalMarker(cueBody, "^");
-      push("character", removeTerminalMarker(cueBody, "^"), isDual);
+      const isDual = /\^\s*$/.test(cueBody);
+      push("character", cueBody.replace(/\s*\^\s*$/, ""), isDual);
       inDialogue = true;
       inDual = isDual;
       continue;
@@ -353,7 +312,7 @@ export function parseFountain(text: string): {
       inDual = false;
       continue;
     }
-    if (line.startsWith(">") && !hasTerminalMarker(line, "<")) {
+    if (line.startsWith(">") && !line.endsWith("<")) {
       push("transition", line.slice(1).trim());
       inDialogue = false;
       inDual = false;
@@ -361,7 +320,7 @@ export function parseFountain(text: string): {
     }
 
     // 2. Centered text ">...<" is an Action element per spec.
-    if (line.startsWith(">") && hasTerminalMarker(line, "<")) {
+    if (line.startsWith(">") && line.endsWith("<")) {
       push("action", line.slice(1, -1).trim());
       inDialogue = false;
       inDual = false;
@@ -377,8 +336,9 @@ export function parseFountain(text: string): {
 
     // 4. Lyrics map to dialogue.
     if (line.startsWith("~")) {
-      push("dialogue", line.slice(1).trim(), inDual);
+      push("dialogue", line.slice(1).trim());
       inDialogue = true;
+      inDual = false;
       continue;
     }
 
@@ -401,8 +361,8 @@ export function parseFountain(text: string): {
 
     // 7. Character (auto): uppercase (allowing a lower-case extension), a blank
     //    line before, and NO blank line after. A trailing "^" marks a dual cue.
-    const isDual = hasTerminalMarker(line, "^");
-    const lineNoCaret = removeTerminalMarker(line, "^");
+    const isDual = /\^\s*$/.test(line);
+    const lineNoCaret = line.replace(/\s*\^\s*$/, "");
     const core = lineNoCaret.replace(/\s*\([^)]*\)\s*$/, "");
     if (isAllCaps(core) && prevBlank && !nextBlank) {
       push("character", lineNoCaret, isDual);

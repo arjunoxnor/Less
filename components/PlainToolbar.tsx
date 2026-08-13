@@ -78,50 +78,15 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
     return () => document.removeEventListener("mousedown", onDown);
   }, [menu]);
 
-  useEffect(() => {
-    if (!menu) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      // Let a higher stacked surface dismiss itself first.
-      if (
-        document.querySelector(
-          ".cmd-backdrop, .spell-menu, .ui-modal-scrim, .modal-backdrop"
-        )
-      ) {
-        return;
-      }
-      const trigger = menuRef.current?.querySelector<HTMLButtonElement>(":scope > button");
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      setMenu(null);
-      queueMicrotask(() => trigger?.focus());
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [menu]);
-
   if (!editor) return null;
 
   const chain = () => editor.chain().focus();
-  const Btn = (
-    label: ReactNode,
-    active: boolean,
-    onClick: () => void,
-    title: string,
-    options?: {
-      toggle?: boolean;
-      hasPopup?: "menu" | "dialog";
-      expanded?: boolean;
-    }
-  ) => (
+  const Btn = (label: ReactNode, active: boolean, onClick: () => void, title: string) => (
     <button
       type="button"
       className={"tb-btn" + (active ? " tb-btn-active" : "")}
       onClick={onClick}
       title={title}
-      aria-pressed={options?.toggle === false ? undefined : active}
-      aria-haspopup={options?.hasPopup}
-      aria-expanded={options?.hasPopup ? options.expanded : undefined}
     >
       {label}
     </button>
@@ -162,18 +127,15 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
             className={"tb-btn" + (menu === "color" ? " tb-btn-active" : "")}
             onClick={() => setMenu((m) => (m === "color" ? null : "color"))}
             title="Text color"
-            aria-haspopup="menu"
-            aria-expanded={menu === "color"}
           >
             <span className="pt-aglyph" style={{ borderBottomColor: (editor.getAttributes("textStyle").color as string) || "currentColor" }}>A</span>
           </button>
           {menu === "color" && (
-            <div className="tb-menu-list pt-swatches" role="menu" aria-label="Text color">
+            <div className="tb-menu-list pt-swatches">
               {TEXT_COLORS.map((c) => (
                 <button
                   key={c.label}
                   type="button"
-                  role="menuitem"
                   className="pt-swatch"
                   title={c.label}
                   onClick={() => {
@@ -195,18 +157,15 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
             className={"tb-btn" + (editor.isActive("highlight") ? " tb-btn-active" : "")}
             onClick={() => setMenu((m) => (m === "highlight" ? null : "highlight"))}
             title="Highlight"
-            aria-haspopup="menu"
-            aria-expanded={menu === "highlight"}
           >
             <span className="pt-hl">H</span>
           </button>
           {menu === "highlight" && (
-            <div className="tb-menu-list pt-swatches" role="menu" aria-label="Highlight color">
+            <div className="tb-menu-list pt-swatches">
               {HIGHLIGHTS.map((c) => (
                 <button
                   key={c.label}
                   type="button"
-                  role="menuitem"
                   className="pt-swatch"
                   title={c.label}
                   onClick={() => {
@@ -220,7 +179,6 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
               ))}
               <button
                 type="button"
-                role="menuitem"
                 className="pt-swatch"
                 onClick={() => {
                   chain().unsetHighlight().run();
@@ -255,15 +213,10 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
             "Link",
             editor.isActive("link") || menu === "link",
             openLinkPopover,
-            "Insert or edit link",
-            { hasPopup: "dialog", expanded: menu === "link" }
+            "Insert or edit link"
           )}
           {menu === "link" && (
-            <div
-              className="tb-menu-list pt-link-pop"
-              role="dialog"
-              aria-label="Edit link"
-            >
+            <div className="tb-menu-list pt-link-pop">
               <input
                 type="url"
                 className="pt-link-input"
@@ -292,8 +245,8 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
             </div>
           )}
         </div>
-        {Btn("Divider", false, () => chain().setHorizontalRule().run(), "Horizontal rule", { toggle: false })}
-        {Btn("Clear", false, () => chain().unsetAllMarks().run(), "Clear formatting", { toggle: false })}
+        {Btn("Divider", false, () => chain().setHorizontalRule().run(), "Horizontal rule")}
+        {Btn("Clear", false, () => chain().unsetAllMarks().run(), "Clear formatting")}
       </div>
     </>
   );
