@@ -1,6 +1,10 @@
 "use client";
 
-import { listProjects, type ProjectMeta } from "@/lib/storage/projects";
+import {
+  listProjects,
+  usesPlainSchema,
+  type ProjectMeta,
+} from "@/lib/storage/projects";
 import { listFolders } from "@/lib/storage/folders";
 import { cardForProject } from "@/lib/storage/library";
 import { relativeTime } from "./ProjectsHome";
@@ -29,7 +33,8 @@ export function DocsPanel({
   // you can reach every other draft and note of the same project.
   const all = film ? [...film.items, ...film.shelves.flatMap((s) => s.items)] : [];
   const drafts = all.filter((p) => p.type === "screenplay");
-  const documents = all.filter((p) => p.type === "plain");
+  // Voice notes are documents too, so the panel can jump to one mid-session.
+  const documents = all.filter((p) => usesPlainSchema(p.type));
 
   const item = (p: ProjectMeta) => {
     const current = p.id === projectId;

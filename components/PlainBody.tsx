@@ -32,6 +32,7 @@ import {
   hasPendingCloudWork,
   patchProjectMeta,
   type ProjectStatus,
+  type ProjectType,
 } from "@/lib/storage/projects";
 import { isCloudConfigured } from "@/lib/cloud/client";
 import { signOut } from "@/lib/cloud/auth";
@@ -41,6 +42,7 @@ import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { modKeyLabel } from "@/lib/platform";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { PlainToolbar } from "./PlainToolbar";
+import { VoiceStrip } from "./VoiceStrip";
 import { AuthModal } from "./AuthModal";
 import { DocsPanel } from "./DocsPanel";
 import { HistoryPanel } from "./HistoryPanel";
@@ -63,6 +65,7 @@ export function PlainBody({
   sessionExpired,
   onOpenProject,
   autoFocusTitle,
+  type = "plain",
 }: {
   projectId: string;
   title: string;
@@ -78,6 +81,10 @@ export function PlainBody({
   onOpenProject?: (id: string) => void;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
+  /** Which plain-schema type this is. A voice note must keep pushing its own
+      type on every save, or the cloud row reverts to a plain document and the
+      structuring worker stops recognising it. */
+  type?: ProjectType;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_PLAIN_DOC,
@@ -129,7 +136,14 @@ export function PlainBody({
   }, []);
 
   const extensions = useMemo(
-    () => [...buildPlainExtensions(), DocPagination.configure({ onPages: setPages })],
+    () => [
+      ...buildPlainExtensions(
+        type === "voice"
+          ? { placeholder: "Talk, or type. Then press Process." }
+          : undefined
+      ),
+      DocPagination.configure({ onPages: setPages }),
+    ],
     []
   );
 
@@ -182,7 +196,7 @@ export function PlainBody({
   const syncOpts = useMemo(
     () => ({
       projectId,
-      type: "plain" as const,
+      type,
       status,
       deriveTitle: derivePlainTitle,
       getTitle: () => getProjectMeta(projectId)?.title ?? titleRef.current,
@@ -202,7 +216,7 @@ export function PlainBody({
       setCloudCreatePending: (pending: boolean) =>
         patchProjectMeta(projectId, { cloudCreatePending: pending }),
     }),
-    [projectId, status]
+    [projectId, status, type]
   );
 
   const {
@@ -384,6 +398,13 @@ export function PlainBody({
         dockPanel={dockPanel}
         secondRow={
           <>
+            {type === "voice" ? (
+              <VoiceStrip
+                editor={editor}
+                onFlush={() => void flushRef.current?.()}
+                signedIn={!!user && !sessionExpired}
+              />
+            ) : null}
             <PlainToolbar editor={editor} />
             <div className="toolbar-spacer" />
             <div className="toolbar-group">

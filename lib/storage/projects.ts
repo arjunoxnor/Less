@@ -16,8 +16,22 @@ import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
  * project uploads as a deterministic insert with no remapping.
  */
 
-export type ProjectType = "screenplay" | "plain";
+/** "voice" is a plain document the writer dictates into and hands to the
+    structuring worker. It shares the plain editor and schema; the separate type
+    exists so the worker can only ever touch these rows and never a real script. */
+export type ProjectType = "screenplay" | "plain" | "voice";
 export type ProjectStatus = "not_started" | "writing" | "done";
+
+/**
+ * Voice notes ARE plain documents: same schema, same editor, same title
+ * derivation. The separate type exists only so the structuring worker can scope
+ * exactly which rows it is allowed to touch. Every behavioural check should ask
+ * this, never compare to "plain" directly, or a voice note quietly starts being
+ * treated as a screenplay.
+ */
+export function usesPlainSchema(type: ProjectType): boolean {
+  return type === "plain" || type === "voice";
+}
 
 /** Lightweight index entry: what the dashboard renders. */
 export interface ProjectMeta {
@@ -207,9 +221,10 @@ function sanitizeMeta(value: unknown): ProjectMeta | null {
   let storedCache: StoredDoc | null | undefined;
   const stored = (): StoredDoc | null =>
     storedCache === undefined ? (storedCache = readStoredDoc(id)) : storedCache;
-  const type = raw.type === "plain" || raw.type === "screenplay"
-    ? raw.type
-    : inferType(stored()?.content);
+  const type =
+    raw.type === "plain" || raw.type === "screenplay" || raw.type === "voice"
+      ? raw.type
+      : inferType(stored()?.content);
   const ts = nowIso();
   const createdAt = validTime(raw.createdAt, validTime(raw.updatedAt, ts));
   const updatedAt = validTime(raw.updatedAt, createdAt);
@@ -404,7 +419,8 @@ export function loadProject(id: string): Project | null {
   const meta = getProjectMeta(id);
   if (!meta) return null;
   const content =
-    loadProjectDoc(id) ?? (meta.type === "plain" ? EMPTY_PLAIN_DOC : EMPTY_SCREENPLAY);
+    loadProjectDoc(id) ??
+    (usesPlainSchema(meta.type) ? EMPTY_PLAIN_DOC : EMPTY_SCREENPLAY);
   const titlePage = meta.type === "screenplay" ? loadProjectTitlePage(id) : null;
   return { ...meta, content, titlePage };
 }
@@ -684,7 +700,7 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
     // Auto-name only plain docs (Google-Docs style), and only while the writer
     // has not set a title. A screenplay's title is always explicit; deriving it
     // from the first line (a scene heading) would clobber the real title.
-    if (!liveMeta.titleManual && liveMeta.type === "plain") {
+    if (!liveMeta.titleManual && usesPlainSchema(liveMeta.type)) {
       const derived = deriveTitleFor(liveMeta.type, content);
       patch.title = derived;
       // A changed auto-title is a genuine local title change, so mark it dirty
@@ -784,7 +800,7 @@ export function createProject(
 ): Project {
   const id = uniqueProjectId();
   const content =
-    opts?.content ?? (type === "plain" ? EMPTY_PLAIN_DOC : EMPTY_SCREENPLAY);
+    opts?.content ?? (usesPlainSchema(type) ? EMPTY_PLAIN_DOC : EMPTY_SCREENPLAY);
   const ts = nowIso();
   const meta: ProjectMeta = {
     id,

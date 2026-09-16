@@ -8,6 +8,7 @@ import {
   restoreEvictedBody,
   type ProjectStatus,
   type ProjectType,
+  usesPlainSchema,
 } from "@/lib/storage/projects";
 import { fetchScript } from "@/lib/cloud/scripts";
 import { ScreenplayBody } from "./ScreenplayBody";
@@ -106,8 +107,10 @@ export function EditorHost({
     );
   }
 
-  return type === "plain" ? (
-    <PlainBody {...rest} />
+  // Voice notes use the plain editor, but must keep their own type so every
+  // save re-asserts it to the cloud.
+  return usesPlainSchema(type) ? (
+    <PlainBody {...rest} type={type} />
   ) : (
     <ScreenplayBody
       {...rest}

@@ -3981,3 +3981,38 @@ body {
     page-break-before: always;
   }
 }
+
+/* --- Voice notes -------------------------------------------------------- */
+/* The strip sits above the plain toolbar. State is carried by text, not by a
+   colored dot, so it reads the same in both themes and to a screen reader. */
+.voice-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-right: 10px;
+  margin-right: 4px;
+  border-right: 1px solid var(--border);
+}
+.voice-state {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  max-width: 46ch;
+}
+/* Live partial words: visibly provisional, so a half-heard sentence is never
+   mistaken for something that was actually written down. */
+.voice-interim {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  font-style: italic;
+  opacity: 0.7;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-mic-error {
+  font-size: var(--text-sm);
+  color: var(--danger, var(--fg));
+  max-width: 46ch;
+}

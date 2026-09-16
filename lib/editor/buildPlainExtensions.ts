@@ -40,7 +40,7 @@ export const UniformPlainBreaks = Extension.create({
  * bold/italic/underline/strike. On top we add the rest of the Google-Docs-style
  * toolset: text alignment, highlight, text color, and checklists.
  */
-export function buildPlainExtensions() {
+export function buildPlainExtensions(opts?: { placeholder?: string }) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
@@ -55,7 +55,7 @@ export function buildPlainExtensions() {
     SmartCaps,
     UniformPlainBreaks,
     Placeholder.configure({
-      placeholder: "Start writing. Outline, beats, notes, anything.",
+      placeholder: opts?.placeholder ?? "Start writing. Outline, beats, notes, anything.",
     }),
   ];
 }

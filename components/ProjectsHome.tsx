@@ -1122,6 +1122,7 @@ export function ProjectsHome({
   const newItems: MenuItem[] = [
     { label: "New script", onSelect: () => createAndOpen("screenplay", "Untitled screenplay") },
     { label: "New document", onSelect: () => createAndOpen("plain", "") },
+    { label: "New voice script", onSelect: () => createAndOpen("voice", "") },
     { kind: "divider" },
     { label: "New folder", onSelect: newSection },
     {
@@ -1138,6 +1139,10 @@ export function ProjectsHome({
       onSelect: () => createIn("screenplay", "Untitled screenplay", f.id),
     },
     { label: "New document here", onSelect: () => createIn("plain", "", f.id) },
+    {
+      label: "New voice script here",
+      onSelect: () => createIn("voice", "", f.id),
+    },
     { kind: "divider" },
     { label: "Rename", onSelect: () => setRenamingFilm(f.id) },
     { label: "Color", onSelect: () => setColorTarget(f.id) },
@@ -1154,6 +1159,10 @@ export function ProjectsHome({
       onSelect: () => createIn("screenplay", "Untitled screenplay", f.id),
     },
     { label: "New document here", onSelect: () => createIn("plain", "", f.id) },
+    {
+      label: "New voice script here",
+      onSelect: () => createIn("voice", "", f.id),
+    },
     { label: "Rename", onSelect: () => setRenamingSection(f.id) },
     { label: "Move to", onSelect: () => setMoveTarget({ kind: "folder", folder: f }) },
     { kind: "divider" },
@@ -1291,7 +1300,13 @@ export function ProjectsHome({
           <NameInput
             initial={p.title}
             className="line-rename"
-            ariaLabel={p.type === "screenplay" ? "Draft title" : "Document title"}
+            ariaLabel={
+              p.type === "screenplay"
+                ? "Draft title"
+                : p.type === "voice"
+                  ? "Voice note title"
+                  : "Document title"
+            }
             onCommit={(name) => {
               if (name && name !== p.title) onRename(p.id, name);
             }}
@@ -1306,6 +1321,9 @@ export function ProjectsHome({
               rather than a second copy of it. Elsewhere it would just be
               noise, and on an archive folder it would be a lie. */}
           {isCurrent && <span className="fh-item-current">Current</span>}
+          {/* A voice note shares the document glyph, so the word is what tells
+              the writer this row talks to the Mac at home. */}
+          {p.type === "voice" && <span>Voice</span>}
           {p.type === "screenplay" && p.pageCount != null && (
             <span>{p.pageCount} pp</span>
           )}

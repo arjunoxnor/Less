@@ -1,5 +1,8 @@
 import type { JSONContent } from "@tiptap/core";
 import { deriveTitle, isMeaningfulDoc } from "./docUtils";
+import { isMarker } from "@/lib/voice/markers";
+
+type TitleType = "screenplay" | "plain" | "voice";
 
 /**
  * Title / meaningfulness for PLAIN documents (the standard rich-text schema),
@@ -29,11 +32,12 @@ function plainText(node: JSONContent): string {
   return read(node).replace(/\s+/g, " ").trim();
 }
 
-/** Title from a plain doc: the first non-empty block's text, else "Untitled". */
+/** Title from a plain doc: the first non-empty block's text, else "Untitled".
+    Control markers are skipped so a voice note is never named "/// PROCESSED". */
 export function derivePlainTitle(doc: JSONContent): string {
   for (const block of doc.content ?? []) {
     const t = plainText(block);
-    if (t) {
+    if (t && !isMarker(t)) {
       const characters = Array.from(t);
       return characters.length > 80 ? characters.slice(0, 80).join("") + "…" : t;
     }
@@ -47,17 +51,11 @@ export function isMeaningfulPlainDoc(doc: JSONContent): boolean {
 }
 
 /** Title dispatcher by project type, used by storage and sync. */
-export function deriveTitleFor(
-  type: "screenplay" | "plain",
-  doc: JSONContent
-): string {
-  return type === "plain" ? derivePlainTitle(doc) : deriveTitle(doc);
+export function deriveTitleFor(type: TitleType, doc: JSONContent): string {
+  return type === "screenplay" ? deriveTitle(doc) : derivePlainTitle(doc);
 }
 
 /** Meaningfulness dispatcher by project type. */
-export function isMeaningfulFor(
-  type: "screenplay" | "plain",
-  doc: JSONContent
-): boolean {
-  return type === "plain" ? isMeaningfulPlainDoc(doc) : isMeaningfulDoc(doc);
+export function isMeaningfulFor(type: TitleType, doc: JSONContent): boolean {
+  return type === "screenplay" ? isMeaningfulDoc(doc) : isMeaningfulPlainDoc(doc);
 }
