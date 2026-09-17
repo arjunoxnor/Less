@@ -27,10 +27,17 @@
  *   node tools/voice/voice.ts deliver <id> <formatted.txt>
  *   node tools/voice/voice.ts fail <id> "<message>"
  *   node tools/voice/voice.ts seed <id> <transcript.txt>   (audio transcribed here -> note)
+ *   node tools/voice/voice.ts script "<title>" <scene.fountain>          (new screenplay)
+ *   node tools/voice/voice.ts script --append <scriptId> <scene.fountain> (add to one it made)
  *   node tools/voice/voice.ts selftest        (proves auth + endpoint, writes nothing)
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseFountain } from "../../lib/export/fountain.ts";
+import { linesToDoc as screenplayDoc } from "../../lib/export/flatten.ts";
 import {
   docToLines,
   linesToDoc,
@@ -197,6 +204,81 @@ async function seed(id: string, file: string): Promise<void> {
   await writeLines(row, requestProcess([...lines, ...text]));
 }
 
+/**
+ * The screenplays this worker has created, by id. The rule "touch only rows of
+ * type voice" has exactly one extension: a screenplay this worker itself
+ * created may be APPENDED to, never rewritten. The ledger is what makes that
+ * checkable. It is committed, small, and holds ids and titles only.
+ */
+const LEDGER = join(dirname(fileURLToPath(import.meta.url)), "created.json");
+interface Created { id: string; title: string; createdAt: string; source?: string }
+function readLedger(): Created[] {
+  return existsSync(LEDGER) ? (JSON.parse(readFileSync(LEDGER, "utf8")) as Created[]) : [];
+}
+
+/**
+ * Turn a Fountain-shaped scene into a real screenplay in the writer's library,
+ * built with the same parser and document builder the app's own importer uses,
+ * so what lands is exactly what Import would have produced. A new script is a
+ * plain INSERT of a fresh row (the browser adopts cloud-only rows on its next
+ * sync). --append adds the parsed nodes to the END of a script in the ledger,
+ * under the same conditional write as everything else: the writer's edits to
+ * that script are never overwritten, only followed.
+ */
+async function script(args: string[]): Promise<void> {
+  const append = args[0] === "--append";
+  const file = append ? args[2] : args[1];
+  const text = readFileSync(file, "utf8");
+  const { lines } = parseFountain(text);
+  const doc = screenplayDoc(lines);
+  const at = new Date().toISOString();
+
+  if (append) {
+    const id = args[1];
+    if (!readLedger().some((c) => c.id === id)) {
+      emit({ ok: false, reason: "refusing: that screenplay was not created by this worker" });
+      process.exitCode = 3;
+      return;
+    }
+    const out = await sql(
+      "SELECT user_id, id, content, updated_at FROM scripts WHERE type = 'screenplay' AND user_id = ? AND id = ?",
+      [USER, id]
+    );
+    const row = (out.results ?? [])[0];
+    if (!row) throw new Error(`No screenplay ${id} for this user`);
+    const existing = JSON.parse(row.content ?? '{"type":"doc","content":[]}') as {
+      type: string;
+      content: unknown[];
+    };
+    const blank = { type: "screenplayLine", attrs: { element: "action" }, content: [] };
+    existing.content = [...existing.content, blank, ...(doc.content ?? [])];
+    const res = await sql(
+      `UPDATE scripts SET content = ?, updated_at = ?
+       WHERE type = 'screenplay' AND user_id = ? AND id = ? AND updated_at = ?`,
+      [JSON.stringify(existing), at, USER, id, row.updated_at]
+    );
+    if (!(res.meta?.changes ?? 0)) {
+      emit({ ok: false, reason: "changed-underneath" });
+      process.exitCode = 3;
+      return;
+    }
+    emit({ ok: true, id, appendedLines: lines.length, updatedAt: at });
+    return;
+  }
+
+  const title = args[0];
+  const id = randomUUID();
+  await sql(
+    `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [USER, id, "screenplay", title, "not_started", JSON.stringify(doc), null, null, null, at, at, at, at, at]
+  );
+  const ledger = readLedger();
+  ledger.push({ id, title, createdAt: at, source: file.split("/").pop() });
+  writeFileSync(LEDGER, JSON.stringify(ledger, null, 2) + "\n");
+  emit({ ok: true, id, title, lines: lines.length, createdAt: at });
+}
+
 /** Exercise auth, the endpoint and parameter binding with a write that can
     match nothing, so the first real write is not also the first test. */
 async function selftest(): Promise<void> {
@@ -222,12 +304,15 @@ const commands: Record<string, () => Promise<void>> = {
   deliver: () => deliver(args[0], args[1]),
   fail: () => fail(args[0], args.slice(1).join(" ")),
   seed: () => seed(args[0], args[1]),
+  script: () => script(args),
   selftest,
 };
 
 const run = commands[cmd ?? ""];
 if (!run) {
-  console.error("Usage: voice.ts poll | claim <id> | deliver <id> <file> | fail <id> <msg> | seed <id> <transcript> | selftest");
+  console.error(
+    "Usage: voice.ts poll | claim <id> | deliver <id> <file> | fail <id> <msg> | seed <id> <transcript> | script <title> <fountain> | script --append <scriptId> <fountain> | selftest"
+  );
   process.exit(2);
 }
 run().catch((e: unknown) => {

@@ -1,5 +1,30 @@
 # Voice scripts: the Mac side
 
+## The workflow that stuck (2026-09-16)
+
+Record a voice memo on the phone or the laptop, drop the file into
+`~/Desktop/voice memo clone/`, and tell Claude in a Claude Code session.
+Claude then:
+
+1. transcribes it locally (`whisper-cli`, `small.en`, models in
+   `Arjun Health/models/`; see the helper pattern in the session scratchpad),
+2. reads the whole transcript and puts the genuine judgment calls to Arjun
+   (camera language, an unattributed line, a wavering location or time),
+3. writes the scene as Fountain-shaped lines under the rules below,
+4. runs `npm run -s voice -- script "<title>" scene.fountain`, which parses
+   it with the app's own `parseFountain` + `linesToDoc` and INSERTs a real
+   screenplay row; the browser adopts it on its next sync.
+
+Later passes on the same piece: `script --append <scriptId> scene.fountain`
+adds the new lines to the end of a screenplay this worker created (listed in
+`created.json`, the only screenplays it may touch). The in-app Record and
+Process buttons are the older path and are not needed for this.
+
+`npm run voice` runs under plain Node with `register.mjs`, which resolves the
+app's `@/` alias and extensionless relative imports, so the worker shares the
+app's modules rather than carrying copies.
+
+
 A voice script is a LESS document (`type = "voice"`) the writer dictates or
 types into, then hands to Claude with the Process button. LESS is a static
 site and cannot call this machine, so the request travels as a line of text
