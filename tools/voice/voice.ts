@@ -26,6 +26,7 @@
  *   node tools/voice/voice.ts claim <id>
  *   node tools/voice/voice.ts deliver <id> <formatted.txt>
  *   node tools/voice/voice.ts fail <id> "<message>"
+ *   node tools/voice/voice.ts seed <id> <transcript.txt>   (audio transcribed here -> note)
  *   node tools/voice/voice.ts selftest        (proves auth + endpoint, writes nothing)
  */
 
@@ -37,6 +38,7 @@ import {
   markWorking,
   applyResult,
   markError,
+  requestProcess,
 } from "../../lib/voice/markers.ts";
 
 const DB = "ec14ff01-64ae-48e0-b176-0ffa0bf596e9";
@@ -174,6 +176,27 @@ async function fail(id: string, message: string): Promise<void> {
   await writeLines(row, markError(lines, message));
 }
 
+/**
+ * Place a transcript into a voice note that has no unprocessed words, as the
+ * writer's raw lines plus a Process request, so claim and deliver then run
+ * exactly as they would for in-browser dictation and the note ends up in the
+ * same shape: formatted lines, the RAW block, the PROCESSED boundary. For the
+ * case where the browser could not record and the words arrived as an audio
+ * file transcribed on this Mac. Refuses a note that already holds words: those
+ * are the writer's, and this is not an editing tool.
+ */
+async function seed(id: string, file: string): Promise<void> {
+  const { row, lines } = await loadOne(id);
+  const doc = readVoiceDoc(lines);
+  if (doc.state !== "idle" || doc.pending.length) {
+    emit({ ok: false, reason: `note is not empty (state ${doc.state}, ${doc.pending.length} pending lines)` });
+    process.exitCode = 3;
+    return;
+  }
+  const text = readFileSync(file, "utf8").replace(/\s+$/, "").split("\n");
+  await writeLines(row, requestProcess([...lines, ...text]));
+}
+
 /** Exercise auth, the endpoint and parameter binding with a write that can
     match nothing, so the first real write is not also the first test. */
 async function selftest(): Promise<void> {
@@ -198,12 +221,13 @@ const commands: Record<string, () => Promise<void>> = {
   claim: () => claim(args[0]),
   deliver: () => deliver(args[0], args[1]),
   fail: () => fail(args[0], args.slice(1).join(" ")),
+  seed: () => seed(args[0], args[1]),
   selftest,
 };
 
 const run = commands[cmd ?? ""];
 if (!run) {
-  console.error("Usage: voice.ts poll | claim <id> | deliver <id> <file> | fail <id> <msg> | selftest");
+  console.error("Usage: voice.ts poll | claim <id> | deliver <id> <file> | fail <id> <msg> | seed <id> <transcript> | selftest");
   process.exit(2);
 }
 run().catch((e: unknown) => {

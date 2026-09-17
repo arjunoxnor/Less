@@ -20,6 +20,15 @@ and why they live in the text rather than in a column.
     npm run -s voice -- claim <id>    # /// PROCESS -> /// WORKING (the liveness signal)
     npm run -s voice -- deliver <id> formatted.txt
     npm run -s voice -- fail <id> "what went wrong"
+    npm run -s voice -- seed <id> transcript.txt   # audio transcribed here -> note
+
+`seed` is for the case where the browser could not record (no speech API,
+or a blocked mic) and the words arrived as an audio file instead. Transcribe
+locally (`whisper-cli`, models in `Arjun Health/models/`), then `seed` puts
+the transcript into an EMPTY voice note as the writer's raw lines plus a
+Process request, so `claim` and `deliver` run exactly as for dictation and
+the note ends up in the same shape. It refuses a note that already holds
+words.
 
 `formatted.txt` is the structured result as plain screenplay lines, one per
 paragraph. `deliver` appends it above the writer's original words and a
