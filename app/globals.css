@@ -4165,3 +4165,55 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* The check mark on a board picture: "I like this one". It sits on the image,
+   stays quiet until the pointer is near or it is ticked, and a ticked picture
+   gets an ink frame so a wall can be scanned for the votes at a glance. */
+.brd-media {
+  position: relative;
+}
+.brd-like {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+.brd-like::after {
+  content: "";
+  position: absolute;
+  left: 9.5px;
+  top: 5px;
+  width: 7px;
+  height: 13px;
+  border: solid var(--ink);
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+  opacity: 0.45;
+}
+.brd-figure:hover .brd-like,
+.brd-like:focus-visible {
+  opacity: 1;
+}
+.brd-like[aria-pressed="true"] {
+  opacity: 1;
+  background: var(--ink);
+}
+.brd-like[aria-pressed="true"]::after {
+  border-color: var(--paper);
+  opacity: 1;
+}
+.brd-figure[data-liked="true"] img {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+.brd-liked-only .brd-figure:not([data-liked="true"]) {
+  display: none;
+}

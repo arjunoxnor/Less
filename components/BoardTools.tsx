@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/react";
 import {
   currentBoard,
   currentPalette,
+  likeTally,
   putPalette,
   setBoardColumns,
   swatchesFromText,
@@ -28,9 +29,14 @@ const STARTER_PALETTE: Swatch[] = [
 export function BoardTools({
   editor,
   onAddImages,
+  likedOnly,
+  onLikedOnlyChange,
 }: {
   editor: Editor | null;
   onAddImages: (files: File[]) => void;
+  /** Show only the pictures that carry the check mark. A view, not an edit. */
+  likedOnly: boolean;
+  onLikedOnlyChange: (next: boolean) => void;
 }) {
   const [, force] = useReducer((x: number) => x + 1, 0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -50,6 +56,7 @@ export function BoardTools({
   if (!editor) return null;
   const board = currentBoard(editor);
   const palette = currentPalette(editor);
+  const tally = likeTally(editor);
   const draftColors = paletteDraft === null ? [] : swatchesFromText(paletteDraft);
 
   return (
@@ -105,6 +112,18 @@ export function BoardTools({
       >
         {palette ? "Edit palette" : "Palette"}
       </button>
+      {tally.figures > 0 && (
+        <button
+          type="button"
+          className={"tb-btn" + (likedOnly ? " tb-btn-active" : "")}
+          aria-pressed={likedOnly}
+          disabled={tally.liked === 0 && !likedOnly}
+          title={likedOnly ? "Show every picture again" : "Show only the pictures you liked"}
+          onClick={() => onLikedOnlyChange(!likedOnly)}
+        >
+          {likedOnly ? "Showing liked" : `Liked ${tally.liked} of ${tally.figures}`}
+        </button>
+      )}
 
       {paletteDraft !== null && (
         <Modal

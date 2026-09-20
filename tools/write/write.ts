@@ -78,6 +78,7 @@ interface Doc {
   type: string;
   content?: Doc[];
   text?: string;
+  attrs?: Record<string, unknown>;
 }
 
 async function sql<T = Row>(statement: string, params: unknown[] = []): Promise<D1Result<T>> {
@@ -144,9 +145,24 @@ async function snapshot(row: Pick<Row, "id" | "title_page">, content: string, la
   );
 }
 
+const textOf = (doc: Doc): string =>
+  (typeof doc.text === "string" ? doc.text : "") + (doc.content ?? []).map(textOf).join("");
+
+/** The pictures on a board, and which of them the writer ticked. The votes are
+ *  the point of a reference wall, so reading them back is part of `get`. */
+function pictures(doc: Doc | null): { liked: boolean; caption: string; src: string }[] {
+  if (!doc) return [];
+  const own =
+    doc.type === "figure" && typeof doc.attrs?.src === "string" && doc.attrs.src
+      ? [{ liked: doc.attrs.liked === true, caption: textOf(doc), src: doc.attrs.src }]
+      : [];
+  return own.concat((doc.content ?? []).flatMap(pictures));
+}
+
 async function get(id: string, outFile?: string) {
   const row = await load(id);
   const doc = row.content ? (JSON.parse(row.content) as Doc) : null;
+  const pics = pictures(doc);
   if (outFile) writeFileSync(outFile, JSON.stringify(doc, null, 2) + "\n");
   emit({
     id: row.id,
@@ -155,6 +171,9 @@ async function get(id: string, outFile?: string) {
     updatedAt: row.updated_at,
     blocks: doc?.content?.length ?? 0,
     words: words(doc),
+    ...(pics.length
+      ? { pictures: pics.length, liked: pics.filter((p) => p.liked).map((p) => p.caption || p.src) }
+      : {}),
     savedTo: outFile ?? null,
   });
 }

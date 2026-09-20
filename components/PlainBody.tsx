@@ -97,6 +97,8 @@ export function PlainBody({
   );
   // A board is the same document on a wide, unpaginated page, with images.
   const isBoard = type === "board";
+  // "Show only what I liked" hides the rest with a class. It never edits.
+  const [likedOnly, setLikedOnly] = useState(false);
 
   const [words, setWords] = useState(0);
   const [chars, setChars] = useState(0);
@@ -473,6 +475,8 @@ export function PlainBody({
               <BoardTools
                 editor={editor}
                 onAddImages={(files) => void addImagesRef.current(files)}
+                likedOnly={likedOnly}
+                onLikedOnlyChange={setLikedOnly}
               />
             ) : null}
             <div className="toolbar-spacer" />
@@ -543,7 +547,7 @@ export function PlainBody({
           style={{ ["--doc-font-size" as string]: `${prefs.docFontSize ?? 16}px` }}
         >
           {isBoard ? (
-            <div className="board-wrap">
+            <div className={"board-wrap" + (likedOnly ? " brd-liked-only" : "")}>
               <EditorContent editor={editor} className="pl-doc brd-doc" />
             </div>
           ) : (

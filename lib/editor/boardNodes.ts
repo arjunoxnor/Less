@@ -1,11 +1,16 @@
 import { Node, mergeAttributes, type Editor, type JSONContent } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 
 /**
  * The three blocks that make a BOARD: a document for looking at things rather
  * than reading them. References, storyboards, palettes, style frames.
  *
  *   figure   one image with an editable caption (the caption is the node's own
- *            inline content, so it takes marks and needs no custom node view)
+ *            inline content, so it takes marks and needs no custom node view),
+ *            and a check mark the writer can tick: "I like this one". A wall of
+ *            references is only useful once it has been voted on, and the votes
+ *            live in the document, so whoever built the wall can read them back.
  *   board    a grid of figures, 2 to 6 columns: a reference wall, or a row of
  *            storyboard panels whose captions are the shot descriptions
  *   palette  a strip of named colors
@@ -121,11 +126,44 @@ export const Figure = Node.create({
         rendered: false,
         parseHTML: (el: HTMLElement) => positiveInt(el.querySelector("img")?.getAttribute("height")),
       },
+      liked: {
+        default: false,
+        rendered: false,
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-liked") === "true",
+      },
     };
   },
 
   parseHTML() {
     return [{ tag: "figure[data-figure]", contentElement: "figcaption" }];
+  },
+
+  // The check mark is plain DOM inside the figure, so a click on it never
+  // reaches the document as an edit. This turns that click into one.
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("figureLike"),
+        props: {
+          handleDOMEvents: {
+            mousedown: (_view, event) => {
+              if (!likeButtonOf(event.target)) return false;
+              event.preventDefault(); // no node selection, no drag
+              return true;
+            },
+            click: (view, event) => {
+              const button = likeButtonOf(event.target);
+              if (!button) return false;
+              event.preventDefault();
+              const figure = button.closest("figure[data-figure]");
+              const caption = figure?.querySelector("figcaption");
+              if (!caption) return true;
+              return toggleLikeAt(view, view.posAtDOM(caption, 0));
+            },
+          },
+        },
+      }),
+    ];
   },
 
   renderHTML({ node }) {
@@ -141,18 +179,71 @@ export const Figure = Node.create({
             loading: "lazy",
             decoding: "async",
             draggable: "false",
+            // A reference can be a picture on someone else's site. Do not tell
+            // that site which private document is looking at it.
+            referrerpolicy: "no-referrer",
             ...(width && height ? { width: String(width), height: String(height) } : {}),
           },
         ]
       : ["div", { class: "brd-empty", contenteditable: "false" }, "Drop an image here"];
+    const liked = node.attrs.liked === true;
+    const like = [
+      "button",
+      {
+        type: "button",
+        class: "brd-like",
+        contenteditable: "false",
+        tabindex: "-1",
+        "aria-pressed": liked ? "true" : "false",
+        "aria-label": liked ? "Liked. Click to undo" : "Like this one",
+        title: liked ? "Liked. Click to undo" : "Like this one",
+      },
+    ];
     return [
       "figure",
-      { "data-figure": "", class: src ? "brd-figure" : "brd-figure brd-figure-empty" },
-      media,
+      {
+        "data-figure": "",
+        ...(liked ? { "data-liked": "true" } : {}),
+        class: src ? "brd-figure" : "brd-figure brd-figure-empty",
+      },
+      ["div", { class: "brd-media", contenteditable: "false" }, media, ...(src ? [like] : [])],
       ["figcaption", { class: "brd-caption" }, 0],
     ];
   },
 });
+
+function likeButtonOf(target: EventTarget | null): HTMLElement | null {
+  return target instanceof HTMLElement ? target.closest<HTMLElement>(".brd-like") : null;
+}
+
+/** Flip the check mark of the figure that contains `pos`. */
+export function toggleLikeAt(view: EditorView, pos: number): boolean {
+  const $pos = view.state.doc.resolve(Math.max(0, Math.min(pos, view.state.doc.content.size)));
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const node = $pos.node(depth);
+    if (node.type.name !== "figure") continue;
+    view.dispatch(
+      view.state.tr.setNodeMarkup($pos.before(depth), undefined, {
+        ...node.attrs,
+        liked: node.attrs.liked !== true,
+      })
+    );
+    return true;
+  }
+  return false;
+}
+
+/** How many pictures there are, and how many carry the check mark. */
+export function likeTally(editor: Editor): { figures: number; liked: number } {
+  let figures = 0;
+  let liked = 0;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name !== "figure" || !safeImageSrc(node.attrs.src)) return;
+    figures++;
+    if (node.attrs.liked === true) liked++;
+  });
+  return { figures, liked };
+}
 
 export const Board = Node.create({
   name: "board",

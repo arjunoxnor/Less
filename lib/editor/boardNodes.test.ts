@@ -7,12 +7,14 @@ import {
   cleanSwatches,
   currentBoard,
   insertImages,
+  likeTally,
   putPalette,
   safeHex,
   safeImageSrc,
   setBoardColumns,
   swatchesFromText,
   swatchesToText,
+  toggleLikeAt,
 } from "./boardNodes";
 import { plainToMarkdown, plainToText } from "@/lib/export/plainExport";
 
@@ -189,6 +191,59 @@ describe("board blocks in the real editor", () => {
     const nodes = blocks(editor);
     expect(nodes.map((n) => n.type)).toEqual(["paragraph", "palette"]); // edited, not duplicated
     expect(nodes[1].attrs?.colors).toHaveLength(2);
+    editor.destroy();
+  });
+});
+
+describe("liking a picture", () => {
+  const wall = (): JSONContent[] => [
+    { type: "board", attrs: { columns: 3 }, content: [figure(A, "One"), figure(B, "Two"), figure("", "Empty frame")] },
+  ];
+  const posOf = (editor: Editor, text: string): number => {
+    let found = 0;
+    editor.state.doc.descendants((node, pos) => {
+      if (!found && node.isText && node.text === text) found = pos + 1;
+    });
+    return found;
+  };
+
+  it("ticks one picture, counts it, and keeps the vote through JSON and HTML", () => {
+    const editor = boardEditor(wall());
+    expect(likeTally(editor)).toEqual({ figures: 2, liked: 0 }); // the empty frame is not a picture
+    expect(toggleLikeAt(editor.view, posOf(editor, "Two"))).toBe(true);
+    expect(likeTally(editor)).toEqual({ figures: 2, liked: 1 });
+
+    const figures = blocks(editor)[0].content ?? [];
+    expect(figures.map((f) => f.attrs?.liked)).toEqual([false, true, false]);
+
+    const html = editor.getHTML();
+    expect(html).toContain('data-liked="true"');
+    expect(html).toContain('aria-pressed="true"');
+    const again = new Editor({
+      element: document.createElement("div"),
+      extensions: buildPlainExtensions({ board: true }),
+      content: html,
+    });
+    expect((blocks(again)[0].content ?? []).map((f) => f.attrs?.liked)).toEqual([false, true, false]);
+    // The caption is still just the caption: the button never becomes text.
+    expect((blocks(again)[0].content ?? []).map((f) => f.content?.[0]?.text)).toEqual(["One", "Two", "Empty frame"]);
+
+    toggleLikeAt(editor.view, posOf(editor, "Two"));
+    expect(likeTally(editor).liked).toBe(0);
+    editor.destroy();
+    again.destroy();
+  });
+
+  it("answers a real click on the check mark, and only a picture has one", () => {
+    const editor = boardEditor(wall());
+    const buttons = editor.view.dom.querySelectorAll<HTMLElement>(".brd-like");
+    expect(buttons).toHaveLength(2); // none on the empty frame
+    let updates = 0;
+    editor.on("update", () => updates++);
+    buttons[0].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(likeTally(editor)).toEqual({ figures: 2, liked: 1 });
+    expect((blocks(editor)[0].content ?? [])[0].attrs?.liked).toBe(true);
+    expect(updates).toBe(1); // a vote is an edit, so it saves and syncs like one
     editor.destroy();
   });
 });
