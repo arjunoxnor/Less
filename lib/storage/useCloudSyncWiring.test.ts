@@ -17,7 +17,13 @@ describe("cloud sync completion wiring", () => {
   });
 
   it("returns after a null reconcile save instead of reporting synced", () => {
-    expect(source).toMatch(/setStatus\("error"\);\n\s+return;\n\s+}\n\s+} else if \(cloudNewer\)/);
+    // The pull that used to follow here (`else if (cloudNewer)`) now happens
+    // inside settleWithCloud; what must still hold is that a failed reconcile
+    // save returns before the status below can be painted "synced".
+    expect(source).toMatch(
+      /setStatus\("error"\);\n\s+return;\n\s+}\n\s+}\n\s+} else {\n\s+\/\/ No cloud row yet/
+    );
+    expect(source).toContain('if (decision === "push") {');
   });
 
   it("does not report synced while a newer title is still dirty", () => {

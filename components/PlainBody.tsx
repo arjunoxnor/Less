@@ -29,6 +29,8 @@ import {
   setTitleDirty as projSetTitleDirty,
   getLastSavedAt as projGetLastSavedAt,
   setLastSavedAt as projSetLastSavedAt,
+  getSyncedPrint as projGetSyncedPrint,
+  setSyncedPrint as projSetSyncedPrint,
   hasPendingCloudWork,
   patchProjectMeta,
   type ProjectStatus,
@@ -212,6 +214,14 @@ export function PlainBody({
       setTitleDirty: (b: boolean) => projSetTitleDirty(projectId, b),
       getLastSavedAt: () => projGetLastSavedAt(projectId),
       setLastSavedAt: (iso: string | null) => projSetLastSavedAt(projectId, iso),
+      getSyncedPrint: () => projGetSyncedPrint(projectId),
+      setSyncedPrint: (print: string | null) => projSetSyncedPrint(projectId, print),
+      onRemoteUpdate: (kind: "pulled" | "conflict") =>
+        showToast(
+          kind === "conflict"
+            ? "This was changed somewhere else, so that version is showing. Your unsaved edits are in History."
+            : "Updated with changes made somewhere else."
+        ),
       onCloudCreated: (id: string) => markCloudCreated(id),
       setCloudCreatePending: (pending: boolean) =>
         patchProjectMeta(projectId, { cloudCreatePending: pending }),

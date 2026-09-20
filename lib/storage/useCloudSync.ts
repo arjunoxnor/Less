@@ -9,15 +9,23 @@ import {
   createScript,
   createSnapshot,
   fetchScript,
+  listScripts,
   listVersions,
   saveScript,
   setScriptTitle,
+  type ScriptRow,
   type VersionRow,
 } from "@/lib/cloud/scripts";
 import { trimTitlePage, type TitlePage } from "@/lib/export/titlePage";
 import { debounce } from "./localStore";
 import { onBroadcast } from "./broadcast";
 import { stillMatchesField, stillMatchesSnapshot } from "./syncSafety";
+import {
+  decideRemote,
+  isBlankDoc,
+  syncFingerprint,
+  type RemoteDecision,
+} from "./syncBaseline";
 import {
   loadProjectDoc,
   localProjectIdFor,
@@ -36,6 +44,10 @@ export type SyncStatus =
 
 const PUSH_DEBOUNCE_MS = 1500;
 const SNAPSHOT_THROTTLE_MS = 3 * 60 * 1000; // at most one snapshot per 3 min
+// How often a visible, open document looks for a body written somewhere else.
+// Coming back to the tab checks at once; this covers a tab that never left.
+const REMOTE_WATCH_MS = 20 * 1000;
+const REMOTE_UPDATE_LABEL = "Before update from another device";
 
 /** Everything the per-project sync engine needs, injected by the editor body. */
 export interface CloudSyncOpts {
@@ -67,6 +79,14 @@ export interface CloudSyncOpts {
   setTitleDirty: (dirty: boolean) => void;
   getLastSavedAt: () => string | null;
   setLastSavedAt: (iso: string | null) => void;
+  /** Fingerprint of the body this device and the cloud last agreed on (see
+   *  syncBaseline.ts). Without these two the hook keeps the older flag-only
+   *  rules and never looks at the cloud again after it opens. */
+  getSyncedPrint?: () => string | null;
+  setSyncedPrint?: (print: string | null) => void;
+  /** The open document was just replaced by a body written somewhere else.
+   *  "conflict" means local edits were moved into History to make room. */
+  onRemoteUpdate?: (kind: "pulled" | "conflict") => void;
   /** Called after this project's cloud row is first created. */
   onCloudCreated?: (id: string) => void;
   /** Marks the first insert as in flight so sign-out cannot orphan its result. */
@@ -117,6 +137,8 @@ export function useCloudSync(
   const mountedRef = useRef(true);
   const pushInFlightRef = useRef<Promise<void> | null>(null);
   const pushAgainRef = useRef(false);
+  const reconcilingRef = useRef(false);
+  const watchBusyRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -130,9 +152,20 @@ export function useCloudSync(
   // Load content into the editor WITHOUT firing 'update', mirror it to local
   // storage, and signal the UI to recompute.
   const pullInto = useCallback(
-    (content: JSONContent, tp?: TitlePage | null) => {
+    (content: JSONContent, tp?: TitlePage | null, keep?: { selection?: boolean }) => {
       if (!editor) return;
+      // A live update lands under a writer who is looking at the page: put the
+      // caret back where it was (clamped to the new body) instead of at the top.
+      const caret = keep?.selection ? editor.state?.selection?.from : undefined;
       editor.commands.setContent(content, { emitUpdate: false });
+      if (typeof caret === "number") {
+        try {
+          const size = editor.state.doc.content.size;
+          editor.commands.setTextSelection(Math.max(0, Math.min(caret, size)));
+        } catch {
+          // A caret that cannot be restored is not worth failing the update for.
+        }
+      }
       const docSaved = optsRef.current.saveLocalDoc(content) !== false;
       let titlePageSaved = true;
       ownDirtyRef.current = false;
@@ -147,6 +180,132 @@ export function useCloudSync(
     },
     [editor]
   );
+
+  // Take an immediate, unthrottled snapshot of the CURRENT (pre-replacement)
+  // doc so a restore, an import, or a body arriving from elsewhere is always
+  // recoverable, regardless of the periodic snapshot throttle. The local ring
+  // always gets one (works signed out); the cloud snapshot additionally lands
+  // when signed in.
+  const snapshotLive = useCallback(
+    (label: string) => {
+      const ed = editor;
+      if (!ed) return;
+      addLocalVersion(optsRef.current.projectId, ed.getJSON(), titlePageRef.current, label, {
+        force: true,
+      });
+      const u = userRef.current;
+      if (!u || optsRef.current.disabled) return;
+      createSnapshot(optsRef.current.projectId, u.id, ed.getJSON(), titlePageRef.current, label).catch(
+        (e) => console.error("pre-action snapshot failed", e)
+      );
+    },
+    [editor]
+  );
+
+  // The cloud body as THIS editor would hold it. A body written by another
+  // client build, or by a tool writing straight to the database, may spell the
+  // same document differently (attribute defaults left out). Passing it through
+  // the schema makes it comparable with editor.getJSON(). A body the schema
+  // cannot read is compared as it came.
+  const asEditorWouldHold = useCallback(
+    (content: JSONContent): JSONContent => {
+      try {
+        const schema = editor?.schema;
+        if (schema?.nodeFromJSON) return schema.nodeFromJSON(content).toJSON() as JSONContent;
+      } catch {
+        // fall through
+      }
+      return content;
+    },
+    [editor]
+  );
+
+  /** Record what the cloud now holds, as far as this device knows. */
+  const recordBaseline = useCallback((doc: JSONContent, tp: TitlePage | null) => {
+    optsRef.current.setSyncedPrint?.(syncFingerprint(doc, tp));
+  }, []);
+
+  /**
+   * Settle the open editor against a cloud row (rules in syncBaseline.ts).
+   *
+   * Everything from reading the editor to replacing its content happens in one
+   * synchronous stretch, so no keystroke can land between the decision and the
+   * replacement and be lost.
+   *
+   * "push" is returned WITHOUT pushing: the caller owns the network write.
+   * `origin` is where the question came from. Only a body that arrives while the
+   * writer is already in the document ("watch", "prepush") is announced and
+   * backed up first; the open-time pull stays as quiet as it always was.
+   */
+  const settleWithCloud = useCallback(
+    (
+      cloud: ScriptRow,
+      ask: { origin: "open" | "watch" | "prepush"; legacyDirty: boolean }
+    ): RemoteDecision => {
+      if (!editor) return "noop";
+      const o = optsRef.current;
+      const live = editor.getJSON();
+      const localTp = titlePageRef.current;
+      const cloudBody = asEditorWouldHold(cloud.content);
+      const cloudTp = trimTitlePage(cloud.title_page);
+      const lastSaved = o.getLastSavedAt();
+      const decision = decideRemote({
+        baseline: o.getSyncedPrint?.() ?? null,
+        localPrint: syncFingerprint(live, localTp),
+        cloudPrint: syncFingerprint(cloudBody, cloudTp),
+        localBlank: isBlankDoc(live),
+        cloudBlank: isBlankDoc(cloudBody),
+        cloudMoved: !lastSaved || cloud.updated_at !== lastSaved,
+        legacyDirty: ask.legacyDirty,
+        legacyCloudNewer: !lastSaved || new Date(cloud.updated_at) > new Date(lastSaved),
+      });
+      if (decision === "noop" || decision === "push") return decision;
+
+      if (decision === "advance") {
+        // Same body on both sides: nothing to send, only clocks to record.
+        o.setLastSavedAt(cloud.updated_at);
+        recordBaseline(live, localTp);
+        o.setDirty(false);
+        ownDirtyRef.current = false;
+        o.setTitlePageDirty(false);
+        ownTitlePageDirtyRef.current = false;
+        return decision;
+      }
+
+      // "pull" or "conflict": the cloud body replaces what is on screen.
+      const arrivedLive = ask.origin !== "open";
+      if (decision === "conflict") {
+        snapshotLive(REMOTE_UPDATE_LABEL); // the writer's unsent edits, kept in both rings
+      } else if (arrivedLive && !isBlankDoc(live)) {
+        addLocalVersion(o.projectId, live, localTp, REMOTE_UPDATE_LABEL, { force: true });
+      }
+      pullInto(cloud.content, cloudTp, { selection: arrivedLive });
+      o.setLastSavedAt(cloud.updated_at);
+      o.setDirty(false);
+      o.setTitlePageDirty(false);
+      recordBaseline(editor.getJSON(), cloudTp);
+      if (decision === "conflict") o.onRemoteUpdate?.("conflict");
+      else if (arrivedLive) o.onRemoteUpdate?.("pulled");
+      return decision;
+    },
+    [editor, asEditorWouldHold, pullInto, recordBaseline, snapshotLive]
+  );
+
+  /** The cloud row, but only if it moved since this device last synced to it.
+   *  Asks the cheap list first (clocks only, no bodies) and fetches the body
+   *  only when the clock differs. Null also covers "could not ask": offline, a
+   *  401, or a caller that has not wired baselines. */
+  const cloudRowIfMoved = useCallback(async (): Promise<ScriptRow | null> => {
+    const o = optsRef.current;
+    if (!o.getSyncedPrint || !o.setSyncedPrint) return null;
+    try {
+      const row = (await listScripts()).find((r) => r.id === o.projectId);
+      if (!row || row.updated_at === o.getLastSavedAt()) return null;
+      return await fetchScript(o.projectId);
+    } catch {
+      return null;
+    }
+  }, []);
 
   // Push a genuine local title change via the title-only endpoint. Called after
   // a content save so the content path never carries (and cannot clobber) the
@@ -196,6 +355,38 @@ export function useCloudSync(
       return;
     }
     try {
+      // Look before writing. The save below is unconditional on the server, so
+      // a body written somewhere else since this device last synced would be
+      // replaced without a trace. If the cloud moved, settle first: only a real
+      // local change on top of an unchanged cloud body still goes up. (A write
+      // landing in the instant between this look and the save can still lose;
+      // closing that needs a conditional save on the server.)
+      const moved = await cloudRowIfMoved();
+      if (moved) {
+        const decision = settleWithCloud(moved, { origin: "prepush", legacyDirty: true });
+        if (decision !== "push") {
+          await flushTitle();
+          if (mountedRef.current) setStatus(o.isTitleDirty() ? "syncing" : "synced");
+          return;
+        }
+      } else {
+        const baseline = o.getSyncedPrint?.() ?? null;
+        if (
+          baseline &&
+          o.getLastSavedAt() &&
+          syncFingerprint(ed.getJSON(), titlePageRef.current) === baseline
+        ) {
+          // Flagged dirty by an update that changed nothing (opening an empty
+          // screenplay is enough). The cloud already holds this exact body.
+          o.setDirty(false);
+          ownDirtyRef.current = false;
+          o.setTitlePageDirty(false);
+          ownTitlePageDirtyRef.current = false;
+          await flushTitle();
+          if (mountedRef.current) setStatus(o.isTitleDirty() ? "syncing" : "synced");
+          return;
+        }
+      }
       const doc = ed.getJSON();
       const tp = titlePageRef.current;
       const tpWasDirty = ownTitlePageDirtyRef.current;
@@ -222,6 +413,8 @@ export function useCloudSync(
         return;
       }
       o.setLastSavedAt(ts);
+      // The cloud now holds exactly what was sent, whatever was typed since.
+      recordBaseline(doc, tp);
       const docUnchanged = stillMatchesSnapshot(ed.getJSON(), snapshotJson);
       const tpUnchanged = stillMatchesSnapshot(titlePageRef.current, tpSnapshot);
       const localDocUnchanged = stillMatchesSnapshot(
@@ -268,7 +461,7 @@ export function useCloudSync(
       console.error("cloud save failed", e);
       setStatus("error");
     }
-  }, [editor, flushTitle]);
+  }, [editor, flushTitle, cloudRowIfMoved, settleWithCloud, recordBaseline]);
 
   // Only one body request for this editor may be in flight. Calls arriving
   // while it runs request one more pass, whose snapshot is taken only after the
@@ -348,20 +541,27 @@ export function useCloudSync(
         return;
       }
       setStatus("syncing");
+      reconcilingRef.current = true;
       const localDoc = editor.getJSON();
       try {
         const cloud = await fetchScript(projectId);
         if (cancelled) return;
         if (cloud) {
-          const lastSaved = o.getLastSavedAt();
-          const cloudNewer =
-            !lastSaved || new Date(cloud.updated_at) > new Date(lastSaved);
           // The editor stayed interactive during the fetch: re-read it so any
           // typing in that window is never clobbered.
           const live = editor.getJSON();
           const typedDuringFetch =
             JSON.stringify(live) !== JSON.stringify(localDoc);
-          if (o.isDirty() || o.hasUnsavedLocalEdits?.() || typedDuringFetch) {
+          // Who wins is decided from content against the synced baseline, not
+          // from the dirty flag alone (syncBaseline.ts): a flag set by an update
+          // that changed nothing used to push a stale or blank body over newer
+          // work on every open. Pull, conflict, and clock-only outcomes finish
+          // inside settleWithCloud; a push is carried out below as it always was.
+          const decision = settleWithCloud(cloud, {
+            origin: "open",
+            legacyDirty: o.isDirty() || !!o.hasUnsavedLocalEdits?.() || typedDuringFetch,
+          });
+          if (decision === "push") {
             // Push the dirty content. For the title page, push it only when it
             // was actually edited locally (tpDirty); otherwise pass undefined so
             // a newer cloud title page is neither clobbered (audit #17) nor a
@@ -386,6 +586,12 @@ export function useCloudSync(
             // so it retries instead of being lost.
             if (ts) {
               o.setLastSavedAt(ts);
+              // The title page only went up if it was edited here; otherwise the
+              // cloud kept its own.
+              recordBaseline(
+                live,
+                tpDirty ? titlePageRef.current : trimTitlePage(cloud.title_page)
+              );
               const docUnchanged = stillMatchesSnapshot(editor.getJSON(), docSnapshot);
               const tpUnchanged = stillMatchesSnapshot(titlePageRef.current, tpSnapshot);
               const localDocUnchanged = stillMatchesSnapshot(
@@ -409,10 +615,6 @@ export function useCloudSync(
               setStatus("error");
               return;
             }
-          } else if (cloudNewer) {
-            pullInto(cloud.content, cloud.title_page ?? null);
-            o.setLastSavedAt(cloud.updated_at);
-            o.setTitlePageDirty(false);
           }
         } else {
           // No cloud row yet (a local-only project opened while signed in):
@@ -447,6 +649,7 @@ export function useCloudSync(
           if (cancelled) return;
           if (row) {
             o.setLastSavedAt(row.updated_at);
+            recordBaseline(live, titlePageRef.current);
             o.onCloudCreated?.(projectId);
             const docUnchanged = stillMatchesSnapshot(editor.getJSON(), docSnapshot);
             const tpUnchanged = stillMatchesSnapshot(titlePageRef.current, tpSnapshot);
@@ -488,12 +691,61 @@ export function useCloudSync(
         console.error("reconcile failed", e);
         reconciledFor.current = null; // allow a retry
         setStatus("error");
+      } finally {
+        reconcilingRef.current = false;
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [editor, user, projectId, pullInto, restoredTick]);
+  }, [editor, user, projectId, settleWithCloud, recordBaseline, flushTitle, restoredTick]);
+
+  // --- Watch for a body written somewhere else while this one is open ------
+  // An open document used to look at the cloud exactly once, when it mounted.
+  // Anything written afterwards (another device, a tool writing to the
+  // database) stayed invisible, and the next local save replaced it. A visible
+  // tab now asks again the moment the writer comes back to it, and on a slow
+  // timer in case it never left. The list is asked first (clocks only); a body
+  // is fetched only when its clock moved.
+  useEffect(() => {
+    if (optsRef.current.disabled) return;
+    if (!editor || !user) return;
+    let stopped = false;
+    const check = async () => {
+      const o = optsRef.current;
+      if (stopped || o.disabled || watchBusyRef.current) return;
+      if (reconcilingRef.current || pushInFlightRef.current) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (isSessionExpired()) return;
+      if (localProjectIdFor(o.projectId) !== o.projectId) return;
+      watchBusyRef.current = true;
+      try {
+        const cloud = await cloudRowIfMoved();
+        // A push that started while we were asking runs its own check.
+        if (!cloud || stopped || !mountedRef.current || pushInFlightRef.current) return;
+        const decision = settleWithCloud(cloud, {
+          origin: "watch",
+          legacyDirty:
+            ownDirtyRef.current || o.isDirty() || !!o.hasUnsavedLocalEdits?.(),
+        });
+        if (decision === "push") void pushNow();
+        else if (decision !== "noop") setStatus(o.isTitleDirty() ? "syncing" : "synced");
+      } finally {
+        watchBusyRef.current = false;
+      }
+    };
+    const onReturn = () => void check();
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    const timer = window.setInterval(onReturn, REMOTE_WATCH_MS);
+    return () => {
+      stopped = true;
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+      window.clearInterval(timer);
+    };
+  }, [editor, user, projectId, cloudRowIfMoved, settleWithCloud, pushNow]);
 
   // --- Cross-tab: adopt a sibling tab's newer save of THIS project ---------
   // Another tab on this device just wrote a fresher body to localStorage. If we
@@ -599,26 +851,6 @@ export function useCloudSync(
     if (!optsRef.current.disabled && userRef.current) debouncedPush.current();
   }, []);
 
-  // Take an immediate, unthrottled snapshot of the CURRENT (pre-replacement)
-  // doc so a restore or import is always recoverable, regardless of the
-  // periodic snapshot throttle. The local ring always gets one (works signed
-  // out); the cloud snapshot additionally lands when signed in.
-  const snapshotLive = useCallback(
-    (label: string) => {
-      const ed = editor;
-      if (!ed) return;
-      addLocalVersion(optsRef.current.projectId, ed.getJSON(), titlePageRef.current, label, {
-        force: true,
-      });
-      const u = userRef.current;
-      if (!u || optsRef.current.disabled) return;
-      createSnapshot(optsRef.current.projectId, u.id, ed.getJSON(), titlePageRef.current, label).catch(
-        (e) => console.error("pre-action snapshot failed", e)
-      );
-    },
-    [editor]
-  );
-
   /** Restore a snapshot's content (and its title page) into the editor. */
   const restoreVersion = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
@@ -683,6 +915,9 @@ export function useCloudSync(
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     const doc = ed.getJSON();
     const tp = titlePageRef.current;
+    // Flagged dirty without a real change: the cloud already holds this body.
+    const baseline = o.getSyncedPrint?.() ?? null;
+    if (baseline && syncFingerprint(doc, tp) === baseline) return;
     // Measure UTF-8 bytes (the keepalive cap is on the wire body, not UTF-16
     // chars), so a multi-byte (CJK/emoji) doc is not wrongly admitted.
     const bytes = new TextEncoder().encode(

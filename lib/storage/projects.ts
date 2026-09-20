@@ -113,6 +113,9 @@ const lockKey = (id: string) => `less:project:${id}:pageLock`;
 const breakdownKey = (id: string) => `less:project:${id}:breakdown`;
 const dirtyKey = (id: string) => `less:project:${id}:dirty`;
 const lastSavedKey = (id: string) => `less:project:${id}:lastSavedAt`;
+// Fingerprint of the body this device and the cloud last agreed on (see
+// syncBaseline.ts). Lives and dies with lastSavedAt.
+const syncedPrintKey = (id: string) => `less:project:${id}:syncedPrint`;
 const localVersKey = (id: string) => `less:project:${id}:localvers`;
 const localVersAtKey = (id: string) => `less:project:${id}:localversAt`;
 
@@ -645,6 +648,7 @@ export function evictSyncedBodies(opts?: { exceptId?: string | null; max?: numbe
     // Clearing lastSavedAt makes the open-time reconcile treat the cloud copy
     // as newer (belt and suspenders behind the bodyEvicted fetch path).
     lsSet(lastSavedKey(m.id), null);
+    lsSet(syncedPrintKey(m.id), null);
   }
   return candidates.filter((m) => getProjectMeta(m.id)?.bodyEvicted).length;
 }
@@ -933,6 +937,7 @@ export function deleteProject(id: string): boolean {
   lsSet(statusDirtyKey(id), null);
   lsSet(titleDirtyKey(id), null);
   lsSet(lastSavedKey(id), null);
+  lsSet(syncedPrintKey(id), null);
   clearLocalVersions(id);
   // Removing the body freed space, so a tombstone that could not be written a
   // moment ago (full disk) usually fits now. Without it a cloud row could
@@ -1005,6 +1010,9 @@ export const setDirty = (id: string, dirty: boolean) =>
 export const getLastSavedAt = (id: string) => lsGet(lastSavedKey(id));
 export const setLastSavedAt = (id: string, iso: string | null) =>
   lsSet(lastSavedKey(id), iso);
+export const getSyncedPrint = (id: string) => lsGet(syncedPrintKey(id));
+export const setSyncedPrint = (id: string, print: string | null) =>
+  lsSet(syncedPrintKey(id), print);
 
 // Title-page-specific dirty flag, separate from the content dirty flag and
 // persisted so it survives a reload. It lets the reconcile distinguish "the
@@ -1082,6 +1090,7 @@ export function clearAllBookkeeping(): void {
     lsSet(statusDirtyKey(m.id), null);
     lsSet(titleDirtyKey(m.id), null);
     lsSet(lastSavedKey(m.id), null);
+    lsSet(syncedPrintKey(m.id), null);
   }
   setLastOpenedId(null);
 }
@@ -1108,6 +1117,7 @@ export function dropCloudProjects(): void {
       lsSet(statusDirtyKey(m.id), null);
       lsSet(titleDirtyKey(m.id), null);
       lsSet(lastSavedKey(m.id), null);
+      lsSet(syncedPrintKey(m.id), null);
       clearLocalVersions(m.id);
     } else {
       keep.push(m);
