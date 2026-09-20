@@ -13,7 +13,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "voice": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/voice/register.mjs tools/voice/voice.ts"
+    "voice": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/voice/register.mjs tools/voice/voice.ts",
+    "write": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/voice/register.mjs tools/write/write.ts"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

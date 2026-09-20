@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "plugins": []
+  },
+  "include": ["./*.ts", "../../lib/export/*.ts", "../../lib/editor/*.ts", "../../types/*.ts"],
+  "exclude": ["../../**/*.test.ts", "../../**/*.test.tsx"]
+}
