@@ -120,27 +120,37 @@ export function TopBar({
         <ChevronLeftIcon />
       </button>
 
-      <input
-        ref={titleRef}
-        className="topbar-title"
-        value={draft}
-        maxLength={MAX_LIBRARY_NAME_LENGTH}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            cancelTitleCommit.current = true;
-            setDraft(safeTitle);
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        aria-label="Project title"
-      />
+      {/* An input has no width of its own: it shows about twenty characters
+          and clips the rest. A hidden copy of the title (data-value) sizes
+          this one-cell grid and the input fills it, so the whole name
+          shows. See .topbar-title-fit. */}
+      <span className="topbar-title-fit" data-value={draft}>
+        <input
+          ref={titleRef}
+          className="topbar-title"
+          // Without this the input's own default width (about twenty
+          // characters) would stay the floor under a short name.
+          size={1}
+          value={draft}
+          maxLength={MAX_LIBRARY_NAME_LENGTH}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              cancelTitleCommit.current = true;
+              setDraft(safeTitle);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          aria-label="Project title"
+          title={draft}
+        />
+      </span>
 
       {collaborationStatus ? (
         <span

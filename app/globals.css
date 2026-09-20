@@ -1982,12 +1982,13 @@ body {
   font-weight: 600;
   background: var(--surface-2);
 }
+/* A film's documents tend to share their first words ("Horse Lords ..."), so
+   a clipped name is an ambiguous one. In this narrow panel a long name takes a
+   second line instead of an ellipsis. */
 .docs-item-title {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .docs-item-meta {
   flex: 0 0 auto;
@@ -3191,14 +3192,37 @@ body {
 }
 
 /* Borderless inline title; hairline appears on hover, field look on focus. */
-.topbar-title {
-  font: inherit;
+/* The title field is as wide as the title. An <input> has no width of its
+   own: it shows about twenty characters and clips the rest, which turned
+   "Horse Lords Look and References" into "Horse Lords Look and Refe". A hidden
+   copy of the text (::after, from data-value) sizes this one-cell grid and the
+   input fills the cell. The cap only bites on very long names; past it the
+   field scrolls as any input does, and hovering shows the whole name. */
+.topbar-title-fit {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 0 1 auto;
+  min-width: 80px;
+  max-width: clamp(320px, 45vw, 720px);
   font-size: var(--text-lg);
   font-weight: 600;
+}
+.topbar-title-fit::after {
+  content: attr(data-value) " ";
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre;
+  min-width: 0;
+  overflow: hidden;
   padding: 4px 8px;
-  min-width: 80px;
-  max-width: 320px;
-  flex: 0 1 auto;
+  border: 1px solid transparent;
+}
+.topbar-title {
+  grid-area: 1 / 1;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  padding: 4px 8px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
@@ -3683,14 +3707,14 @@ body {
     padding: 6px 8px;
   }
   .home-search,
-  .topbar-title {
+  .topbar-title-fit {
     min-width: 0;
     max-width: none;
   }
   .home-search {
     flex: 1 1 calc(100% - 6rem);
   }
-  .topbar-title {
+  .topbar-title-fit {
     flex: 1 1 calc(100% - 52px);
   }
   .topbar-sync,
