@@ -130,7 +130,7 @@ describe("real adversarial format fixtures", () => {
     const invalid = new File([arrayBuffer(fixture("invalid-utf8.fountain"))], "bad.fountain");
     await expect(importFile(invalid)).resolves.toBeTruthy();
 
-    const nul = new File([arrayBuffer(fixture("nul.fountain"))], "nul.fountain");
+    const nul = new File([arrayBuffer(fixture("nul-byte.fountain"))], "nul-byte.fountain");
     await expect(importFile(nul)).rejects.toThrow(/NUL bytes/);
   });
 });
