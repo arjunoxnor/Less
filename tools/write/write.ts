@@ -270,6 +270,10 @@ async function create(title: string, file: string, folderId?: string, asType?: s
     "INSERT INTO scripts (user_id, id, type, title, status, content, title_page, folder_id, position, created_at, updated_at, placed_at, title_at, status_at) VALUES (?, ?, ?, ?, 'not_started', ?, NULL, ?, NULL, ?, ?, ?, ?, ?)",
     [USER, id, rowType, title, body, folderId ?? null, at, at, at, at, at]
   );
+  // A new document has no History yet. Give it one entry, so the body written
+  // here can be restored if a browser running an older build opens it, does not
+  // know its blocks, and saves what is left.
+  await snapshot({ id, title_page: null }, body, "As created from outside");
   emit({
     id,
     type: rowType,
