@@ -69,8 +69,10 @@ describe("editor placeholder and spacing styles", () => {
     expect(docPagination).toContain('addEventListener("resize", onResize)');
     expect(docPagination).toContain("nextView.state.doc !== previousState.doc");
     expect(docPagination).toContain("Math.min(90, 320 - elapsed)");
+    // isBoard joined the list when boards arrived: a board has no sheets, so the
+    // effect returns early for it, and every layout-changing input is still here.
     expect(plainBody).toContain(
-      "[editor, prefs.docFont, prefs.docFontSize, prefs.focusMode, activePanel]"
+      "[editor, isBoard, prefs.docFont, prefs.docFontSize, prefs.focusMode, activePanel]"
     );
   });
 });

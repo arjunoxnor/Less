@@ -26,18 +26,28 @@
  *
  *   node --import ./tools/voice/register.mjs tools/write/write.ts get <id> [out.json]
  *   node --import ./tools/voice/register.mjs tools/write/write.ts put <id> <updated_at> <file> "<label>"
- *   node --import ./tools/voice/register.mjs tools/write/write.ts new "<title>" <file> [folderId]
+ *   node --import ./tools/voice/register.mjs tools/write/write.ts new "<title>" <file> [folderId] [type]
+ *   node --import ./tools/voice/register.mjs tools/write/write.ts asset <image> [more images...]
  *
  * <file> is a .fountain scene (screenplays only; parsed with the app's own
  * parser, so it lands exactly as an import would) or a .json TipTap document.
+ * [type] is "board" for a document that holds images (lib/editor/boardNodes.ts).
+ *
+ * `asset` uploads pictures for a board and prints the /api/assets/<id> link to
+ * put in a figure's `src`. It stores them exactly where the app does (the
+ * IMAGES KV namespace plus a row in `assets`) and under the app's own rules
+ * (lib/server/assets.ts: real PNG/JPEG/WebP/GIF bytes, 3 MB a file, the account
+ * quota), so an image placed from here is indistinguishable from a dropped one.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { parseFountain } from "../../lib/export/fountain.ts";
 import { linesToDoc } from "../../lib/export/flatten.ts";
+import { judgeUpload, newAssetId } from "../../lib/server/assets.ts";
 
 const DB = "ec14ff01-64ae-48e0-b176-0ffa0bf596e9";
+const KV_IMAGES = "56f5a9c08dac40e591e264bf379c983c";
 const ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID;
 const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const USER = process.env.LESS_USER_ID ?? process.env.LESS_VOICE_USER_ID;
@@ -60,8 +70,8 @@ interface Row {
   folder_id: string | null;
   updated_at: string;
 }
-interface D1Result {
-  results?: Row[];
+interface D1Result<T = Row> {
+  results?: T[];
   meta?: { changes?: number };
 }
 interface Doc {
@@ -70,7 +80,7 @@ interface Doc {
   text?: string;
 }
 
-async function sql(statement: string, params: unknown[] = []): Promise<D1Result> {
+async function sql<T = Row>(statement: string, params: unknown[] = []): Promise<D1Result<T>> {
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/d1/database/${DB}/query`,
     {
@@ -79,7 +89,7 @@ async function sql(statement: string, params: unknown[] = []): Promise<D1Result>
       body: JSON.stringify({ sql: statement, params }),
     }
   );
-  const body = (await res.json()) as { success: boolean; result: D1Result[]; errors?: unknown };
+  const body = (await res.json()) as { success: boolean; result: D1Result<T>[]; errors?: unknown };
   if (!body.success) throw new Error(`D1: ${JSON.stringify(body.errors ?? body)}`);
   return body.result[0];
 }
@@ -184,8 +194,73 @@ async function put(id: string, readAt: string, file: string, label: string) {
   });
 }
 
-async function create(title: string, file: string, folderId?: string) {
-  const type = file.toLowerCase().endsWith(".fountain") ? "screenplay" : "plain";
+/** Natural pixel size from the header, so a figure can hold its shape before
+ *  the image loads. Null when the format keeps it somewhere this does not look. */
+function imageSize(b: Uint8Array): { width: number; height: number } | null {
+  const u16 = (i: number) => (b[i] << 8) | b[i + 1];
+  const u32 = (i: number) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+  if (b[0] === 0x89 && b[1] === 0x50) return { width: u32(16), height: u32(20) }; // PNG IHDR
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const marker = b[i + 1];
+      // Start-of-frame markers carry the size; skip the ones that are not frames.
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { width: u16(i + 7), height: u16(i + 5) };
+      }
+      i += 2 + u16(i + 2);
+    }
+    return null;
+  }
+  if (b[0] === 0x47 && b[1] === 0x49) return { width: b[6] | (b[7] << 8), height: b[8] | (b[9] << 8) }; // GIF
+  if (b[8] === 0x57 && b[12] === 0x56 && b[13] === 0x50 && b[14] === 0x38 && b[15] === 0x58) {
+    // WebP, extended header: 24-bit little-endian, stored minus one.
+    const w = 1 + (b[24] | (b[25] << 8) | (b[26] << 16));
+    const h = 1 + (b[27] | (b[28] << 8) | (b[29] << 16));
+    return { width: w, height: h };
+  }
+  return null;
+}
+
+async function asset(files: string[]) {
+  const out = [];
+  for (const file of files) {
+    const bytes = new Uint8Array(readFileSync(file));
+    const used = (
+      await sql<{ b: number; n: number }>(
+        "SELECT COALESCE(SUM(bytes),0) AS b, COUNT(*) AS n FROM assets WHERE user_id = ?",
+        [USER]
+      )
+    ).results?.[0];
+    const verdict = judgeUpload({
+      userId: USER as string,
+      bytes,
+      usedBytes: used?.b ?? 0,
+      usedCount: used?.n ?? 0,
+    });
+    if (!verdict.ok) throw new Error(`${file}: ${verdict.error}`);
+    const id = newAssetId();
+    const form = new FormData();
+    form.set("value", new Blob([bytes]));
+    form.set("metadata", JSON.stringify({ type: verdict.type }));
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/storage/kv/namespaces/${KV_IMAGES}/values/${id}`,
+      { method: "PUT", headers: { Authorization: `Bearer ${TOKEN}` }, body: form }
+    );
+    const stored = (await res.json()) as { success: boolean; errors?: unknown };
+    if (!stored.success) throw new Error(`${file}: KV refused it: ${JSON.stringify(stored.errors)}`);
+    await sql(
+      "INSERT INTO assets (id, user_id, bytes, content_type, created_at) VALUES (?, ?, ?, ?, ?)",
+      [id, USER, bytes.length, verdict.type, now()]
+    );
+    out.push({ file, src: `/api/assets/${id}`, type: verdict.type, bytes: bytes.length, ...imageSize(bytes) });
+  }
+  emit(out);
+}
+
+async function create(title: string, file: string, folderId?: string, asType?: string) {
+  const type = file.toLowerCase().endsWith(".fountain") ? "screenplay" : asType === "board" ? "board" : "plain";
   const probe = JSON.parse(file.toLowerCase().endsWith(".json") ? readFileSync(file, "utf8") : "{}") as Doc;
   const rowType = probe.content?.some((n) => n.type === "screenplayLine") ? "screenplay" : type;
   const body = JSON.stringify(bodyFrom(file, rowType));
@@ -208,9 +283,10 @@ const [command, ...args] = process.argv.slice(2);
 try {
   if (command === "get" && args[0]) await get(args[0], args[1]);
   else if (command === "put" && args.length >= 4) await put(args[0], args[1], args[2], args[3]);
-  else if (command === "new" && args.length >= 2) await create(args[0], args[1], args[2]);
+  else if (command === "new" && args.length >= 2) await create(args[0], args[1], args[2] || undefined, args[3]);
+  else if (command === "asset" && args.length >= 1) await asset(args);
   else {
-    console.error('Usage: write.ts get <id> [out.json] | put <id> <updated_at> <file> "<label>" | new "<title>" <file> [folderId]');
+    console.error('Usage: write.ts get <id> [out.json] | put <id> <updated_at> <file> "<label>" | new "<title>" <file> [folderId] [board] | asset <image>...');
     process.exitCode = 2;
   }
 } catch (e) {

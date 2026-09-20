@@ -2,7 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import { deriveTitle, isMeaningfulDoc } from "./docUtils";
 import { isMarker } from "@/lib/voice/markers";
 
-type TitleType = "screenplay" | "plain" | "voice";
+type TitleType = "screenplay" | "plain" | "voice" | "board";
 
 /**
  * Title / meaningfulness for PLAIN documents (the standard rich-text schema),

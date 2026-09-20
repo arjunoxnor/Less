@@ -6,6 +6,6 @@
     "types": ["node"],
     "plugins": []
   },
-  "include": ["./*.ts", "../../lib/export/*.ts", "../../lib/editor/*.ts", "../../types/*.ts"],
+  "include": ["./*.ts", "../../lib/export/*.ts", "../../lib/server/*.ts", "../../lib/editor/*.ts", "../../types/*.ts"],
   "exclude": ["../../**/*.test.ts", "../../**/*.test.tsx"]
 }

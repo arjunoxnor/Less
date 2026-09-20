@@ -7,12 +7,33 @@
 // is scoped to the signed-in user's Google id, so the API never returns or
 // touches another user's rows.
 
+import {
+  ASSET_ID,
+  MAX_ASSET_BYTES,
+  assetHeaders,
+  isGoogleIdentity,
+  judgeUpload,
+  newAssetId,
+} from "../../lib/server/assets";
+
 interface Env {
   DB: D1Database;
   GOOGLE_CLIENT_ID: string;
   SESSION_SECRET: string;
   /** KV namespace for durable rate-limit counters (absent in bare local dev). */
   RATE?: KVNamespaceLite;
+  /** KV namespace holding uploaded images, keyed by asset id. The rules for
+   *  what may be stored live in lib/server/assets.ts. */
+  IMAGES?: AssetStoreLite;
+}
+
+interface AssetStoreLite {
+  getWithMetadata(
+    key: string,
+    type: "arrayBuffer"
+  ): Promise<{ value: ArrayBuffer | null; metadata: { type?: string } | null }>;
+  put(key: string, value: ArrayBuffer, opts?: { metadata?: Record<string, string> }): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 // Minimal KV typing so this file stays dependency-free.
@@ -239,7 +260,10 @@ async function userFrom(request: Request, env: Env): Promise<{ id: string; email
     if (code.length < 16) return null;
     return { id: "c_" + (await sha256hex(code)).slice(0, 40) };
   }
-  // Google login: a signed 30-day session token.
+  // Google login: a signed 30-day session token. With no secret bound the HMAC
+  // key would be empty and anyone could sign a token for any account, so an
+  // unconfigured environment authenticates nobody (review 2026-08-13, A4).
+  if (!env.SESSION_SECRET) return null;
   const payload = await verifySession(raw, env.SESSION_SECRET);
   if (!payload || typeof payload.sub !== "string") return null;
   return { id: payload.sub, email: payload.email as string | undefined };
@@ -262,8 +286,20 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
       const g = await verifyGoogleIdToken(body.idToken || "", env.GOOGLE_CLIENT_ID);
       if (!g) return fail("Google sign-in could not be verified", 401);
       const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
+      if (!env.SESSION_SECRET) return fail("Server is not configured for sign-in", 500);
       const token = await signSession({ sub: g.sub, email: g.email, exp }, env.SESSION_SECRET);
       return json({ token, user: { id: g.sub, email: g.email, name: g.name } });
+    }
+
+    // Images are served by unguessable id with no login, because an <img> tag
+    // cannot send a session header. The id is the capability: 128 random bits
+    // that only ever appear inside the owner's own documents. Everything else
+    // about an image (adding, deleting) needs the owner's session, below.
+    if (method === "GET" && seg[0] === "assets" && seg.length === 2) {
+      if (!env.IMAGES || !ASSET_ID.test(seg[1])) return fail("Not found", 404);
+      const hit = await env.IMAGES.getWithMetadata(seg[1], "arrayBuffer");
+      if (!hit.value) return fail("Not found", 404);
+      return new Response(hit.value, { headers: assetHeaders(hit.metadata?.type ?? "") });
     }
 
     const user = await userFrom(request, env);
@@ -307,6 +343,49 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         .bind(uid, srcId, uid)
         .run();
       return json({ ok: true });
+    }
+
+    /* ---- assets (images in boards) ---- */
+    if (seg[0] === "assets") {
+      if (!env.IMAGES) return fail("Image storage is not configured", 503);
+      if (method === "POST" && seg.length === 1) {
+        // Refuse before reading a byte: a sync-code identity costs nothing to
+        // mint, so it gets no file storage (lib/server/assets.ts).
+        if (!isGoogleIdentity(uid)) return fail("Sign in with Google to add images", 403);
+        if (await rateLimited(env, "a:" + uid, 240, 600_000))
+          return fail("Too many uploads, try again shortly", 429);
+        const declared = Number(request.headers.get("content-length") || "0");
+        if (declared > MAX_ASSET_BYTES) return fail("Image is too large", 413);
+        const bytes = new Uint8Array(await request.arrayBuffer());
+        const used = await db
+          .prepare("SELECT COALESCE(SUM(bytes),0) AS b, COUNT(*) AS n FROM assets WHERE user_id=?")
+          .bind(uid)
+          .first<{ b: number; n: number }>();
+        const verdict = judgeUpload({
+          userId: uid,
+          bytes,
+          usedBytes: used?.b ?? 0,
+          usedCount: used?.n ?? 0,
+        });
+        if (!verdict.ok) return fail(verdict.error, verdict.status);
+        const id = newAssetId();
+        await env.IMAGES.put(id, bytes.buffer as ArrayBuffer, { metadata: { type: verdict.type } });
+        await db
+          .prepare("INSERT INTO assets (id,user_id,bytes,content_type,created_at) VALUES (?,?,?,?,?)")
+          .bind(id, uid, bytes.length, verdict.type, new Date().toISOString())
+          .run();
+        return json({ id, url: `/api/assets/${id}`, bytes: bytes.length, type: verdict.type });
+      }
+      if (method === "DELETE" && seg.length === 2 && ASSET_ID.test(seg[1])) {
+        const row = await db
+          .prepare("SELECT id FROM assets WHERE user_id=? AND id=?")
+          .bind(uid, seg[1])
+          .first();
+        if (!row) return fail("Not found", 404);
+        await env.IMAGES.delete(seg[1]);
+        await db.prepare("DELETE FROM assets WHERE user_id=? AND id=?").bind(uid, seg[1]).run();
+        return json({ ok: true });
+      }
     }
 
     /* ---- folders ---- */

@@ -1123,6 +1123,7 @@ export function ProjectsHome({
     { label: "New script", onSelect: () => createAndOpen("screenplay", "Untitled screenplay") },
     { label: "New document", onSelect: () => createAndOpen("plain", "") },
     { label: "New voice script", onSelect: () => createAndOpen("voice", "") },
+    { label: "New board", onSelect: () => createAndOpen("board", "") },
     { kind: "divider" },
     { label: "New folder", onSelect: newSection },
     {
@@ -1143,6 +1144,7 @@ export function ProjectsHome({
       label: "New voice script here",
       onSelect: () => createIn("voice", "", f.id),
     },
+    { label: "New board here", onSelect: () => createIn("board", "", f.id) },
     { kind: "divider" },
     { label: "Rename", onSelect: () => setRenamingFilm(f.id) },
     { label: "Color", onSelect: () => setColorTarget(f.id) },
@@ -1163,6 +1165,7 @@ export function ProjectsHome({
       label: "New voice script here",
       onSelect: () => createIn("voice", "", f.id),
     },
+    { label: "New board here", onSelect: () => createIn("board", "", f.id) },
     { label: "Rename", onSelect: () => setRenamingSection(f.id) },
     { label: "Move to", onSelect: () => setMoveTarget({ kind: "folder", folder: f }) },
     { kind: "divider" },
@@ -1305,7 +1308,9 @@ export function ProjectsHome({
                 ? "Draft title"
                 : p.type === "voice"
                   ? "Voice note title"
-                  : "Document title"
+                  : p.type === "board"
+                    ? "Board title"
+                    : "Document title"
             }
             onCommit={(name) => {
               if (name && name !== p.title) onRename(p.id, name);
@@ -1324,6 +1329,7 @@ export function ProjectsHome({
           {/* A voice note shares the document glyph, so the word is what tells
               the writer this row talks to the Mac at home. */}
           {p.type === "voice" && <span>Voice</span>}
+          {p.type === "board" && <span>Board</span>}
           {p.type === "screenplay" && p.pageCount != null && (
             <span>{p.pageCount} pp</span>
           )}

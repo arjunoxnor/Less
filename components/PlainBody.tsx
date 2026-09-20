@@ -44,6 +44,9 @@ import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { modKeyLabel } from "@/lib/platform";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { PlainToolbar } from "./PlainToolbar";
+import { BoardTools } from "./BoardTools";
+import { insertImages, type PlacedImage } from "@/lib/editor/boardNodes";
+import { imageFilesFrom, uploadImage } from "@/lib/cloud/assets";
 import { VoiceStrip } from "./VoiceStrip";
 import { AuthModal } from "./AuthModal";
 import { DocsPanel } from "./DocsPanel";
@@ -92,6 +95,8 @@ export function PlainBody({
     () => loadProjectDoc(projectId) ?? EMPTY_PLAIN_DOC,
     [projectId]
   );
+  // A board is the same document on a wide, unpaginated page, with images.
+  const isBoard = type === "board";
 
   const [words, setWords] = useState(0);
   const [chars, setChars] = useState(0);
@@ -142,18 +147,66 @@ export function PlainBody({
       ...buildPlainExtensions(
         type === "voice"
           ? { placeholder: "Talk, or type. Then press Process." }
-          : undefined
+          : isBoard
+            ? { board: true, placeholder: "Drop images here, or start typing." }
+            : undefined
       ),
-      DocPagination.configure({ onPages: setPages }),
+      // A board has no sheets: pictures do not break across pages.
+      ...(isBoard ? [] : [DocPagination.configure({ onPages: setPages })]),
     ],
     []
   );
+
+  // Upload dropped, pasted, or picked images, then place them. Read through a
+  // ref because the editor's props are fixed at creation and `user` is not.
+  const addImages = async (files: File[], pos?: number) => {
+    const ed = editorRef.current;
+    if (!ed || files.length === 0) return;
+    if (!user || sessionExpired) {
+      showToast("Sign in to add images.");
+      return;
+    }
+    showToast(files.length === 1 ? "Adding image" : `Adding ${files.length} images`);
+    const placed: PlacedImage[] = [];
+    for (const file of files) {
+      try {
+        const up = await uploadImage(file);
+        placed.push({ src: up.url, width: up.width, height: up.height });
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not add the image.", {
+          variant: "danger",
+        });
+      }
+    }
+    if (placed.length) insertImages(ed, placed, pos);
+  };
+  const addImagesRef = useRef(addImages);
+  addImagesRef.current = addImages;
 
   const editor = useEditor({
     immediatelyRender: false,
     extensions,
     content: initialContent,
-    editorProps: { attributes: { class: "pl-prose", spellcheck: "true" } },
+    editorProps: {
+      attributes: { class: "pl-prose", spellcheck: "true" },
+      handleDrop: (view, event, _slice, moved) => {
+        if (!isBoard || moved) return false; // an internal drag is ProseMirror's
+        const files = imageFilesFrom(event.dataTransfer);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        void addImagesRef.current(files, at);
+        return true;
+      },
+      handlePaste: (_view, event) => {
+        if (!isBoard) return false;
+        const files = imageFilesFrom(event.clipboardData);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void addImagesRef.current(files);
+        return true;
+      },
+    },
     onCreate: ({ editor }) => {
       editorRef.current = editor;
       measure(editor);
@@ -172,7 +225,7 @@ export function PlainBody({
   // The status bar reads the same decoration set that places the text, so its
   // current page cannot disagree with the visible sheets.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || isBoard) return;
     const sync = () => {
       setCaretPage(docPageAtPos(editor.state, editor.state.selection.head));
     };
@@ -186,9 +239,9 @@ export function PlainBody({
   // Ancestor style changes do not always resize a short prose root. This
   // explicit request covers every non-content reflow named by the page spec.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || isBoard) return;
     requestDocPagination(editor);
-  }, [editor, prefs.docFont, prefs.docFontSize, prefs.focusMode, activePanel]);
+  }, [editor, isBoard, prefs.docFont, prefs.docFontSize, prefs.focusMode, activePanel]);
 
   // Live title via a ref so an explicit document title is never overwritten by
   // its first line on save.
@@ -416,6 +469,12 @@ export function PlainBody({
               />
             ) : null}
             <PlainToolbar editor={editor} />
+            {isBoard ? (
+              <BoardTools
+                editor={editor}
+                onAddImages={(files) => void addImagesRef.current(files)}
+              />
+            ) : null}
             <div className="toolbar-spacer" />
             <div className="toolbar-group">
               <select
@@ -459,7 +518,9 @@ export function PlainBody({
         statusBar={
           <div className="status-bar">
             <span className="status-spacer" />
-            <span className="status-item">Page {caretPage} of {pages}</span>
+            {isBoard ? null : (
+              <span className="status-item">Page {caretPage} of {pages}</span>
+            )}
             <span className="status-item">{words.toLocaleString()} words</span>
             <span className="status-item">{chars.toLocaleString()} characters</span>
             <span
@@ -481,15 +542,21 @@ export function PlainBody({
           className="page-scroll"
           style={{ ["--doc-font-size" as string]: `${prefs.docFontSize ?? 16}px` }}
         >
-          <div className="page-wrap">
-            <div
-              className="page-host page-host-pl"
-              style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
-            >
-              <PageBackdrop pages={pages} />
-              <EditorContent editor={editor} className="pl-doc" />
+          {isBoard ? (
+            <div className="board-wrap">
+              <EditorContent editor={editor} className="pl-doc brd-doc" />
             </div>
-          </div>
+          ) : (
+            <div className="page-wrap">
+              <div
+                className="page-host page-host-pl"
+                style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
+              >
+                <PageBackdrop pages={pages} />
+                <EditorContent editor={editor} className="pl-doc" />
+              </div>
+            </div>
+          )}
         </div>
       </EditorShell>
 

@@ -145,9 +145,37 @@ function markdownBlock(node: JSONContent): string {
       return "---";
     case "paragraph":
       return escapeMarkdownBlockStarts(inlineMarkdown(node));
+    // Board blocks (lib/editor/boardNodes.ts). An image leaves as a link, which
+    // is all it ever was inside the document.
+    case "figure": {
+      const src = exportedImageUrl(node.attrs?.src);
+      const caption = inlineMarkdown(node);
+      const alt = inlineText(node).replace(/[\[\]]/g, "");
+      return [src ? `![${alt}](${src})` : "", caption].filter(Boolean).join("\n\n");
+    }
+    case "board":
+      return (node.content ?? []).map(markdownBlock).filter(Boolean).join("\n\n");
+    case "palette":
+      return paletteLines(node).map((line) => `- ${line}`).join("\n");
     default:
       return inlineMarkdown(node);
   }
+}
+
+/** An uploaded image is stored as a site-relative path; outside the app it
+ *  needs the origin it was uploaded to. */
+function exportedImageUrl(value: unknown): string {
+  if (typeof value !== "string" || !value) return "";
+  if (!value.startsWith("/")) return value;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return origin + value;
+}
+
+function paletteLines(node: JSONContent): string[] {
+  const colors = Array.isArray(node.attrs?.colors) ? node.attrs.colors : [];
+  return colors
+    .filter((c: { hex?: unknown }) => typeof c?.hex === "string")
+    .map((c: { hex: string; name?: string }) => (c.name ? `${c.hex} ${c.name}` : c.hex));
 }
 
 function textListItem(node: JSONContent, marker: string, task: boolean): string {
@@ -192,6 +220,14 @@ function textBlock(node: JSONContent): string {
       return (node.content ?? []).map(textBlock).join("\n\n");
     case "horizontalRule":
       return "---";
+    case "figure": {
+      const src = exportedImageUrl(node.attrs?.src);
+      return [inlineText(node), src ? `[image: ${src}]` : ""].filter(Boolean).join("\n");
+    }
+    case "board":
+      return (node.content ?? []).map(textBlock).filter(Boolean).join("\n\n");
+    case "palette":
+      return paletteLines(node).join("\n");
     default:
       return inlineText(node);
   }

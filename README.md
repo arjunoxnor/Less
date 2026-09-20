@@ -56,6 +56,7 @@ Function and D1 binding are present.
 | Import / export | `lib/export/*` (fountain, fdx, pdf, docImport, flatten, titlePage) |
 | Local storage | `lib/storage/projects.ts`, `lib/storage/localStore.ts`, `lib/storage/folders.ts` |
 | Cloud sync | `lib/storage/useProjects.ts` (dashboard reconcile), `lib/storage/useCloudSync.ts` (open doc), `lib/storage/lww.ts` and `lib/storage/syncBaseline.ts` (tested decision logic: who wins between an open doc and a cloud copy written elsewhere), `lib/cloud/*` |
+| Boards (images) | `lib/editor/boardNodes.ts` (image with caption, image grid, palette; board documents only), `components/BoardTools.tsx`, `lib/cloud/assets.ts` (shrink and upload), `lib/server/assets.ts` (the upload rules, tested), `migrations/d1/0005_assets.sql`, the `IMAGES` KV namespace |
 | Outside edits | `tools/write/write.ts` (`npm run write`): how a Claude Code session reads and replaces a document body safely (guarded on the timestamp it read, both versions kept in History) |
 | API | `functions/api/[[path]].ts`, `migrations/d1/*` |
 

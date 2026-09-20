@@ -15,3 +15,11 @@ database_id = "ec14ff01-64ae-48e0-b176-0ffa0bf596e9"
 [[kv_namespaces]]
 binding = "RATE"
 id = "cae29f4f420b4947bd26888a5ed857d8"
+
+# Uploaded images (boards: references, storyboards, palettes), keyed by an
+# unguessable asset id. The rules for what may be stored are in
+# lib/server/assets.ts. KV rather than R2 because R2 is not enabled on this
+# account; the API only needs get/put/delete, so the store can be swapped later.
+[[kv_namespaces]]
+binding = "IMAGES"
+id = "56f5a9c08dac40e591e264bf379c983c"

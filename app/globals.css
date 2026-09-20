@@ -4016,3 +4016,152 @@ body {
   color: var(--danger, var(--fg));
   max-width: 46ch;
 }
+
+/* --- Boards ------------------------------------------------------------------
+   A board is a plain document for looking at rather than reading: references,
+   storyboards, palettes. One wide sheet, no pagination (pictures do not break
+   across pages), and the same ink-on-paper restraint as everything else. */
+.board-wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) 160px;
+}
+.brd-doc .pl-prose {
+  width: 100%;
+  min-height: 70vh;
+  padding: 56px 64px 96px;
+  background: var(--page-bg);
+  box-shadow: var(--shadow);
+  line-height: 1.55;
+}
+.brd-doc .pl-prose > * + * {
+  margin-top: 0.7em;
+}
+.brd-doc .pl-prose > h1 + *,
+.brd-doc .pl-prose > h2 + *,
+.brd-doc .pl-prose > h3 + * {
+  margin-top: 0.45em;
+}
+.brd-doc .pl-prose > * + h2 {
+  margin-top: 2em;
+}
+.brd-doc .pl-prose > * + h3 {
+  margin-top: 1.4em;
+}
+.brd-figure {
+  margin: 0;
+  min-width: 0;
+}
+.brd-figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: var(--surface-2);
+}
+.brd-grid .brd-figure img {
+  width: 100%;
+}
+.brd-caption {
+  margin-top: 6px;
+  min-height: 1.4em;
+  font-size: 0.8em;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.brd-caption:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: "Caption";
+  float: left;
+  height: 0;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.brd-empty {
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--hairline);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78em;
+  user-select: none;
+}
+.brd-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--brd-cols, 3), minmax(0, 1fr));
+  gap: var(--space-5) var(--space-4);
+  align-items: start;
+}
+.brd-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.brd-swatch {
+  width: 132px;
+}
+.brd-chip {
+  display: block;
+  height: 84px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.brd-swatch-name {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8em;
+  line-height: 1.3;
+}
+.brd-swatch-hex {
+  display: block;
+  font-size: 0.72em;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.brd-figure.ProseMirror-selectednode,
+.brd-palette.ProseMirror-selectednode,
+.brd-grid.ProseMirror-selectednode {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+.brd-tools {
+  align-items: center;
+}
+.brd-cols {
+  min-width: 56px;
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.brd-palette-input {
+  width: 100%;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+.brd-palette-preview {
+  margin-top: var(--space-3);
+  gap: var(--space-2);
+}
+.brd-palette-preview .brd-swatch {
+  width: 72px;
+}
+.brd-palette-preview .brd-chip {
+  height: 40px;
+}
+@media (max-width: 760px) {
+  .board-wrap {
+    padding: var(--space-3) 0 120px;
+  }
+  .brd-doc .pl-prose {
+    padding: 28px 18px 72px;
+  }
+  .brd-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

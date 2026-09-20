@@ -19,7 +19,10 @@ import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
 /** "voice" is a plain document the writer dictates into and hands to the
     structuring worker. It shares the plain editor and schema; the separate type
     exists so the worker can only ever touch these rows and never a real script. */
-export type ProjectType = "screenplay" | "plain" | "voice";
+/** "board" is a plain document for looking at rather than reading: the same
+    schema plus images, image grids, and palettes (lib/editor/boardNodes.ts), on
+    a wide page with no pagination. References, storyboards, style frames. */
+export type ProjectType = "screenplay" | "plain" | "voice" | "board";
 export type ProjectStatus = "not_started" | "writing" | "done";
 
 /**
@@ -30,7 +33,7 @@ export type ProjectStatus = "not_started" | "writing" | "done";
  * treated as a screenplay.
  */
 export function usesPlainSchema(type: ProjectType): boolean {
-  return type === "plain" || type === "voice";
+  return type === "plain" || type === "voice" || type === "board";
 }
 
 /** Lightweight index entry: what the dashboard renders. */
@@ -225,7 +228,7 @@ function sanitizeMeta(value: unknown): ProjectMeta | null {
   const stored = (): StoredDoc | null =>
     storedCache === undefined ? (storedCache = readStoredDoc(id)) : storedCache;
   const type =
-    raw.type === "plain" || raw.type === "screenplay" || raw.type === "voice"
+    raw.type === "plain" || raw.type === "screenplay" || raw.type === "voice" || raw.type === "board"
       ? raw.type
       : inferType(stored()?.content);
   const ts = nowIso();
