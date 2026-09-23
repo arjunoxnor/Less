@@ -57,9 +57,16 @@ export function VoiceStrip({
     (text: string) => {
       if (!editor) return;
       const end = editor.state.doc.content.size;
+      // The caret stays where the writer left it: moving it to the end on
+      // every dictated phrase scrolled the page away from what they were
+      // reading.
       editor
         .chain()
-        .insertContentAt(end, { type: "paragraph", content: [{ type: "text", text }] })
+        .insertContentAt(
+          end,
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { updateSelection: false }
+        )
         .run();
     },
     [editor]
@@ -76,10 +83,14 @@ export function VoiceStrip({
     const end = editor.state.doc.content.size;
     editor
       .chain()
-      .insertContentAt(end, {
-        type: "paragraph",
-        content: [{ type: "text", text: next[next.length - 1] }],
-      })
+      .insertContentAt(
+        end,
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: next[next.length - 1] }],
+        },
+        { updateSelection: false }
+      )
       .run();
     onFlush();
   }, [editor, onFlush]);

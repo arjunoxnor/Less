@@ -2,7 +2,14 @@ import { Extension, type Editor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { PAGE_H, PAGE_W, STRIDE } from "./pagination";
+import {
+  PAGE_H,
+  PAGE_W,
+  STRIDE,
+  blockDoms,
+  captureViewAnchor,
+  restoreViewAnchor,
+} from "./pagination";
 
 /** The page margin derives from the screenplay sheet width, which is 8.5in. */
 export const DOC_PAGE_MARGIN = PAGE_W / 8.5;
@@ -424,8 +431,12 @@ function measureBlocks(view: EditorView): {
     });
   };
 
+  // One walk pairs each top-level node with its element (nodeDOM scans from
+  // the top of the document on every call).
+  const doms = blockDoms(view);
+  let childIndex = 0;
   view.state.doc.forEach((node, offset) => {
-    const dom = view.nodeDOM(offset);
+    const dom = doms[childIndex++];
     if (!(dom instanceof HTMLElement)) return;
     if (!isList(node)) {
       push(node, offset, dom, blockKind(node), false);
@@ -600,6 +611,64 @@ export function requestDocPagination(editor: Editor): void {
   editor.view.dispatch(editor.state.tr.setMeta(key, { request: true } satisfies PaginationMeta));
 }
 
+/** A pass slower than this runs a beat after typing instead of in the same
+    frame (it clears and re-lays every spacer, so a long document costs more). */
+const SAME_FRAME_BUDGET_MS = 12;
+
+/** What the last pass saw of each top-level block: its height, and whether a
+    page gap sits inside it (a split paragraph, or a list broken between items). */
+interface DocGeometry {
+  heights: WeakMap<Element, number>;
+  hosting: WeakSet<Element>;
+}
+
+function docGeometry(view: EditorView): DocGeometry {
+  const heights = new WeakMap<Element, number>();
+  const hosting = new WeakSet<Element>();
+  for (const el of blockDoms(view)) {
+    if (!el) continue;
+    heights.set(el, el.offsetHeight);
+    if (el.querySelector(".doc-page-gap")) hosting.add(el);
+  }
+  return { heights, hosting };
+}
+
+/**
+ * True when an edit cannot have moved a page break: the same top-level blocks
+ * exist with the same kinds, every page gap survived, and each edited block is
+ * the same element at the same height with no gap inside it. Typing inside a
+ * line that does not wrap then costs one height read instead of a pass that
+ * clears and re-lays every page of the document.
+ */
+function editKeepsDocPages(view: EditorView, prev: EditorState, geo: DocGeometry): boolean {
+  const a = prev.doc;
+  const b = view.state.doc;
+  if (a.childCount !== b.childCount) return false;
+  const had = key.getState(prev)?.decos;
+  const has = key.getState(view.state)?.decos;
+  if (!had || !has || had.find().length !== has.find().length) return false;
+  const start = a.content.findDiffStart(b.content);
+  if (start == null) return true;
+  const end = a.content.findDiffEnd(b.content);
+  if (!end) return false;
+  const stop = Math.max(end.b, start + 1);
+  let pos = 0;
+  for (let i = 0; i < b.childCount && pos < stop; i++) {
+    const node = b.child(i);
+    const nodeEnd = pos + node.nodeSize;
+    if (nodeEnd > start) {
+      if (!a.child(i).hasMarkup(node.type, node.attrs, node.marks)) return false;
+      if (isList(node)) return false; // item structure lives inside
+      const el = view.nodeDOM(pos);
+      if (!(el instanceof HTMLElement) || geo.hosting.has(el)) return false;
+      const height = geo.heights.get(el);
+      if (height == null || Math.abs(el.offsetHeight - height) > 0.5) return false;
+    }
+    pos = nodeEnd;
+  }
+  return true;
+}
+
 export interface DocPaginationOptions {
   onPages?: (pages: number) => void;
 }
@@ -618,6 +687,12 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
     let destroyed = false;
     let passes = 0;
     let lastPages = -1;
+    let microQueued = false;
+    // Running cost of a pass, to decide between same-frame and deferred.
+    let costMs = 0;
+    // What the last pass measured (see editKeepsDocPages).
+    let geometry: DocGeometry | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
     return [
       new Plugin<DocPaginationState>({
@@ -671,8 +746,12 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
             // one forced layout and makes the geometry exact by construction.
             // Both dispatches land in the same task, so nothing repaints
             // between them and the spacers never visibly flicker.
+            const started = performance.now();
             const before = stateSignature(view.state);
             const current = key.getState(view.state);
+            // Keep what the writer is looking at (the caret, or the top line)
+            // on the same screen row across both dispatches below.
+            const anchor = captureViewAnchor(view);
             if (current && current.decos !== DecorationSet.empty) {
               view.dispatch(
                 view.state.tr.setMeta(key, {
@@ -686,10 +765,14 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
                 result: { decos: result.decos, pages: result.pages },
               } satisfies PaginationMeta)
             );
+            restoreViewAnchor(view, anchor);
+            geometry = docGeometry(view);
+            const elapsed = performance.now() - started;
+            costMs = costMs ? costMs * 0.7 + elapsed * 0.3 : elapsed;
             if (result.sig !== before) {
               if (passes < 4) {
                 passes++;
-                schedule(true);
+                soon();
               }
             } else {
               passes = 0;
@@ -708,6 +791,32 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
             const elapsed = now - firstQueuedAt;
             const delay = immediate ? 0 : Math.max(0, Math.min(90, 320 - elapsed));
             timer = setTimeout(run, delay);
+          };
+
+          /**
+           * Same frame when affordable: a microtask runs after ProseMirror has
+           * written the edit to the DOM and before the browser paints, so the
+           * writer never sees text spill past a page and snap back. A pass
+           * too slow for every keystroke waits for the debounced timer.
+           */
+          const soon = () => {
+            if (destroyed) return;
+            if (costMs > SAME_FRAME_BUDGET_MS || view.composing) {
+              schedule();
+              return;
+            }
+            if (microQueued) return;
+            microQueued = true;
+            queueMicrotask(() => {
+              microQueued = false;
+              if (destroyed) return;
+              if (timer) {
+                clearTimeout(timer);
+                timer = null;
+                firstQueuedAt = 0;
+              }
+              run();
+            });
           };
 
           schedule(true);
@@ -736,14 +845,32 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
             update(nextView, previousState) {
               const previous = key.getState(previousState);
               const next = key.getState(nextView.state);
-              if (nextView.state.doc !== previousState.doc || next?.reflow !== previous?.reflow) {
-                passes = 0;
-                schedule();
+              const docChanged = nextView.state.doc !== previousState.doc;
+              const reflow = next?.reflow !== previous?.reflow;
+              if (!docChanged && !reflow) return;
+              passes = 0;
+              if (
+                !reflow &&
+                !microQueued &&
+                timer == null &&
+                geometry &&
+                !nextView.composing &&
+                editKeepsDocPages(nextView, previousState, geometry)
+              ) {
+                // Nothing moved; a full pass still runs once typing pauses.
+                if (settleTimer) clearTimeout(settleTimer);
+                settleTimer = setTimeout(() => {
+                  settleTimer = null;
+                  schedule(true);
+                }, 400);
+                return;
               }
+              soon();
             },
             destroy() {
               destroyed = true;
               if (timer) clearTimeout(timer);
+              if (settleTimer) clearTimeout(settleTimer);
               observer?.disconnect();
               view.dom.ownerDocument.defaultView?.removeEventListener("resize", onResize);
             },

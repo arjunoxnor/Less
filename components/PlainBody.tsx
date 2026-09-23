@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
 import type { CloudUser as User } from "@/lib/cloud/client";
@@ -12,6 +13,7 @@ import {
   requestDocPagination,
 } from "@/lib/editor/docPagination";
 import { PAGE_H, STRIDE } from "@/lib/editor/pagination";
+import { TYPING_SCROLL_MARGIN } from "@/lib/editor/scrollComfort";
 import { derivePlainTitle } from "@/lib/editor/plainDocUtils";
 import { debounce, type Prefs } from "@/lib/storage/localStore";
 import {
@@ -120,11 +122,13 @@ export function PlainBody({
   // updatedAt, and the home orders by that clock: reading must not reorder).
   const unsavedRef = useRef(false);
 
+  // Takes a getter: the document is serialized once, when the save runs, not
+  // on every keystroke (see ScreenplayBody).
   const debouncedSave = useMemo(
     () =>
       debounce(
-        (doc: JSONContent) => {
-          const ok = saveProjectDoc(projectId, doc);
+        (read: () => JSONContent) => {
+          const ok = saveProjectDoc(projectId, read());
           setSaveError(!ok);
           if (ok) {
             unsavedRef.current = false;
@@ -138,11 +142,16 @@ export function PlainBody({
   );
 
   const measure = useCallback((ed: Editor) => {
+    if (ed.isDestroyed) return;
     const text = ed.getText({ blockSeparator: "\n" });
     const trimmed = text.trim();
     setWords(trimmed ? trimmed.split(/\s+/).length : 0);
     setChars(text.length);
   }, []);
+  // Counts trail typing by a moment instead of re-walking the document and
+  // re-rendering the editor on every keystroke.
+  const measureSoon = useMemo(() => debounce((ed: Editor) => measure(ed), 400), [measure]);
+  useEffect(() => () => measureSoon.cancel(), [measureSoon]);
 
   const extensions = useMemo(
     () => [
@@ -154,7 +163,11 @@ export function PlainBody({
             : undefined
       ),
       // A board has no sheets: pictures do not break across pages.
-      ...(isBoard ? [] : [DocPagination.configure({ onPages: setPages })]),
+      // flushSync: the sheets behind the text change in the same frame as the
+      // pass that moved the text (see ScreenplayBody).
+      ...(isBoard
+        ? []
+        : [DocPagination.configure({ onPages: (n: number) => flushSync(() => setPages(n)) })]),
     ],
     []
   );
@@ -191,6 +204,8 @@ export function PlainBody({
     content: initialContent,
     editorProps: {
       attributes: { class: "pl-prose", spellcheck: "true" },
+      scrollMargin: TYPING_SCROLL_MARGIN,
+      scrollThreshold: TYPING_SCROLL_MARGIN,
       handleDrop: (view, event, _slice, moved) => {
         if (!isBoard || moved) return false; // an internal drag is ProseMirror's
         const files = imageFilesFrom(event.dataTransfer);
@@ -219,8 +234,8 @@ export function PlainBody({
     onUpdate: ({ editor }) => {
       unsavedRef.current = true;
       setSaved(false);
-      debouncedSave(editor.getJSON());
-      measure(editor);
+      debouncedSave(() => editor.getJSON());
+      measureSoon(editor);
     },
   });
 

@@ -34,6 +34,7 @@ import {
   type ProjectStatus,
   type ProjectType,
 } from "./projects";
+import { replaceDocInPlace } from "@/lib/editor/replaceDoc";
 
 export type SyncStatus =
   | "local" // signed out, so local only
@@ -136,6 +137,11 @@ export function useCloudSync(
   const ownTitlePageDirtyRef = useRef(opts.isTitlePageDirty());
   const mountedRef = useRef(true);
   const pushInFlightRef = useRef<Promise<void> | null>(null);
+  // Bumped whenever a push starts. The remote watch reads it before and after
+  // its network wait: a push that started and finished inside that wait left
+  // the watch holding a cloud row older than this tab's own save, which it
+  // would otherwise have "pulled" over the writer's newer text.
+  const pushGenRef = useRef(0);
   const pushAgainRef = useRef(false);
   const reconcilingRef = useRef(false);
   const watchBusyRef = useRef(false);
@@ -152,20 +158,13 @@ export function useCloudSync(
   // Load content into the editor WITHOUT firing 'update', mirror it to local
   // storage, and signal the UI to recompute.
   const pullInto = useCallback(
-    (content: JSONContent, tp?: TitlePage | null, keep?: { selection?: boolean }) => {
+    (content: JSONContent, tp?: TitlePage | null) => {
       if (!editor) return;
-      // A live update lands under a writer who is looking at the page: put the
-      // caret back where it was (clamped to the new body) instead of at the top.
-      const caret = keep?.selection ? editor.state?.selection?.from : undefined;
-      editor.commands.setContent(content, { emitUpdate: false });
-      if (typeof caret === "number") {
-        try {
-          const size = editor.state.doc.content.size;
-          editor.commands.setTextSelection(Math.max(0, Math.min(caret, size)));
-        } catch {
-          // A caret that cannot be restored is not worth failing the update for.
-        }
-      }
+      // Only the stretch that differs is replaced, so a writer who is looking
+      // at the page keeps their caret on the same words and the view does not
+      // move. A whole-document swap sent the caret to the end of the script
+      // and wiped every page break until the pages were measured again.
+      replaceDocInPlace(editor, content);
       const docSaved = optsRef.current.saveLocalDoc(content) !== false;
       let titlePageSaved = true;
       ownDirtyRef.current = false;
@@ -279,7 +278,7 @@ export function useCloudSync(
       } else if (arrivedLive && !isBlankDoc(live)) {
         addLocalVersion(o.projectId, live, localTp, REMOTE_UPDATE_LABEL, { force: true });
       }
-      pullInto(cloud.content, cloudTp, { selection: arrivedLive });
+      pullInto(cloud.content, cloudTp);
       o.setLastSavedAt(cloud.updated_at);
       o.setDirty(false);
       o.setTitlePageDirty(false);
@@ -479,6 +478,7 @@ export function useCloudSync(
         await pushOnce();
       } while (pushAgainRef.current && mountedRef.current);
     })();
+    pushGenRef.current++;
     pushInFlightRef.current = run;
     try {
       await run;
@@ -720,10 +720,20 @@ export function useCloudSync(
       if (isSessionExpired()) return;
       if (localProjectIdFor(o.projectId) !== o.projectId) return;
       watchBusyRef.current = true;
+      const pushGen = pushGenRef.current;
       try {
         const cloud = await cloudRowIfMoved();
-        // A push that started while we were asking runs its own check.
-        if (!cloud || stopped || !mountedRef.current || pushInFlightRef.current) return;
+        // A push that started while we were asking runs its own check, and one
+        // that already finished made this row stale: skip until the next look.
+        if (
+          !cloud ||
+          stopped ||
+          !mountedRef.current ||
+          pushInFlightRef.current ||
+          pushGenRef.current !== pushGen
+        ) {
+          return;
+        }
         const decision = settleWithCloud(cloud, {
           origin: "watch",
           legacyDirty:
@@ -770,7 +780,9 @@ export function useCloudSync(
       if (!fresh) return;
       // Write straight into the editor (no re-save, so no broadcast echo); the
       // localStorage copy is already the sibling's, which is what we're adopting.
-      editor.commands.setContent(fresh, { emitUpdate: false });
+      // Only the changed stretch is replaced, so the caret and the view stay
+      // put instead of jumping to the end of the script.
+      replaceDocInPlace(editor, fresh);
       setPulledSaveOk(true);
       setPulledTick((t) => t + 1);
     });

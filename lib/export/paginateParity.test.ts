@@ -20,6 +20,10 @@
  * (superaudit/2026-07-20-f16-acceptance.md): a 60-line monologue paginates to
  * the same page count on screen and in the exported PDF.
  *
+ * The synthetic text is made of sentences (every row of dialogue and action
+ * ends one), because the engines only break a speech or a paragraph at the
+ * end of a sentence; text with no sentence end never breaks, it moves whole.
+ *
  * Known v1 divergence, deliberate: dual-dialogue clusters are exempt from
  * splitting and place sequentially on screen (the stacked layout), while the
  * export lays the pair side by side. The dual corpus therefore keeps its
@@ -31,13 +35,27 @@ import { docToLines } from "./flatten";
 import { paginate } from "./paginate";
 import { LAYOUT, LINES_PER_PAGE, sanitize, wrap } from "./layout";
 import { cueBaseName } from "@/lib/editor/outline";
-import { planPages, type PlanBlock } from "@/lib/editor/pagination";
+import { planPages, textSplitModel, type PlanBlock } from "@/lib/editor/pagination";
 import type { ScriptLine } from "@/types/screenplay";
 import type { JSONContent } from "@tiptap/core";
 
-/** Exactly k dialogue rows (35 chars per row) / k action rows (60 chars). */
-const dlg = (k: number) => "x".repeat(35 * k);
-const act = (k: number) => "y".repeat(60 * k);
+/** Exactly k rows of text in a `cols`-wide column, every row one sentence
+    (so every line end is a place the engines may break). */
+function sentences(k: number, cols: number): string {
+  const rows: string[] = [];
+  for (let r = 0; r < k; r++) {
+    const word = "w".repeat(4 + (r % 5));
+    let row = "";
+    while (row.length + word.length + 2 <= cols) row += (row ? " " : "") + word;
+    rows.push(row + ".");
+  }
+  return rows.join(" ");
+}
+/** Exactly k dialogue rows (35 chars) / k action rows (60 chars). */
+const dlg = (k: number) => sentences(k, 35);
+const act = (k: number) => sentences(k, 60);
+/** k rows with no sentence end at all: the engines may only move it whole. */
+const unbroken = (k: number) => "x".repeat(35 * k);
 
 /** Reduce ScriptLines to the planner's metrics exactly as compute() does in
     the browser (rows from the export's own wrap, blanks from LAYOUT, the cue
@@ -46,7 +64,8 @@ function planBlocksFrom(lines: ScriptLine[]): PlanBlock[] {
   let currentCue: string | null = null;
   return lines.map((l) => {
     const el = LAYOUT[l.element] ?? LAYOUT.action;
-    const rows = wrap(sanitize(l.text), el.maxChars).length;
+    const text = sanitize(l.text);
+    const rows = wrap(text, el.maxChars, el.hang ?? 0).length;
     if (l.element === "character") {
       currentCue = cueBaseName(l.text).toUpperCase() || null;
     } else if (
@@ -62,6 +81,10 @@ function planBlocksFrom(lines: ScriptLine[]): PlanBlock[] {
       spaceBefore: el.spaceBefore,
       dual: l.dual === true,
       cue: l.element === "dialogue" && currentCue != null,
+      model:
+        l.element === "dialogue" || l.element === "action"
+          ? textSplitModel(text, el.maxChars, el.hang ?? 0)
+          : null,
     };
   });
 }
@@ -163,14 +186,14 @@ const corpus: {
   startLines: (number | undefined)[];
 }[] = [
   { name: "monologue-heavy", nodes: monologue, pageCount: 2, startLines: [0, 3] },
-  { name: "slug-heavy", nodes: slugs, pageCount: 4, startLines: [0, 18, 36, 54] },
+  { name: "slug-heavy", nodes: slugs, pageCount: 3, startLines: [0, 22, 44] },
   {
     name: "parenthetical chains",
     nodes: parens,
     pageCount: 6,
-    startLines: [0, 25, 50, 75, 100, 125],
+    startLines: [0, 27, 55, 80, 107, 135],
   },
-  { name: "dual clusters", nodes: dual, pageCount: 3, startLines: [0, 16, 32] },
+  { name: "dual clusters", nodes: dual, pageCount: 3, startLines: [0, 18, 36] },
   { name: "action-paragraph-heavy", nodes: actions, pageCount: 2, startLines: [0, 3] },
   { name: "mixed", nodes: mixed, pageCount: 2, startLines: [0, 11] },
 ];
@@ -213,14 +236,11 @@ describe("screen planner parity with the export engine", () => {
         nodes.push(line("action", act(2)));
         const lines = docToLines(docOf(...nodes));
         const { plan } = assertParity(lines);
-        // Split legality: >=2 rows on each side of every dialogue split
-        // (rows above accumulate across pages for a multi-page speech).
+        // Split legality: >=2 rows on each side of every dialogue split.
         const dlgIndex = filler > 0 ? 3 : 2;
-        let prevRow = 0;
         for (const b of plan.breaks.filter((x) => x.index === dlgIndex && x.row > 0)) {
-          expect(b.row - prevRow).toBeGreaterThanOrEqual(2);
-          expect(k - b.row).toBeGreaterThanOrEqual(2);
-          prevRow = b.row;
+          expect(b.row).toBeGreaterThanOrEqual(2);
+          expect(b.rowsAfter).toBeGreaterThanOrEqual(2);
         }
       }
     }
@@ -286,5 +306,90 @@ describe("screen planner parity with the export engine", () => {
     for (const b of plan.breaks.filter((x) => x.row > 0)) {
       expect(lines[b.index].dual).not.toBe(true);
     }
+  });
+});
+
+describe("the Final Draft / Arc Studio break rules", () => {
+  it("never breaks a speech in the middle of a sentence", () => {
+    // A ten-row speech with no sentence end cannot break, and only eight
+    // rows are left under its cue, so the cue and the speech move together.
+    const nodes: JSONContent[] = [
+      line("scene_heading", "INT. ROOM - DAY"),
+      line("action", act(42)),
+      line("character", "ALEX"),
+      line("dialogue", unbroken(10)),
+    ];
+    const { exported } = assertParity(docToLines(docOf(...nodes)));
+    expect(exported.pages.map((p) => p.startLine)).toEqual([0, 2]);
+    expect(exported.pages[0].ops.some((o) => o.text === "(MORE)")).toBe(false);
+  });
+
+  it("breaks mid-line at a sentence end and re-wraps what it carries", () => {
+    // Fill page 1 so exactly two dialogue rows fit under the cue: the
+    // speech from Arjun's script that Arc Studio breaks this way.
+    const speech =
+      "I honestly wanted to ask you. I don't remember half the places. " +
+      "He took us to a fort and a Buddhist cave I think?";
+    const nodes: JSONContent[] = [
+      line("action", act(50)),
+      line("character", "KRISH"),
+      line("dialogue", speech),
+    ];
+    const lines = docToLines(docOf(...nodes));
+    const { exported } = assertParity(lines);
+    const page1 = exported.pages[0].ops.map((o) => o.text);
+    const page2 = exported.pages[1].ops.map((o) => o.text);
+    expect(page1.slice(-3)).toEqual([
+      "I honestly wanted to ask you. I",
+      "don't remember half the places.",
+      "(MORE)",
+    ]);
+    expect(page2.slice(0, 3)).toEqual([
+      "KRISH (CONT'D)",
+      "He took us to a fort and a Buddhist",
+      "cave I think?",
+    ]);
+  });
+
+  it("prints (MORE) below the page's last line, not in place of one", () => {
+    // 51 rows of action leave 3 slots: blank + cue + 1 row would strand a
+    // one-line piece, so find the fill where the speech uses the page's very
+    // last line and (MORE) still appears under it.
+    const nodes: JSONContent[] = [
+      line("action", act(48)),
+      line("character", "ALEX"),
+      line("dialogue", dlg(8)),
+    ];
+    const { exported } = assertParity(docToLines(docOf(...nodes)));
+    const ops = exported.pages[0].ops;
+    const more = ops.find((o) => o.text === "(MORE)")!;
+    const lastRow = ops.filter((o) => o.text !== "(MORE)").reduce((a, b) => (b.y < a.y ? b : a));
+    expect(lastRow.y).toBe(72); // the 54th line's baseline, on the 1in margin
+    expect(more.y).toBe(60); // the line below it
+  });
+
+  it("keeps a scene heading with two lines of its action", () => {
+    // 50 rows used: blank + heading + blank + one action row would fit, but a
+    // heading may not end a page with a single line under it.
+    const nodes: JSONContent[] = [
+      line("action", act(50)),
+      line("scene_heading", "INT. HOSPITAL HALLWAY - DAY"),
+      line("action", act(3)),
+    ];
+    const { exported } = assertParity(docToLines(docOf(...nodes)));
+    expect(exported.pages.map((p) => p.startLine)).toEqual([0, 1]);
+  });
+
+  it("keeps a heading with a one-line action and the speech after it", () => {
+    const nodes: JSONContent[] = [
+      line("action", act(49)),
+      line("scene_heading", "INT. HOSPITAL HALLWAY - DAY"),
+      line("action", act(1)),
+      line("character", "KRISH"),
+      line("parenthetical", "(through phone)"),
+      line("dialogue", "Hello?"),
+    ];
+    const { exported } = assertParity(docToLines(docOf(...nodes)));
+    expect(exported.pages.map((p) => p.startLine)).toEqual([0, 1]);
   });
 });

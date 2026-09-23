@@ -236,6 +236,20 @@ body {
   font-size: var(--text-xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+/* A screenplay page's number sits where the printed script puts it: the line
+   half an inch from the top, ending on the 1in right margin, in the script's
+   own 12pt Courier ("2.", none on page 1). The PDF draws it in the same spot. */
+.page-backdrop-screenplay .page-sheet-num {
+  top: 0.5in;
+  bottom: auto;
+  right: 1in;
+  font-family: var(--sp-font);
+  font-size: 12pt;
+  line-height: 16px;
+  color: var(--page-fg);
+  opacity: 0.72;
 }
 /* The editor text overlays the sheets. */
 .page-host .sp-editor,
@@ -271,11 +285,15 @@ body {
   color: var(--muted);
   font-size: var(--text-md);
 }
-/* The transparent spacer the pagination plugin inserts at each page boundary. */
+/* The transparent spacer the pagination plugin inserts at each page boundary.
+   Never a scroll anchor: the plugin replaces these on every reflow, and an
+   anchor that disappears makes the browser lose its place. The plugin keeps
+   the view still itself (captureViewAnchor in lib/editor/pagination.ts). */
 .pm-page-gap {
   display: block;
   pointer-events: none;
   user-select: none;
+  overflow-anchor: none;
 }
 
 /* Prose page gaps are measured in pixels from real line boxes. The list-item
@@ -299,27 +317,33 @@ body {
   list-style: none;
 }
 
-/* Mid-block split widget (F16): (MORE), the page-gap spacer, and NAME (CONT'D)
+/* Mid-block split widget: (MORE), the page-gap spacer, and NAME (CONT'D)
    render as display:block spans inside the straddling dialogue/action block,
-   in the page's own 12pt Courier. The offsets are relative to the dialogue
-   block's content box (already at the 1in dialogue indent): (MORE) sits at the
-   dialogue indent, the continued cue one inch further right at the character
-   indent. Fixed 16px heights keep the pagination math exact; nowrap so a long
-   cue name can never wrap into a second line and shift the page below. */
+   in the page's own 12pt Courier, at the sentence where the speech breaks.
+   The offsets are relative to the dialogue block's content box (already at
+   the 1in dialogue indent): both (MORE) and the continued cue sit one inch
+   further right, at the character indent, as Final Draft and Arc Studio print
+   them. (MORE) takes the line just below the page's last line. Fixed 16px
+   heights keep the pagination math exact; nowrap so a long cue name can never
+   wrap into a second line and shift the page below. */
 .pm-split {
   pointer-events: none;
   user-select: none;
+  overflow-anchor: none;
+  /* The block's hanging indent must not shift the markers. */
+  text-indent: 0;
 }
 .pm-split-more,
 .pm-split-contd {
   display: block;
   height: 16px;
   line-height: 16px;
+  margin-left: 1in;
   white-space: nowrap;
   font: inherit;
+  text-indent: 0;
 }
 .pm-split-contd {
-  margin-left: 1in;
   text-transform: uppercase;
 }
 
@@ -436,10 +460,15 @@ body {
   position: relative;
 }
 
-/* Vertical spacing between elements (a "blank line" is 16px). */
+/* Vertical spacing between elements (a "blank line" is 16px). The geometry is
+   Final Draft's and Arc Studio's, measured from Arjun's own Arc Studio export
+   and mirrored number for number in lib/export/layout.ts: one blank line
+   before a scene heading, headings in the regular weight, the character cue
+   3.5in to 7.25in from the page edge, parentheticals 3.0in to 5.5in with
+   their wrapped lines hung one character under the first letter, dialogue
+   2.5in to 6.0in, transitions right-aligned to 7.1in. */
 .sp-prose .sp-scene_heading {
-  margin-top: 32px;
-  font-weight: 700;
+  margin-top: 16px;
   text-transform: uppercase;
 }
 .sp-prose .sp-scene_heading:first-child {
@@ -450,13 +479,18 @@ body {
 }
 .sp-prose .sp-character {
   margin-top: 16px;
-  margin-left: 2in; /* starts ~3.5in from the page's left edge */
+  margin-left: 2in; /* 3.5in from the page's left edge */
+  margin-right: 0.25in; /* ends at 7.25in */
   text-transform: uppercase;
 }
 .sp-prose .sp-parenthetical {
   margin-top: 0;
   margin-left: 1.5in;
   margin-right: 2in;
+  /* A wrapped parenthetical hangs its second line under the first letter,
+     one character in from the bracket. */
+  padding-left: 1ch;
+  text-indent: -1ch;
 }
 .sp-prose .sp-dialogue {
   margin-top: 0;
@@ -465,6 +499,7 @@ body {
 }
 .sp-prose .sp-transition {
   margin-top: 16px;
+  margin-right: 0.4in; /* right-aligned to 7.1in */
   text-align: right;
   text-transform: uppercase;
 }
@@ -3936,6 +3971,7 @@ body {
   }
   .sp-prose .sp-character {
     margin-left: 2in;
+    margin-right: 0.25in;
   }
   .sp-prose .sp-parenthetical {
     margin-left: 1.5in;
@@ -3944,6 +3980,9 @@ body {
   .sp-prose .sp-dialogue {
     margin-left: 1in;
     margin-right: 1.5in;
+  }
+  .sp-prose .sp-transition {
+    margin-right: 0.4in;
   }
   .sp-prose .sp-line[data-dual="true"] {
     width: 2.7in;

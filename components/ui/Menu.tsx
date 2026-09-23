@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { restoreFocus } from "@/lib/restoreFocus";
 
 /**
  * Anchored popover menu (Superaudit 2, Part 2B.5): the base the Phase 2
@@ -96,12 +97,20 @@ export function Menu({
     setPos({ left, top });
   }, [anchor, side]);
 
-  // Take focus so arrow keys land here, and give it back on close.
+  // Take focus so arrow keys land here, and give it back on close. An item
+  // that moved focus on purpose keeps it: choosing a line type focuses the
+  // script, and handing focus back to the menu's button then sent the
+  // writer's next keystrokes to that button instead of the page.
   useLayoutEffect(() => {
     openerRef.current = document.activeElement as HTMLElement | null;
-    menuRef.current?.focus();
+    const menu = menuRef.current;
+    menu?.focus();
     return () => {
-      if (openerRef.current?.isConnected) openerRef.current.focus();
+      const active = document.activeElement;
+      const focusLeftMenu =
+        active && active !== document.body && !(menu && menu.contains(active));
+      if (focusLeftMenu) return;
+      if (openerRef.current?.isConnected) restoreFocus(openerRef.current);
     };
   }, []);
 

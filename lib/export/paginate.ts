@@ -16,21 +16,36 @@ import {
 import { cueBaseName } from "@/lib/editor/outline";
 import { computeContinuations, CONTD } from "@/lib/editor/contd";
 import { ensureParentheticalParens } from "./flatten";
+import {
+  MIN_SPLIT_LINES,
+  chooseSplit,
+  firstSplitRows,
+  splitOptions,
+  type SplitOption,
+} from "./splitRules";
 
 /**
  * Rule-aware screenplay pagination.
  *
  * Produces, for a flat ScriptLine[], the sequence of pages and the exact draw
- * positions for each line, applying the professional rules:
+ * positions for each line, applying the rules Final Draft and Arc Studio use.
+ * Checked page for page against Arjun's own 81-page Arc Studio export
+ * (paginateArc.test.ts): every page starts on the same line Arc starts it on.
  *
+ *   - 54 lines of text per page (1in top and bottom margins, 6 lines/inch).
+ *   - A scene heading never ends a page: it keeps at least two lines of the
+ *     action under it, and when that action is a single line, whatever follows
+ *     it as well (so a heading is never left with one line and a stranded cue).
  *   - A character cue never ends a page; it is kept with its parenthetical(s)
- *     and enough of its first dialogue that a legal continuation is possible.
- *   - A scene heading never ends a page (kept with the line after it).
+ *     and enough of its speech that the speech either fits or can legally break.
  *   - A parenthetical never ends a page (kept with the dialogue after it).
- *   - A dialogue block that overflows a page ends with "(MORE)" at the dialogue
- *     indent and resumes with "NAME (CONT'D)" at the cue indent on the next
- *     page, with at least two lines on each side of the break.
- *   - Action paragraphs avoid leaving a single orphan/widow line.
+ *   - Dialogue and action break only at the end of a sentence, with at least
+ *     two lines on each side. The carried text starts a fresh line on the next
+ *     page. A broken speech ends with "(MORE)" at the cue indent on the line
+ *     just below the page's last line (inside the bottom margin, where Final
+ *     Draft and Arc Studio put it) and resumes under "NAME (CONT'D)".
+ *   - A paragraph with no usable sentence end moves whole to the next page; one
+ *     taller than a whole page fills the page line by line.
  *
  * IMPORTANT: (MORE) and NAME (CONT'D) exist ONLY as draw instructions here.
  * They are never written back into ScriptLine[] or the ProseMirror document, so
@@ -38,16 +53,17 @@ import { ensureParentheticalParens } from "./flatten";
  * refactor this engine to emit ScriptLine[].
  */
 
-const MIN_SPLIT_LINES = 2; // >=2 dialogue rows above (MORE) and below (CONT'D)
 const KEEP_HEADING_WITH_NEXT = true;
-const AVOID_ACTION_WIDOWS = true;
+/** Lines of action a scene heading must keep beneath it on its page. */
+const HEADING_KEEP_LINES = 2;
 
 /** A single drawable line: text at an absolute (x, y) pdf-lib baseline. */
 export interface DrawOp {
   text: string;
   x: number;
   y: number;
-  /** Draw in the bold face (scene headings, matching the on-screen weight). */
+  /** Draw in the bold face. The standard format has no bold lines; kept for
+      the scene-number path and any future emphasis. */
   bold?: boolean;
 }
 /** One laid-out page (1-based number); the renderer omits the stamp on page 1. */
@@ -70,7 +86,7 @@ export interface PaginateResult {
 interface Row {
   text: string;
   x: number;
-  /** Draw in the bold face (scene-heading rows). */
+  /** Draw in the bold face (unused by the default format; kept for callers). */
   bold?: boolean;
   /** The source line is revised and needs a right-margin marker. */
   revised?: boolean;
@@ -92,25 +108,49 @@ interface Block {
   sceneNumber?: number;
   /** True when the line is marked revised (prints a margin asterisk). */
   revised?: boolean;
+  /** Dialogue and action: every legal sentence break, computed once. */
+  splits?: SplitOption[];
 }
 
-/** How many slots a cue must reserve for its first dialogue block of N rows. */
-function firstDialogueKeep(n: number): number {
+/** Rows for one element's text, positioned (transitions right-aligned,
+    parenthetical continuation lines hung one character in). */
+function layoutRows(kind: ElementType, text: string): Row[] {
+  const el = LAYOUT[kind] ?? LAYOUT.action;
+  const hang = el.hang ?? 0;
+  return wrap(text, el.maxChars, hang).map((s, i) => ({
+    text: s,
+    x: el.rightEdge != null ? rightAlignX(s, el.rightEdge) : el.x + (i > 0 ? hang * CHAR_W : 0),
+  }));
+}
+
+/** Rows a piece of dialogue or action wraps to. */
+function rowCount(kind: ElementType, text: string): number {
+  const el = LAYOUT[kind] ?? LAYOUT.action;
+  return wrap(text, el.maxChars, el.hang ?? 0).length;
+}
+
+/**
+ * How many slots a cue must reserve for the speech under it: the whole speech
+ * when it cannot legally break, otherwise the fewest lines a sentence break
+ * could leave above (MORE). (MORE) itself sits below the page's last line, so
+ * it needs no slot of its own.
+ */
+function firstDialogueKeep(block: Block): number {
+  const n = block.rows.length;
   if (n === 0) return 0;
-  // A block of >=4 rows can split (2 above + 2 below); reserve 2 rows + (MORE).
-  // A shorter block cannot split, so it must fit whole.
-  if (n >= 2 * MIN_SPLIT_LINES) return MIN_SPLIT_LINES + 1;
-  return n;
+  return firstSplitRows(block.splits ?? []) ?? n;
 }
 
 /**
  * Slots a "keep with next" block (a character cue, a parenthetical, or a scene
  * heading) needs at a page bottom to be legal: its own rows, plus any
  * consecutive parentheticals, plus enough of what follows. A following dialogue
- * reserves enough for a legal split (or the whole short block). A following
- * block that ALSO keeps-with-next (a heading or another cue) recurses, so a
- * cue -> heading -> action chain stays together rather than the heading sliding
- * away and stranding the cue. Anything else (action, transition) reserves one
+ * reserves enough for a legal break (or the whole speech). A following block
+ * that ALSO keeps-with-next (a heading or another cue) recurses, so a cue ->
+ * heading -> action chain stays together rather than the heading sliding away
+ * and stranding the cue. A scene heading keeps two lines of the action under
+ * it; when that action is one line, the heading also keeps what follows the
+ * action (a cue with its speech, or more action). Anything else reserves one
  * row. A block at end-of-document reserves nothing extra (a trailing cue or
  * heading legitimately ends the final page). Depth-bounded against degenerate
  * chains.
@@ -127,9 +167,20 @@ function keepSlotsFrom(blocks: Block[], i: number, depth = 0): number {
   if (j < blocks.length) {
     const next = blocks[j];
     if (next.kind === "dialogue") {
-      slots += next.spaceBefore + firstDialogueKeep(next.rows.length);
+      slots += next.spaceBefore + firstDialogueKeep(next);
     } else if (depth < 8 && (next.kind === "scene_heading" || next.kind === "character")) {
       slots += next.spaceBefore + keepSlotsFrom(blocks, j, depth + 1);
+    } else if (blocks[i].kind === "scene_heading" && next.kind === "action") {
+      const rows = next.rows.length;
+      slots += next.spaceBefore + Math.min(HEADING_KEEP_LINES, rows);
+      const after = blocks[j + 1];
+      if (rows < HEADING_KEEP_LINES && after) {
+        if (depth < 8 && (after.kind === "character" || after.kind === "scene_heading")) {
+          slots += after.spaceBefore + keepSlotsFrom(blocks, j + 1, depth + 1);
+        } else {
+          slots += after.spaceBefore + Math.min(HEADING_KEEP_LINES - rows, after.rows.length);
+        }
+      }
     } else {
       slots += next.spaceBefore + 1;
     }
@@ -190,14 +241,7 @@ function buildBlocks(
         ? ensureParentheticalParens(sourceText)
         : sourceText;
     const text = clean(rawText);
-    const rows: Row[] = wrap(text, el.maxChars).map((s) => ({
-      text: s,
-      x: el.rightAlign ? rightAlignX(s) : el.x,
-      // Scene headings print in the bold face, matching the screen (globals.css
-      // sets font-weight 700 on .sp-scene_heading). Purely a draw attribute:
-      // Courier's metrics are identical across weights, so breaks never move.
-      ...(kind === "scene_heading" ? { bold: true } : {}),
-    }));
+    const rows: Row[] = layoutRows(kind, text);
 
     if (kind === "character") {
       currentCue = cueBaseName(text).toUpperCase() || undefined;
@@ -216,6 +260,10 @@ function buildBlocks(
       cueName: kind === "dialogue" ? currentCue : undefined,
       sceneNumber: kind === "scene_heading" ? ++sceneCounter : undefined,
       revised: line.revised === true,
+      splits:
+        kind === "dialogue" || kind === "action"
+          ? splitOptions(text, (piece) => rowCount(kind, piece))
+          : undefined,
     });
   }
 
@@ -282,67 +330,68 @@ export function paginate(
     curStartLine = undefined;
   };
 
-  /** Place a dialogue run, splitting with (MORE)/(CONT'D) as needed. */
-  const placeDialogue = (rows: Row[], cueName?: string) => {
-    let idx = 0;
-    while (idx < rows.length) {
-      const cap = remainingSlots();
-      const left = rows.length - idx;
-      if (left <= cap) {
-        for (; idx < rows.length; idx++) place(rows[idx].text, rows[idx].x);
-        return;
-      }
-      const linesHere = cap - 1; // reserve the bottom slot for (MORE)
-      const carry = left - linesHere;
-      if (linesHere >= MIN_SPLIT_LINES && carry >= MIN_SPLIT_LINES) {
-        for (let k = 0; k < linesHere; k++, idx++) place(rows[idx].text, rows[idx].x);
-        place("(MORE)", LAYOUT.dialogue.x);
-        newPage();
-        if (cueName) place(`${cueName} (CONT'D)`, LAYOUT.character.x);
-      } else if (atPageTop) {
-        // The block alone exceeds a whole page: force progress.
-        const forced = Math.max(1, cap - 1);
-        for (let k = 0; k < forced && idx < rows.length; k++, idx++) {
-          place(rows[idx].text, rows[idx].x);
-        }
-        if (idx < rows.length) {
-          place("(MORE)", LAYOUT.dialogue.x);
-          newPage();
-          if (cueName) place(`${cueName} (CONT'D)`, LAYOUT.character.x);
-        }
-      } else if (idx > 0) {
-        // Some rows of this block are already on the page: mark the interruption
-        // and re-cue the continuation on the next page.
-        if (remainingSlots() >= 1) place("(MORE)", LAYOUT.dialogue.x);
-        newPage();
-        if (cueName) place(`${cueName} (CONT'D)`, LAYOUT.character.x);
-      } else {
-        // The block has not started here: move it whole to the next page with no
-        // (MORE)/(CONT'D), since nothing was interrupted.
-        newPage();
-      }
-    }
+  /** (MORE) sits on the line just below the page's last line, at the cue
+      indent: the bottom-margin slot Final Draft and Arc Studio print it in. */
+  const placeMore = () => {
+    markStart();
+    ops.push({ text: "(MORE)", x: LAYOUT.character.x, y });
   };
 
-  /** Place an action paragraph, avoiding a single orphan/widow line. */
-  const placeAction = (rows: Row[]) => {
-    const cap = remainingSlots();
-    if (rows.length <= cap) {
-      for (const r of rows) place(r.text, r.x);
-      return;
-    }
-    let linesHere = cap;
-    if (AVOID_ACTION_WIDOWS && rows.length - linesHere < MIN_SPLIT_LINES) {
-      linesHere = rows.length - MIN_SPLIT_LINES; // keep >=2 on the next page
-    }
-    if (linesHere < MIN_SPLIT_LINES) {
+  /**
+   * Place a speech or an action paragraph, breaking it across pages only at the
+   * end of a sentence, with at least two lines each side. A speech that breaks
+   * ends with (MORE) and resumes under NAME (CONT'D). With no usable sentence
+   * end the paragraph moves whole to the next page; one taller than a whole
+   * page fills the page line by line, because nothing else can make progress.
+   */
+  const placeParagraph = (block: Block) => {
+    const kind = block.kind;
+    const speech = kind === "dialogue";
+    let text = block.text;
+    let rows = block.rows;
+    let splits = block.splits ?? [];
+    // True while the only thing on this page is the NAME (CONT'D) that resumes
+    // this speech: moving on would leave that line alone on its page.
+    let resumed = false;
+    for (;;) {
+      const room = remainingSlots();
+      if (rows.length <= room) {
+        for (const r of rows) place(r.text, r.x);
+        return;
+      }
+      const split = chooseSplit(splits, room);
+      if (split) {
+        const head = layoutRows(kind, text.slice(0, split.offset));
+        for (const r of head) place(r.text, r.x);
+        text = text.slice(split.offset);
+      } else if (
+        atPageTop ||
+        resumed ||
+        (rows.length > LINES_PER_PAGE && room >= MIN_SPLIT_LINES)
+      ) {
+        // No sentence end fits and the paragraph cannot be moved to make
+        // room (it already opens the page, or is taller than one): fill this
+        // page line by line.
+        const take = Math.max(1, room);
+        for (const r of rows.slice(0, take)) place(r.text, r.x);
+        text = rows
+          .slice(take)
+          .map((r) => r.text)
+          .join(" ");
+      } else {
+        newPage();
+        continue;
+      }
+      if (speech) placeMore();
       newPage();
-      placeAction(rows); // fresh page has full capacity
-      return;
+      resumed = false;
+      if (speech && block.cueName) {
+        place(`${block.cueName} (CONT'D)`, LAYOUT.character.x);
+        resumed = true;
+      }
+      rows = layoutRows(kind, text);
+      splits = splitOptions(text, (piece) => rowCount(kind, piece));
     }
-    for (let k = 0; k < linesHere; k++) place(rows[k].text, rows[k].x);
-    newPage();
-    placeAction(rows.slice(linesHere));
   };
 
   /** Place an atomic block, flowing across a break only if taller than a page. */
@@ -492,10 +541,8 @@ export function paginate(
       }
     }
 
-    if (block.splittable) {
-      placeDialogue(block.rows, block.cueName);
-    } else if (block.kind === "action" && AVOID_ACTION_WIDOWS) {
-      placeAction(block.rows);
+    if (block.kind === "dialogue" || block.kind === "action") {
+      placeParagraph(block);
     } else if (block.kind === "scene_heading" && sceneNumbers && block.sceneNumber != null) {
       // Print the scene number in both margins, level with the heading's first
       // row, then place the heading itself.

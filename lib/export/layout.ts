@@ -19,16 +19,19 @@ export const PAGE_W = 8.5 * PT_PER_IN; // 612
 export const PAGE_H = 11 * PT_PER_IN; // 792
 export const LEFT = 1.5 * PT_PER_IN; // 108 (1.5in left margin)
 export const RIGHT_EDGE = PAGE_W - 1 * PT_PER_IN; // 540 (1in right margin)
-export const TOP_BASELINE = PAGE_H - 1 * PT_PER_IN; // 720 (1in top margin)
-export const BOTTOM_LIMIT = 1 * PT_PER_IN + LINE; // 84: last baseline stays >= ~1in
-export const PAGENO_Y = PAGE_H - 0.5 * PT_PER_IN; // 756 (0.5in from top)
+// Final Draft and Arc Studio measure the 1in top margin to the top of the
+// first line; that line's baseline sits one line (12pt) lower. Rendered side
+// by side with Arjun's Arc Studio export at 288dpi, every glyph, including the
+// page number, lands on the same pixel row.
+export const TOP_BASELINE = PAGE_H - 1 * PT_PER_IN - LINE; // 708
+export const BOTTOM_LIMIT = 1 * PT_PER_IN; // 72: the 54th baseline sits on the 1in bottom margin
+export const PAGENO_Y = PAGE_H - 0.5 * PT_PER_IN - LINE; // 744 (the line 0.5in from the top)
 
 /**
- * Printed line-slots per page. Every text row, every blank spaceBefore row, and
- * the (MORE) marker consume exactly one slot (a 12pt y-advance). Derived from
- * the geometry so the engine and the PDF agree by construction: the industry
- * quote is ~55 lines, but 54 is the exact capacity these 1in/1in margins yield,
- * which is what the renderer already produces.
+ * Printed line-slots per page. Every text row and every blank spaceBefore row
+ * consumes exactly one slot (a 12pt y-advance): 54 lines between 1in margins,
+ * as Final Draft and Arc Studio set them. A broken speech's (MORE) prints on
+ * the line just below the 54th, inside the bottom margin, so it needs no slot.
  */
 export const LINES_PER_PAGE = Math.floor((TOP_BASELINE - BOTTOM_LIMIT) / LINE) + 1; // 54
 
@@ -51,20 +54,28 @@ export interface Layout {
   maxChars: number;
   /** Blank lines before this element, mirroring the CSS margin-top. */
   spaceBefore: number;
-  /** Right-align to the right margin instead of using x (transitions). */
-  rightAlign?: boolean;
+  /** Right-align to this x (points from the page's left edge) instead of
+      starting at x (transitions). */
+  rightEdge?: number;
+  /** Characters every wrapped line after the first is indented by, so a
+      parenthetical's second line sits under its first letter, not under the
+      bracket (Final Draft and Arc Studio both hang it by one). */
+  hang?: number;
 }
 
-// x values mirror globals.css: character margin-left 2in (-> 3.5in from edge),
-// parenthetical 1.5in (-> 3.0in), dialogue 1in (-> 2.5in), all inside the 1.5in
-// left margin. Vertical spaceBefore mirrors the CSS margin-top (16px == 1 line).
+// The Final Draft / Arc Studio defaults, measured from Arjun's Arc Studio PDF
+// (inches from the page's left edge): action and scene headings 1.5 to 7.5,
+// character 3.5 to 7.25, parenthetical 3.0 to 5.5 (continuation lines hang one
+// character), dialogue 2.5 to 6.0, transitions right-aligned to 7.1. One blank
+// line before a scene heading, as Arc Studio sets it. globals.css mirrors every
+// number here (16px == one line).
 export const LAYOUT: Record<ElementType, Layout> = {
-  scene_heading: { x: LEFT, maxChars: 60, spaceBefore: 2 },
+  scene_heading: { x: LEFT, maxChars: 60, spaceBefore: 1 },
   action: { x: LEFT, maxChars: 60, spaceBefore: 1 },
-  character: { x: LEFT + 2 * PT_PER_IN, maxChars: 40, spaceBefore: 1 },
-  parenthetical: { x: LEFT + 1.5 * PT_PER_IN, maxChars: 25, spaceBefore: 0 },
+  character: { x: LEFT + 2 * PT_PER_IN, maxChars: 37, spaceBefore: 1 },
+  parenthetical: { x: LEFT + 1.5 * PT_PER_IN, maxChars: 25, spaceBefore: 0, hang: 1 },
   dialogue: { x: LEFT + 1 * PT_PER_IN, maxChars: 35, spaceBefore: 0 },
-  transition: { x: LEFT, maxChars: 60, spaceBefore: 1, rightAlign: true },
+  transition: { x: LEFT, maxChars: 56, spaceBefore: 1, rightEdge: 7.1 * PT_PER_IN },
 };
 
 // pdf-lib's built-in Courier uses WinAnsi (CP1252) encoding. These are the
@@ -123,36 +134,63 @@ export function columnLength(text: string): number {
   return count;
 }
 
-/** Greedy word wrap to a monospaced column of `maxChars`. */
-export function wrap(text: string, maxChars: number): string[] {
+const ASCII = /^[\x00-\x7f]*$/;
+
+/** Columns a word takes: one per character, counted as graphemes only when
+    the word has any non-ASCII in it (the segmenter is the slow path). */
+function wordColumns(word: string): number {
+  return ASCII.test(word) ? word.length : columnLength(word);
+}
+
+/**
+ * Greedy word wrap to a monospaced column of `maxChars`. With a `hang`, every
+ * line after the first is that many characters narrower (it starts that much
+ * further right), which is how a parenthetical wraps. A word longer than the
+ * column is cut at the column's width.
+ */
+export function wrap(text: string, maxChars: number, hang = 0): string[] {
   const words = text.split(/\s+/).filter((w) => w.length > 0);
   if (words.length === 0) return [""];
 
   const lines: string[] = [];
+  const width = () => Math.max(1, lines.length === 0 ? maxChars : maxChars - hang);
   let cur = "";
-  for (let w of words) {
-    let units = graphemes(w);
-    while (units.length > maxChars) {
-      if (cur) {
-        lines.push(cur);
-        cur = "";
+  let curLen = 0;
+  for (const word of words) {
+    let w = word;
+    let len = wordColumns(w);
+    if (len > width()) {
+      let units = graphemes(w);
+      while (units.length > width()) {
+        if (cur) {
+          lines.push(cur);
+          cur = "";
+          curLen = 0;
+        }
+        const take = width();
+        lines.push(units.slice(0, take).join(""));
+        units = units.slice(take);
       }
-      lines.push(units.slice(0, maxChars).join(""));
-      units = units.slice(maxChars);
+      w = units.join("");
+      len = units.length;
     }
-    w = units.join("");
-    if (!cur) cur = w;
-    else if (columnLength(cur) + 1 + units.length <= maxChars) cur += ` ${w}`;
-    else {
+    if (!cur) {
+      cur = w;
+      curLen = len;
+    } else if (curLen + 1 + len <= width()) {
+      cur += ` ${w}`;
+      curLen += 1 + len;
+    } else {
       lines.push(cur);
       cur = w;
+      curLen = len;
     }
   }
   if (cur) lines.push(cur);
   return lines.length ? lines : [""];
 }
 
-/** Right-aligned x for a line of `text` (used by transitions). */
-export function rightAlignX(text: string): number {
-  return Math.max(LEFT, RIGHT_EDGE - columnLength(text) * CHAR_W);
+/** Right-aligned x for a line of `text` ending at `edge` (transitions). */
+export function rightAlignX(text: string, edge: number = RIGHT_EDGE): number {
+  return Math.max(LEFT, edge - columnLength(text) * CHAR_W);
 }

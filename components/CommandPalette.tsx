@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { restoreFocus } from "@/lib/restoreFocus";
 
 export interface PaletteCommand {
   id: string;
@@ -50,7 +51,7 @@ export const CommandPalette = memo(function CommandPalette({
       queueMicrotask(() => {
         const active = document.activeElement as HTMLElement | null;
         if (active?.isConnected && active !== document.body) return;
-        if (opener?.isConnected) opener.focus();
+        if (opener?.isConnected) restoreFocus(opener);
       });
     };
   }, []);

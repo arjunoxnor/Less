@@ -43,8 +43,10 @@ describe("cloud sync completion wiring", () => {
   });
 
   it("marks sibling adoption successful without writing the same body again", () => {
+    // replaceDocInPlace never fires 'update', so the adopted body is not
+    // re-saved (and re-broadcast) as if it were this tab's own edit.
     expect(source).toContain(
-      "editor.commands.setContent(fresh, { emitUpdate: false });\n      setPulledSaveOk(true);"
+      "replaceDocInPlace(editor, fresh);\n      setPulledSaveOk(true);"
     );
   });
 

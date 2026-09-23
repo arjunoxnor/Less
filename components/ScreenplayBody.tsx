@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
 import type { CloudUser as User } from "@/lib/cloud/client";
@@ -83,7 +84,14 @@ import {
   type ExportFormat,
 } from "@/lib/export";
 import { PageBackdrop } from "./PageBackdrop";
-import { Pagination, STRIDE, PAGE_H, pageAtPos } from "@/lib/editor/pagination";
+import {
+  Pagination,
+  STRIDE,
+  PAGE_H,
+  pageAtPos,
+  benchmarkPaginationPass,
+} from "@/lib/editor/pagination";
+import { TYPING_SCROLL_MARGIN, centerCaret } from "@/lib/editor/scrollComfort";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { EditorStatusBar } from "./chrome/EditorStatusBar";
 import { HintCard } from "./chrome/HintCard";
@@ -515,10 +523,14 @@ function ScreenplayEditor({
   // clock: reading must not reshuffle the library).
   const unsavedRef = useRef(false);
 
+  // Takes a getter, not a document: serializing a feature-length script on
+  // every keystroke only to throw all but the last copy away was the single
+  // biggest cost of a keypress. The document is read once, when the save runs.
   const debouncedSave = useMemo(
     () =>
       debounce(
-        (doc: JSONContent) => {
+        (read: () => JSONContent) => {
+          const doc = read();
           if (!mirrorsToLibrary) {
             unsavedRef.current = false;
             setSaved(true);
@@ -547,9 +559,14 @@ function ScreenplayEditor({
   );
 
   const measure = useCallback((ed: Editor) => {
+    if (ed.isDestroyed) return;
     const text = ed.getText({ blockSeparator: "\n" }).trim();
     setWordCount(text ? text.split(/\s+/).length : 0);
   }, []);
+  // The word count trails typing by a moment instead of walking the whole
+  // script (and re-rendering the whole editor) on every keystroke.
+  const measureSoon = useMemo(() => debounce((ed: Editor) => measure(ed), 400), [measure]);
+  useEffect(() => () => measureSoon.cancel(), [measureSoon]);
 
   // The page count shown to the writer is the SAME one the page sheets use (the
   // visual Pagination engine, via onPages below). We no longer run the export
@@ -576,12 +593,19 @@ function ScreenplayEditor({
         collaboration: duetSession ?? undefined,
       }),
       Pagination.configure({
-        onPages: setPages,
+        // Synchronous: the pass runs just before the browser paints, and the
+        // sheets behind the text must change in that same frame, or a new
+        // page's text shows for a frame on the bare desk.
+        onPages: (n: number) => flushSync(() => setPages(n)),
         onLayout: () => setPaginationTick((tick) => tick + 1),
       }),
     ],
     [showGhostHint, duetSession]
   );
+
+  // Read by editorProps.handleScrollToSelection (see the typewriter effect).
+  const typewriterRef = useRef(prefs.focusTypewriter);
+  typewriterRef.current = prefs.focusTypewriter;
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -592,6 +616,13 @@ function ScreenplayEditor({
     ...(duetActive ? {} : { content: initialContent }),
     editorProps: {
       attributes: { class: "sp-prose", spellcheck: "false" },
+      scrollMargin: TYPING_SCROLL_MARGIN,
+      scrollThreshold: TYPING_SCROLL_MARGIN,
+      handleScrollToSelection: (view) => {
+        if (!typewriterRef.current) return false;
+        centerCaret(view);
+        return true;
+      },
     },
     onCreate: ({ editor }) => {
       editorRef.current = editor;
@@ -601,15 +632,21 @@ function ScreenplayEditor({
       measure(editor);
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __lessEditor?: Editor }).__lessEditor = editor;
+        // Development-only: time a real pagination pass on this script, and
+        // read the PDF engine's page starts to compare with the screen.
+        (window as unknown as { __lessPaginationBench?: () => unknown }).__lessPaginationBench =
+          () => benchmarkPaginationPass(editor.view);
+        (window as unknown as { __lessExportStarts?: () => unknown }).__lessExportStarts = () =>
+          paginate(docToLines(editor.getJSON())).pages.map((p) => p.startLine);
       }
     },
     onUpdate: ({ editor }) => {
       if (!duetSession) {
         unsavedRef.current = true;
         setSaved(false);
-        debouncedSave(editor.getJSON());
+        debouncedSave(() => editor.getJSON());
       }
-      measure(editor);
+      measureSoon(editor);
       // Retyping a line (setElement) changes the doc without moving the
       // selection, so the element pill must refresh here too, not only on
       // selection updates.
@@ -650,7 +687,7 @@ function ScreenplayEditor({
       const safeShared = shared.content?.length ? shared : EMPTY_SCREENPLAY;
       unsavedRef.current = true;
       setSaved(false);
-      debouncedSave(safeShared);
+      debouncedSave(() => safeShared);
     });
   }, [duetSession, debouncedSave]);
 
@@ -1079,23 +1116,25 @@ function ScreenplayEditor({
     };
   }, [editor]);
 
-  // Typewriter scrolling (2F): keep the caret line vertically centered while
-  // the pref is on, throttled to 120ms.
+  // Typewriter scrolling (2F): while the pref is on, typing keeps the caret's
+  // line at a fixed height in the view instead of drifting down the window.
+  // ProseMirror asks before every scroll it makes for the writer's own input
+  // (handleScrollToSelection in editorProps reads this ref), and the arrow and
+  // page keys, which the browser moves the caret for, centre on the next frame.
+  // Remote updates, pagination passes and clicks never scroll the view.
   useEffect(() => {
     if (!editor || !prefs.focusTypewriter) return;
-    let last = 0;
-    const center = () => {
-      const now = Date.now();
-      if (now - last < 120) return;
-      last = now;
-      const { head } = editor.state.selection;
-      const dom = editor.view.domAtPos(head).node;
-      const el = dom.nodeType === 1 ? (dom as HTMLElement) : dom.parentElement;
-      el?.closest(".sp-line")?.scrollIntoView({ block: "center", inline: "nearest" });
+    const dom = editor.view.dom;
+    let frame = 0;
+    const onKey = (e: KeyboardEvent) => {
+      if (!/^(ArrowUp|ArrowDown|PageUp|PageDown)$/.test(e.key)) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => centerCaret(editor.view));
     };
-    editor.on("selectionUpdate", center);
+    dom.addEventListener("keydown", onKey);
     return () => {
-      editor.off("selectionUpdate", center);
+      cancelAnimationFrame(frame);
+      dom.removeEventListener("keydown", onKey);
     };
   }, [editor, prefs.focusTypewriter]);
 
@@ -1491,7 +1530,7 @@ function ScreenplayEditor({
               className="page-host page-host-sp"
               style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
             >
-              <PageBackdrop pages={pages} />
+              <PageBackdrop pages={pages} variant="screenplay" />
               {duetActive && !duetReady && (
                 <div className="duet-editor-loading" role="status">
                   Connecting to the shared script…

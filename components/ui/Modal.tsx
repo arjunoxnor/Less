@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { restoreFocus } from "@/lib/restoreFocus";
 
 /**
  * The app modal (Superaudit 2, Part 2B.5). Replaces every native dialog:
@@ -108,12 +109,12 @@ export function Modal({
         const opener = openerRef.current;
         if (top) {
           if (opener?.isConnected && top.panelRef.current?.contains(opener)) {
-            opener.focus();
+            restoreFocus(opener);
           } else {
             focusInside(top.panelRef.current);
           }
         } else if (opener?.isConnected) {
-          opener.focus();
+          restoreFocus(opener);
         } else {
           focusDocumentFallback();
         }

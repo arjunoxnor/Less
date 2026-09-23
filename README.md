@@ -52,7 +52,7 @@ Function and D1 binding are present.
 | --- | --- |
 | Element model (start here) | `lib/editor/elements.ts`, `lib/editor/screenplayLine.ts`, `lib/editor/keymap.ts` |
 | Editor assembly | `lib/editor/buildExtensions.ts`, `components/ScreenplayBody.tsx`, `components/PlainBody.tsx` |
-| Pagination | `lib/editor/pagination.ts` (on-screen sheets), `lib/export/paginate.ts` + `layout.ts` (PDF) |
+| Pagination | `lib/export/paginate.ts` + `layout.ts` (the rules and the PDF; Final Draft / Arc Studio format, checked page for page against a real Arc Studio export in `paginateArc.test.ts`), `lib/export/splitRules.ts` (speeches break only at a sentence end), `lib/editor/pagination.ts` (the same rules on screen, reflowed in the same frame as the keystroke with the caret held still) |
 | Import / export | `lib/export/*` (fountain, fdx, pdf, docImport, flatten, titlePage) |
 | Local storage | `lib/storage/projects.ts`, `lib/storage/localStore.ts`, `lib/storage/folders.ts` |
 | Cloud sync | `lib/storage/useProjects.ts` (dashboard reconcile), `lib/storage/useCloudSync.ts` (open doc), `lib/storage/lww.ts` and `lib/storage/syncBaseline.ts` (tested decision logic: who wins between an open doc and a cloud copy written elsewhere), `lib/cloud/*` |

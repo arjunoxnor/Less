@@ -9,6 +9,18 @@
         "dev"
       ],
       "port": 3000
+    },
+    {
+      "name": "less-prod",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "3100",
+        "--directory",
+        "out"
+      ],
+      "port": 3100
     }
   ]
 }

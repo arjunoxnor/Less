@@ -49,7 +49,7 @@ const baseExtensions = [
 /** jsdom has no layout engine, so stand in for one: a line that is in the
     document is ten rows tall, and a detached element has no layout at all,
     exactly as in a browser. */
-function stubLayout(): () => void {
+function stubLayout(heightPx = LINE_HEIGHT_PX): () => void {
   const descriptor = Object.getOwnPropertyDescriptor(
     HTMLElement.prototype,
     "offsetHeight"
@@ -58,7 +58,7 @@ function stubLayout(): () => void {
     configurable: true,
     get(this: HTMLElement) {
       if (!this.classList?.contains("sp-line")) return 0;
-      return this.isConnected ? LINE_HEIGHT_PX : 0;
+      return this.isConnected ? heightPx : 0;
     },
   });
   // jsdom's Range has no getClientRects at all. Returning none is the honest
@@ -166,12 +166,14 @@ describe("screenplay pagination refuses to run without layout", () => {
 
 describe("cached block geometry follows the node's current DOM", () => {
   it("never measures an element the node no longer renders as", async () => {
-    const restoreLayout = stubLayout();
+    // Sixty rows a line: taller than a page, so each line has to break on a
+    // line boundary, and with no text model for it (jsdom has no column
+    // width) the break is found from the line's own measured line boxes.
+    const restoreLayout = stubLayout(60 * 16);
     const element = document.createElement("div");
     document.body.appendChild(element);
     const editor = new Editor({
       element,
-      // Action lines are splittable, so every pass measures their line boxes.
       extensions: [...baseExtensions, Pagination],
       content: docJSON("action"),
     });
@@ -223,6 +225,40 @@ describe("cached block geometry follows the node's current DOM", () => {
       expect(walked).toContain(editor.view.nodeDOM(posOf(index)));
     } finally {
       document.createTreeWalker = originalWalker as typeof document.createTreeWalker;
+      editor.destroy();
+      element.remove();
+      restoreLayout();
+    }
+  });
+});
+
+describe("an edit that wipes the page breaks always re-paginates", () => {
+  it("re-lays the pages after the same document is loaded over itself", async () => {
+    const restoreLayout = stubLayout();
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    const editor = new Editor({
+      element,
+      extensions: [...baseExtensions, Pagination],
+      content: docJSON("scene_heading"),
+    });
+    Object.defineProperty(editor.view.dom, "clientWidth", {
+      value: 816,
+      configurable: true,
+    });
+    try {
+      await settle();
+      const before = editor.view.dom.querySelectorAll(".pm-page-gap").length;
+      expect(before).toBeGreaterThan(0);
+
+      // A restore or an import swaps the whole document. Same blocks, same
+      // heights: the cheap "nothing moved" check would pass, yet the swap
+      // deleted every page break, so a full pass must still run.
+      editor.commands.setContent(docJSON("scene_heading"));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(editor.view.dom.querySelectorAll(".pm-page-gap").length).toBe(before);
+    } finally {
       editor.destroy();
       element.remove();
       restoreLayout();
