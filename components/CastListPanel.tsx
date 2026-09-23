@@ -180,7 +180,7 @@ export const CastListPanel = memo(function CastListPanel({
   return (
     <aside className="side-panel cast-panel" ref={panelRef}>
       <div className="side-panel-head">
-        <strong>Cast and Locations</strong>
+        <strong>Cast and locations</strong>
         <button type="button" className="side-panel-x" onClick={onClose} title="Close">
           Close
         </button>

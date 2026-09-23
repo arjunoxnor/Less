@@ -15,6 +15,8 @@ export interface PaletteCommand {
   id: string;
   label: string;
   group?: string;
+  /** The command's keyboard shortcut, shown as a keycap on the right. */
+  hint?: string;
   run: () => void;
 }
 
@@ -192,7 +194,14 @@ export const CommandPalette = memo(function CommandPalette({
           {filtered.length === 0 ? (
             <div className="cmd-empty">No matches</div>
           ) : (
-            filtered.map((c, i) => (
+            filtered.map((c, i) => [
+              // A heading wherever the group changes, so the list reads in
+              // sections instead of repeating the group on every row.
+              c.group && c.group !== filtered[i - 1]?.group ? (
+                <div key={"g-" + c.group + i} className="cmd-section" role="presentation">
+                  {c.group}
+                </div>
+              ) : null,
               <button
                 key={c.id}
                 id={`${listId}-opt-${i}`}
@@ -210,9 +219,13 @@ export const CommandPalette = memo(function CommandPalette({
                 }}
               >
                 <span className="cmd-label">{c.label}</span>
-                {c.group && <span className="cmd-group">{c.group}</span>}
-              </button>
-            ))
+                {c.hint && (
+                  <span className="kbd" aria-hidden="true">
+                    {c.hint}
+                  </span>
+                )}
+              </button>,
+            ])
           )}
         </div>
       </div>

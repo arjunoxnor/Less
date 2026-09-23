@@ -75,9 +75,19 @@ export function HintCard({ modLabel }: { modLabel: string }) {
       >
         ×
       </button>
-      <p>Tab cycles the line type</p>
-      <p>Enter follows the flow</p>
-      <p>{modLabel}K does everything</p>
+      <p className="hint-card-title">Three keys</p>
+      <p className="hint-card-row">
+        <span className="kbd">Tab</span>
+        Change the line type
+      </p>
+      <p className="hint-card-row">
+        <span className="kbd">Enter</span>
+        Next line, in the flow
+      </p>
+      <p className="hint-card-row">
+        <span className="kbd">{modLabel}K</span>
+        Every command
+      </p>
     </div>
   );
 }

@@ -35,7 +35,9 @@ describe("document names are shown whole", () => {
   it("the hidden copy and the input share one box, or the widths drift", () => {
     const mirror = ruleFor(".topbar-title-fit::after");
     const input = ruleFor(".topbar-title");
-    for (const decl of ["grid-area: 1 / 1", "padding: 4px 8px", "border: 1px solid transparent"]) {
+    const padding = /padding:\s*([^;]+);/.exec(input)?.[1];
+    expect(padding).toBeTruthy();
+    for (const decl of ["grid-area: 1 / 1", `padding: ${padding}`, "border: 1px solid transparent"]) {
       expect(mirror).toContain(decl);
       expect(input).toContain(decl);
     }

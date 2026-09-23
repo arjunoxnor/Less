@@ -15,6 +15,7 @@ import { currentElementType } from "@/lib/editor/keymap";
 import {
   ELEMENT_CYCLE,
   ELEMENT_LABELS,
+  ELEMENT_NUMBER,
   type ElementType,
 } from "@/lib/editor/elements";
 import { useOutline } from "@/lib/editor/useOutline";
@@ -1238,15 +1239,17 @@ function ScreenplayEditor({
         id: "el-" + t,
         group: "Format",
         label: "Set element: " + ELEMENT_LABELS[t],
+        hint: mod + ELEMENT_NUMBER[t],
         run: () => editor?.chain().focus().setElement(t).run(),
       });
     }
-    cmds.push({ id: "dual", group: "Format", label: "Toggle dual dialogue", run: toggleDual });
+    cmds.push({ id: "dual", group: "Format", label: "Toggle dual dialogue", hint: mod + "D", run: toggleDual });
     cmds.push({ id: "scenes", group: "Panel", label: "Open scenes", run: () => setActivePanel("scenes") });
     cmds.push({
       id: "find",
       group: "Panel",
       label: "Find and replace",
+      hint: mod + "F",
       run: () => setActivePanel("find"),
     });
     cmds.push({ id: "cast", group: "Panel", label: "Cast and locations", run: () => setActivePanel("cast") });
@@ -1255,7 +1258,7 @@ function ScreenplayEditor({
     cmds.push({ id: "breakdown", group: "Panel", label: "Breakdown", run: () => setActivePanel("breakdown") });
     cmds.push({ id: "history", group: "Panel", label: "Version history", run: () => setActivePanel("history") });
     cmds.push({ id: "titlepage", group: "Panel", label: "Title page", run: () => setShowTitlePage(true) });
-    cmds.push({ id: "shortcuts", group: "Help", label: "Keyboard shortcuts", run: () => setShowShortcuts(true) });
+    cmds.push({ id: "shortcuts", group: "Help", label: "Keyboard shortcuts", hint: "?", run: () => setShowShortcuts(true) });
     cmds.push({ id: "exp-pdf", group: "Export", label: "Export PDF", run: () => handleExport("pdf") });
     cmds.push({ id: "exp-fountain", group: "Export", label: "Export Fountain", run: () => handleExport("fountain") });
     cmds.push({ id: "exp-fdx", group: "Export", label: "Export Final Draft (FDX)", run: () => handleExport("fdx") });
@@ -1286,7 +1289,7 @@ function ScreenplayEditor({
       });
     }
     return cmds;
-  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection]);
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection, mod]);
 
   // ---- Chrome wiring (Part 2B): menus, rail, dock content ------------------
 
@@ -1315,7 +1318,9 @@ function ScreenplayEditor({
     { value: "done", label: "Done" },
   ];
 
-  // The overflow menu, exactly the 2B.1 groups and order.
+  // The overflow menu, grouped under small labels so twenty rows read at a
+  // glance: the script's own actions first, then what the page shows, the
+  // script face, page numbering, the project's status, and the account.
   const overflowItems: MenuItem[] = [
     { label: "Share…", onSelect: onOpenShare },
     // Guests only. The owner already has this script in their library, and the
@@ -1323,10 +1328,10 @@ function ScreenplayEditor({
     ...(onSaveCopy
       ? [{ label: "Save a copy to my library…", onSelect: onSaveCopy } as MenuItem]
       : []),
-    { kind: "divider" },
-    { label: "Import into this project…", onSelect: () => importInputRef.current?.click() },
     { label: "Title page…", onSelect: () => setShowTitlePage(true) },
+    { label: "Import into this project…", onSelect: () => importInputRef.current?.click() },
     { kind: "divider" },
+    { kind: "label", label: "View" },
     { kind: "checkbox", label: "Spell check", checked: prefs.spellCheck, onToggle: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) },
     { kind: "checkbox", label: "Scene numbers", checked: prefs.sceneNumbers, onToggle: () => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers }) },
     { kind: "checkbox", label: "Auto (CONT'D)", checked: prefs.autoContd, onToggle: () => onPrefsChange({ autoContd: !prefs.autoContd }) },
@@ -1334,11 +1339,14 @@ function ScreenplayEditor({
     ...(prefs.revisionMode
       ? [{ label: "Clear revision marks", danger: true, onSelect: clearRevisions } as MenuItem]
       : []),
-    { kind: "checkbox", label: "Focus: typewriter", checked: prefs.focusTypewriter, onToggle: () => onPrefsChange({ focusTypewriter: !prefs.focusTypewriter }) },
+    { kind: "checkbox", label: "Typewriter scrolling", checked: prefs.focusTypewriter, onToggle: () => onPrefsChange({ focusTypewriter: !prefs.focusTypewriter }) },
+    { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },
     { kind: "divider" },
+    { kind: "label", label: "Script font" },
     { kind: "radio", group: "font", label: "Courier Prime", checked: prefs.font === "courier-prime", onSelect: () => onPrefsChange({ font: "courier-prime" }) },
     { kind: "radio", group: "font", label: "Courier", checked: prefs.font === "courier", onSelect: () => onPrefsChange({ font: "courier" }) },
-    { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },
+    { kind: "divider" },
+    { kind: "label", label: "Pages" },
     {
       label: "Page target…",
       onSelect: () => {
@@ -1349,18 +1357,21 @@ function ScreenplayEditor({
     pageLock
       ? { label: "Unlock pages", onSelect: unlockPages }
       : { label: "Lock pages", onSelect: lockPages },
-    { kind: "divider" },
     ...(!localCloudSyncAllowed
       ? []
-      : STATUS_ROWS.map(
-          (s): MenuItem => ({
-            kind: "radio",
-            group: "status",
-            label: s.label,
-            checked: status === s.value,
-            onSelect: () => onStatusChange(s.value),
-          })
-        )),
+      : [
+          { kind: "divider" } as MenuItem,
+          { kind: "label", label: "Status" } as MenuItem,
+          ...STATUS_ROWS.map(
+            (s): MenuItem => ({
+              kind: "radio",
+              group: "status",
+              label: s.label,
+              checked: status === s.value,
+              onSelect: () => onStatusChange(s.value),
+            })
+          ),
+        ]),
     { kind: "divider" },
     ...(isCloudConfigured
       ? user

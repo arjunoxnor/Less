@@ -77,7 +77,7 @@ Function and D1 binding are present.
 | `Esc` | Close the open dock panel, then exit focus mode |
 
 Focus mode extras: mouse to the top edge to peek the top bar; the
-"Focus: typewriter" toggle (overflow menu or palette) keeps the caret
+"Typewriter scrolling" toggle (overflow menu or palette) keeps the caret
 line vertically centered while you write.
 
 ## Audits

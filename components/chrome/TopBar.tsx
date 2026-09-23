@@ -208,10 +208,13 @@ export function TopBar({
           type="button"
           className="topbar-kbd"
           onClick={onOpenPalette}
-          title="Command palette"
+          title="Every command"
           aria-label="Command palette"
         >
-          {modLabel}K
+          Commands
+          <span className="kbd" aria-hidden="true">
+            {modLabel}K
+          </span>
         </button>
       )}
 

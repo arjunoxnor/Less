@@ -1,35 +1,51 @@
 /* ============================================================================
-   LESS: design tokens (Superaudit 2, Part 2A)
+   LESS: design tokens
    The single source of truth for the app chrome: type scale, color, geometry,
    elevation, z-order, and motion. Chrome only: the screenplay page keeps its
    own Courier 12pt/16px typography and spec margins, untouched by anything
    here. Loaded before globals.css, which maps its legacy variable names onto
    these tokens.
+
+   The direction (2026-09 design pass): the page is the only bright object on
+   screen. The chrome around it is quiet: near-white bars divided from the desk
+   by a hairline, controls sized for a mouse on a desk (touch sizes return on
+   touch screens), one dark button, soft layered shadows, and type doing the
+   work color would otherwise do.
    ========================================================================== */
 
 :root {
   /* ---- Type (UI chrome) ------------------------------------------------- */
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   /* rem keeps browser/OS text-size preferences effective; screenplay type is
      specified separately in print units and is intentionally unaffected. */
-  --text-xs: 0.6875rem; /* micro labels, badges */
-  --text-sm: 0.78125rem; /* secondary, status bar, menu items */
-  --text-md: 0.875rem; /* default controls, panel body */
-  --text-lg: 1rem; /* panel titles, modal titles, doc title */
-  --text-xl: 1.375rem; /* dashboard headings */
+  --text-xs: 0.6875rem; /* 11px: micro labels, badges */
+  --text-sm: 0.75rem; /* 12px: secondary, status bar, hints */
+  --text-md: 0.8125rem; /* 13px: controls, menus, panel body */
+  --text-lg: 0.9375rem; /* 15px: panel titles, modal titles, doc title */
+  --text-xl: 1.375rem; /* 22px: dashboard headings */
 
   /* ---- Color, light ------------------------------------------------------ */
-  --desk: #ececea; /* warm gray desk behind the page */
+  --desk: #ebeae7; /* warm grey desk behind the page */
   --paper: #ffffff; /* the script page */
-  --surface: #f6f6f4; /* bars, cards, inputs sit here, not pure white */
-  --surface-2: #efefed; /* hover fill, recessed wells */
-  --ink: #17171a; /* text + active states */
-  --muted: #63636b; /* secondary text; 4.6:1 on --surface */
-  --hairline: #85858c; /* >=3.10:1 against every light chrome surface */
+  --surface: #f9f9f8; /* bars and rails: near white, divided by a hairline */
+  --surface-2: rgba(28, 28, 30, 0.055); /* hover fill, recessed wells */
+  --surface-3: rgba(28, 28, 30, 0.09); /* pressed / selected fill */
+  --ink: #1c1c1e; /* text + active states */
+  --muted: #66666b; /* secondary text; >=4.9:1 on --surface */
+  --faint: #8e8e93; /* tertiary marks that carry no meaning alone */
+  /* Decorative dividers between regions. A separator carries no meaning of its
+     own (the regions it divides do), so it can be as light as it looks. */
+  --hairline: rgba(28, 28, 30, 0.1);
+  /* The outline of a control a writer has to find: fields, bordered buttons,
+     checkboxes. >=3:1 against every light chrome surface (WCAG 1.4.11). */
+  --control-line: #8a8a8f;
+  /* A bordered button: visible, but lighter than a field it sits beside. */
+  --line-strong: rgba(28, 28, 30, 0.2);
   --placeholder: var(--muted);
-  --selection: rgba(47, 109, 246, 0.25); /* the only blues left, with find */
-  --find-hit: rgba(47, 109, 246, 0.2);
-  --find-hit-active: rgba(47, 109, 246, 0.38);
+  --selection: rgba(47, 109, 246, 0.22); /* the only blues left, with find */
+  --find-hit: rgba(47, 109, 246, 0.18);
+  --find-hit-active: rgba(47, 109, 246, 0.36);
   --ok: #137a44; /* >=4.68:1 against every light chrome surface */
   --warn: #7a5200; /* >=6.01:1 against every light chrome surface */
   --danger: #b42318; /* destructive text/icons; >=5.71:1 on light chrome */
@@ -43,13 +59,13 @@
   --doc-green: #16753c;
   --doc-blue: #2f6df6;
   --doc-purple: #7c3aed;
-  --ring: #17171a; /* :focus-visible */
-  /* Inverted surface for toasts and sticky banners (finding B6 colors). */
-  --inverse-surface: #17171a;
+  --ring: #1c1c1e; /* :focus-visible */
+  /* Inverted surface for toasts, tooltips and sticky banners. */
+  --inverse-surface: #1c1c1e;
   --inverse-ink: #f4f4f2;
 
   /* ---- Geometry ---------------------------------------------------------- */
-  --r-sm: 4px; /* controls */
+  --r-sm: 6px; /* controls */
   --r-md: 8px; /* menus, cards */
   --r-lg: 12px; /* modals */
   /* Spacing scale: the only gaps and paddings allowed in chrome. */
@@ -59,12 +75,21 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  /* Control heights. A desk has a mouse; a touch screen gets the 44px floor
+     back (see the pointer: coarse block in globals.css). */
+  --control-h: 28px;
+  --bar-h: 44px; /* the editor's top bar */
+  --status-h: 28px; /* the status bar */
 
   /* ---- Elevation ---------------------------------------------------------- */
-  --e1: 0 1px 2px rgba(0, 0, 0, 0.06); /* rails, bars */
-  --e2: 0 4px 16px -4px rgba(0, 0, 0, 0.12); /* menus, popovers */
-  --e3: 0 16px 48px -12px rgba(0, 0, 0, 0.24); /* modals, palette */
-  --sheet-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 8px 32px -16px rgba(0, 0, 0, 0.16);
+  --e1: 0 1px 2px rgba(0, 0, 0, 0.05); /* rails, bars */
+  --e2: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.04),
+    0 10px 28px -6px rgba(0, 0, 0, 0.18); /* menus, popovers */
+  --e3: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 24px 64px -12px rgba(0, 0, 0, 0.3); /* modals, palette */
+  /* Paper on a desk: a hairline edge, a close soft contact shadow, and a wide
+     faint ambient one. */
+  --sheet-shadow: 0 0 0 1px rgba(0, 0, 0, 0.035), 0 1px 2px rgba(0, 0, 0, 0.07),
+    0 6px 20px -4px rgba(0, 0, 0, 0.08);
 
   /* ---- Z scale ------------------------------------------------------------ */
   --z-dock: 10;
@@ -83,13 +108,17 @@
 }
 
 :root[data-theme="dark"] {
-  --desk: #131316;
-  --paper: #1e1e22;
-  --surface: #1a1a1e;
-  --surface-2: #232328;
-  --ink: #e9e9ed;
-  --muted: #a0a0a8;
-  --hairline: #6d6d77; /* >=3.06:1 against every dark chrome surface */
+  --desk: #111113;
+  --paper: #1d1d20;
+  --surface: #18181b;
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.1);
+  --ink: #ececef;
+  --muted: #a1a1a8;
+  --faint: #7c7c84;
+  --hairline: rgba(255, 255, 255, 0.09);
+  --control-line: #6f6f78; /* >=3:1 against every dark chrome surface */
+  --line-strong: rgba(255, 255, 255, 0.2);
   --placeholder: var(--muted);
   --ok: #4ade80;
   --warn: #f5c451;
@@ -102,14 +131,18 @@
   --doc-green: #68d391;
   --doc-blue: #8ab4ff;
   --doc-purple: #c4a7ff;
-  --ring: #e9e9ed;
-  --inverse-surface: #e9e9ed;
-  --inverse-ink: #17171a;
-  --sheet-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 8px 32px -16px rgba(0, 0, 0, 0.45);
+  --ring: #ececef;
+  --inverse-surface: #ececef;
+  --inverse-ink: #1c1c1e;
+  --e1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --e2: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 10px 28px -6px rgba(0, 0, 0, 0.6);
+  --e3: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 24px 64px -12px rgba(0, 0, 0, 0.7);
+  --sheet-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4),
+    0 8px 24px -6px rgba(0, 0, 0, 0.5);
   /* Selection colors are unchanged; semantic colors are theme-specific. */
 }
 
-/* ---- Accessibility floor (Part 2H) -------------------------------------- */
+/* ---- Accessibility floor ------------------------------------------------ */
 /* One visible keyboard focus ring everywhere. Surfaces that provide their own
    focus treatment (the editor prose, fields with a border change) may still
    suppress the default outline locally. No transition: the ring is immediate. */

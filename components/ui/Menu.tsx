@@ -10,7 +10,7 @@ import { restoreFocus } from "@/lib/restoreFocus";
  * preferred side, clamps to the viewport, and speaks full keyboard: ArrowUp
  * and ArrowDown cycle, Enter activates, Esc closes and restores focus,
  * clicking outside closes. Items can be plain actions, checkbox toggles,
- * radio rows, dividers, or danger-styled actions.
+ * radio rows, dividers, section labels, or danger-styled actions.
  */
 
 export type MenuItem =
@@ -39,7 +39,9 @@ export type MenuItem =
       group?: string;
       hint?: string;
     }
-  | { kind: "divider" };
+  | { kind: "divider" }
+  /** A small heading over the items that follow it (not selectable). */
+  | { kind: "label"; label: string };
 
 type Side = "bottom" | "top";
 
@@ -68,7 +70,10 @@ export function Menu({
     () =>
       items
         .map((it, i) => ({ it, i }))
-        .filter(({ it }) => it.kind !== "divider" && !("disabled" in it && it.disabled)),
+        .filter(
+          ({ it }) =>
+            it.kind !== "divider" && it.kind !== "label" && !("disabled" in it && it.disabled)
+        ),
     [items]
   );
   const [active, setActive] = useState(() => (selectable.length ? selectable[0].i : -1));
@@ -131,7 +136,7 @@ export function Menu({
 
   const activate = (i: number) => {
     const it = items[i];
-    if (!it || it.kind === "divider") return;
+    if (!it || it.kind === "divider" || it.kind === "label") return;
     if ("disabled" in it && it.disabled) return;
     if (it.kind === "checkbox") {
       it.onToggle();
@@ -185,6 +190,13 @@ export function Menu({
       {items.map((it, i) => {
         if (it.kind === "divider") {
           return <div key={"d" + i} className="ui-menu-divider" role="separator" />;
+        }
+        if (it.kind === "label") {
+          return (
+            <div key={"l" + i} className="ui-menu-label" role="presentation">
+              {it.label}
+            </div>
+          );
         }
         const checked =
           it.kind === "checkbox" || it.kind === "radio" ? it.checked : undefined;

@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * The chrome icon set (Superaudit 2, 2B.2): 16px stroke icons, stroke 2,
- * round caps and joins, matching the element-icon voice already in the editor
- * gutter (lib/editor/elementIcons.ts). Pure presentational SVG, colored by
+ * The chrome icon set: 16px stroke icons (the rail draws them at 17px), a
+ * 1.75 stroke with round caps and joins, matching the element-icon voice in the
+ * editor gutter (lib/editor/elementIcons.ts). A stroke of 2 read heavy next
+ * to 13px type; 1.75 sits with it. Pure presentational SVG, colored by
  * currentColor so the rail and bars tint them with tokens.
  */
 
@@ -15,7 +16,7 @@ function Svg({ children }: { children: React.ReactNode }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
