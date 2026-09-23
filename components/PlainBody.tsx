@@ -58,6 +58,7 @@ import type { MenuItem } from "./ui/Menu";
 import { listFolders } from "@/lib/storage/folders";
 import { cardForProject } from "@/lib/storage/library";
 import { PageBackdrop } from "./PageBackdrop";
+import { useCalmPending } from "@/lib/ui/useCalmPending";
 
 export function PlainBody({
   projectId,
@@ -108,6 +109,8 @@ export function PlainBody({
   const [caretPage, setCaretPage] = useState(1);
   const [saved, setSaved] = useState(true);
   const [saveError, setSaveError] = useState(false);
+  // Only a save that is actually slow gets a word (see useCalmPending).
+  const showSaving = useCalmPending(!saved && !saveError, 3000);
   const [showAuth, setShowAuth] = useState(false);
   // Plain documents get one dock panel: History (2B.3).
   const [activePanel, setActivePanel] = useState<PanelId | null>(null);
@@ -552,7 +555,7 @@ export function PlainBody({
                   : undefined
               }
             >
-              {saveError ? "Not saved" : saved ? "Saved" : "Saving…"}
+              {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
             </span>
           </div>
         }

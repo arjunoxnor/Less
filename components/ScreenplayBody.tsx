@@ -639,6 +639,8 @@ function ScreenplayEditor({
           () => benchmarkPaginationPass(editor.view);
         (window as unknown as { __lessExportStarts?: () => unknown }).__lessExportStarts = () =>
           paginate(docToLines(editor.getJSON())).pages.map((p) => p.startLine);
+        (window as unknown as { __lessExportPages?: () => unknown }).__lessExportPages = () =>
+          paginate(docToLines(editor.getJSON())).pages;
       }
     },
     onUpdate: ({ editor }) => {

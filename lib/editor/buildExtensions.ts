@@ -20,6 +20,7 @@ import { buildSpellcheck, type SpellState } from "./spellcheck";
 import { buildRevisionTracker } from "./revisions";
 import { buildGhostHint } from "./ghostHint";
 import {
+  ParentheticalBrackets,
   ParentheticalEditing,
   PARENTHETICAL_PLACEHOLDER,
 } from "./parenthetical";
@@ -28,6 +29,7 @@ import type { ElementType } from "./elements";
 import type { Outline } from "@/types/screenplay";
 import type { NSpell } from "nspell";
 import type { DuetSession } from "@/lib/collab/duet";
+import { DualLayout } from "./dualLayout";
 
 /** Hint shown on the current empty line, tailored to its element type. */
 function placeholderFor(element: ElementType): string {
@@ -94,7 +96,11 @@ export function buildExtensions(opts?: {
     Document.extend({ content: "screenplayLine+" }),
     Text,
     ScreenplayLine,
+    // Names the two columns of each dual-dialogue pair so they lay out side
+    // by side (the page engine stands the right column up beside the left).
+    DualLayout,
     ParentheticalEditing,
+    ParentheticalBrackets,
     ScreenplayKeymap,
     AutoCaps,
     SmartCaps,

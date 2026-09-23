@@ -55,9 +55,10 @@ const UPPERCASE_ELEMENTS: ReadonlySet<ElementType> = new Set<ElementType>([
 /** Supply screenplay punctuation without changing the stored editor document. */
 export function ensureParentheticalParens(text: string): string {
   const trimmed = text.trim();
-  return trimmed.startsWith("(") && trimmed.endsWith(")")
-    ? trimmed
-    : `(${trimmed})`;
+  // Supply only the bracket that is missing: "(beat" prints "(beat)", not
+  // "((beat)". The screen shows the same brackets (parentheticalBrackets in
+  // lib/editor/parenthetical.ts), so the line wraps alike in both places.
+  return (trimmed.startsWith("(") ? "" : "(") + trimmed + (trimmed.endsWith(")") ? "" : ")");
 }
 
 /**

@@ -9,6 +9,7 @@ import {
 } from "@/lib/editor/elements";
 import { Menu, type MenuItem } from "../ui/Menu";
 import { ChevronUpIcon } from "./icons";
+import { useCalmPending } from "@/lib/ui/useCalmPending";
 
 /**
  * The 26px status bar (Superaudit 2, 2B.4). Left: the element pill (click or
@@ -52,6 +53,9 @@ export function EditorStatusBar({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pillRef = useRef<HTMLButtonElement>(null);
+  // Local saves land within a couple of seconds of every pause; only one that
+  // is taking longer is worth a word (see useCalmPending).
+  const showSaving = useCalmPending(!saved && !saveError, 3000);
 
   // Ctrl/Cmd+E toggles the element menu (2B.4). preventDefault so the
   // browser's own Cmd+E behavior never fires while writing.
@@ -150,7 +154,7 @@ export function EditorStatusBar({
             : undefined
         }
       >
-        {saveError ? "Not saved" : saved ? "Saved" : "Saving…"}
+        {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
       </span>
     </div>
   );

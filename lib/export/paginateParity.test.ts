@@ -36,6 +36,7 @@ import { paginate } from "./paginate";
 import { LAYOUT, LINES_PER_PAGE, sanitize, wrap } from "./layout";
 import { cueBaseName } from "@/lib/editor/outline";
 import { planPages, textSplitModel, type PlanBlock } from "@/lib/editor/pagination";
+import { findDualPairs } from "@/lib/editor/dualLayout";
 import type { ScriptLine } from "@/types/screenplay";
 import type { JSONContent } from "@tiptap/core";
 
@@ -60,12 +61,23 @@ const unbroken = (k: number) => "x".repeat(35 * k);
 /** Reduce ScriptLines to the planner's metrics exactly as compute() does in
     the browser (rows from the export's own wrap, blanks from LAYOUT, the cue
     flag from the nearest preceding named character). */
+/** The export's dual column widths (paginate.ts dualColumn). */
+const DUAL_COLS: Record<string, number> = { character: 22, parenthetical: 20, dialogue: 25 };
+
 function planBlocksFrom(lines: ScriptLine[]): PlanBlock[] {
   let currentCue: string | null = null;
-  return lines.map((l) => {
+  // Lines of a dual pair (and any dual line) wrap in the narrower columns.
+  const inDual = new Set<number>();
+  for (const p of findDualPairs(lines.map((l) => ({ kind: l.element, dual: l.dual === true })))) {
+    for (let i = p.leftStart; i < p.rightEnd; i++) inDual.add(i);
+  }
+  return lines.map((l, index) => {
     const el = LAYOUT[l.element] ?? LAYOUT.action;
     const text = sanitize(l.text);
-    const rows = wrap(text, el.maxChars, el.hang ?? 0).length;
+    const dualWidth = inDual.has(index) || l.dual === true ? DUAL_COLS[l.element] : undefined;
+    const rows = dualWidth
+      ? wrap(text, dualWidth).length
+      : wrap(text, el.maxChars, el.hang ?? 0).length;
     if (l.element === "character") {
       currentCue = cueBaseName(l.text).toUpperCase() || null;
     } else if (
@@ -391,5 +403,87 @@ describe("the Final Draft / Arc Studio break rules", () => {
     ];
     const { exported } = assertParity(docToLines(docOf(...nodes)));
     expect(exported.pages.map((p) => p.startLine)).toEqual([0, 1]);
+  });
+});
+
+describe("dual dialogue: one side-by-side unit, on screen and in the PDF", () => {
+  it("places a pair as tall as its taller column", () => {
+    const nodes: JSONContent[] = [
+      line("scene_heading", "INT. KITCHEN - NIGHT"),
+      line("character", "MARA"),
+      line("dialogue", "You never listen to a single thing I say, not once, not in twelve years."),
+      line("character", "JONAH", { dual: true }),
+      line("parenthetical", "(over her)", { dual: true }),
+      line("dialogue", "I listen to everything. That is the problem.", { dual: true }),
+      line("action", "Silence."),
+    ];
+    const lines = docToLines(docOf(...nodes));
+    const { exported } = assertParity(lines);
+    // Heading, blank, pair (4 rows: MARA's column is the taller), blank,
+    // action: the action is on the ninth line.
+    const action = exported.pages[0].ops.find((o) => o.text === "Silence.")!;
+    expect(action.y).toBe(708 - 8 * 12);
+  });
+
+  it("a block kept with a pair keeps the whole pair, in its narrow columns", () => {
+    // Found by a randomized edit run: a stray cue right before a pair. The PDF
+    // engine used to size that cue's keep from the pair's lines at normal
+    // width while the screen used the narrow dual width, and the two engines
+    // then broke the page in different places.
+    for (let filler = 38; filler <= 50; filler++) {
+      const nodes: JSONContent[] = [
+        line("scene_heading", "INT. STALL - DAY"),
+        line("action", act(filler)),
+        line("character", "K"),
+        line("character", "MARA"),
+        line("character", "I TOLD YOU ALREADY, I AM NOT GOING BACK THERE, NOT TONIGHT, NOT EVER. JONAH", { dual: true }),
+        line("parenthetical", "(over her)", { dual: true }),
+        line("dialogue", "I listen to everything. That is the problem.", { dual: true }),
+        line("action", act(2)),
+      ];
+      assertParity(docToLines(docOf(...nodes)));
+    }
+  });
+
+  it("places a dual line outside any pair in the right column, like the PDF", () => {
+    // A transition where the pair's first cue used to be leaves the second
+    // speaker's lines as orphans: each keeps its narrow column and no keep
+    // rule, on screen as in the PDF.
+    for (let filler = 36; filler <= 50; filler++) {
+      const nodes: JSONContent[] = [
+        line("scene_heading", "INT. ROOM - DAY"),
+        line("action", act(filler)),
+        line("transition", "CUT TO:"),
+        line("character", "JO", { dual: true }),
+        line("parenthetical", "(the door opens slowly and a cold wind follows her inside)", { dual: true }),
+        line("dialogue", "I listen to everything. That is the problem.", { dual: true }),
+        line("character", "NIKHIL"),
+        line("dialogue", "Good. Definitely wasn't himself towards the end. But good."),
+      ];
+      assertParity(docToLines(docOf(...nodes)));
+    }
+  });
+
+  it("holds for pairs of every height at every position near a page bottom", () => {
+    for (let filler = 36; filler <= 52; filler++) {
+      for (const [leftRows, rightRows] of [
+        [1, 1],
+        [2, 5],
+        [5, 2],
+        [4, 4],
+        [8, 3],
+      ]) {
+        const nodes: JSONContent[] = [
+          line("scene_heading", "INT. ROOM - DAY"),
+          line("action", act(filler)),
+          line("character", "AVA"),
+          line("dialogue", sentences(leftRows, 25)),
+          line("character", "BEN", { dual: true }),
+          line("dialogue", sentences(rightRows, 25), { dual: true }),
+          line("action", act(3)),
+        ];
+        assertParity(docToLines(docOf(...nodes)));
+      }
+    }
   });
 });

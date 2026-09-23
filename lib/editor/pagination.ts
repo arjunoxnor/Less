@@ -3,6 +3,7 @@ import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { cueBaseName } from "./outline";
+import { findDualPairs, type DualPair } from "./dualLayout";
 import { LAYOUT, wrap } from "@/lib/export/layout";
 import {
   MIN_SPLIT_LINES,
@@ -169,7 +170,16 @@ function firstDialogueKeep(b: PlanBlock, exact: boolean): number {
 /** Mirror of the export engine's keepSlotsFrom: room a keep-with-next block
     needs at a page bottom, counting parenthetical chains, the reservation for
     a following speech, and a heading's two lines of action. Depth-bounded. */
-function keepSlotsFrom(blocks: PlanBlock[], i: number, exact: boolean, depth = 0): number {
+function keepSlotsFrom(
+  blocks: PlanBlock[],
+  i: number,
+  exact: boolean,
+  pairHeights: Map<number, number>,
+  depth = 0
+): number {
+  // A dual pair is placed whole: a block kept with one keeps the whole pair.
+  const keepFrom = (j: number) =>
+    pairHeights.get(j) ?? keepSlotsFrom(blocks, j, exact, pairHeights, depth + 1);
   let slots = blocks[i].rows;
   let j = i + 1;
   while (j < blocks.length && blocks[j].kind === "parenthetical") {
@@ -181,14 +191,14 @@ function keepSlotsFrom(blocks: PlanBlock[], i: number, exact: boolean, depth = 0
     if (next.kind === "dialogue") {
       slots += next.spaceBefore + firstDialogueKeep(next, exact);
     } else if (depth < 8 && (next.kind === "scene_heading" || next.kind === "character")) {
-      slots += next.spaceBefore + keepSlotsFrom(blocks, j, exact, depth + 1);
+      slots += next.spaceBefore + keepFrom(j);
     } else if (blocks[i].kind === "scene_heading" && next.kind === "action") {
       const rows = next.rows;
       slots += next.spaceBefore + Math.min(HEADING_KEEP_LINES, rows);
       const after = blocks[j + 1];
       if (rows < HEADING_KEEP_LINES && after) {
         if (depth < 8 && (after.kind === "character" || after.kind === "scene_heading")) {
-          slots += after.spaceBefore + keepSlotsFrom(blocks, j + 1, exact, depth + 1);
+          slots += after.spaceBefore + keepFrom(j + 1);
         } else {
           slots += after.spaceBefore + Math.min(HEADING_KEEP_LINES - rows, after.rows);
         }
@@ -219,6 +229,19 @@ function keepSlotsFrom(blocks: PlanBlock[], i: number, exact: boolean, depth = 0
 export function planPages(blocks: PlanBlock[], linesPerPage: number): PlanResult {
   const n = blocks.length;
   const exempt = dualExemptFlags(blocks);
+  // Dual pairs stand side by side, so a pair is one unit as tall as its taller
+  // column (the export's placeDualPair). Its left column's cue is where it
+  // starts.
+  const pairAt = new Map<number, DualPair>();
+  const pairHeights = new Map<number, number>();
+  for (const pair of findDualPairs(blocks)) {
+    pairAt.set(pair.leftStart, pair);
+    let left = 0;
+    for (let k = pair.leftStart; k < pair.leftEnd; k++) left += blocks[k].rows;
+    let right = 0;
+    for (let k = pair.rightStart; k < pair.rightEnd; k++) right += blocks[k].rows;
+    pairHeights.set(pair.leftStart, Math.max(left, right));
+  }
 
   const breaks: PlanBreak[] = [];
   const pageStartBlocks: (number | undefined)[] = [];
@@ -343,8 +366,51 @@ export function planPages(blocks: PlanBlock[], linesPerPage: number): PlanResult
     }
   };
 
+  /** Mirror of the export's placeDualPair: the pair moves whole to the next
+      page when it does not fit (and would fit a page); a pair taller than a
+      page fills page after page, line by line. No (MORE)/(CONT'D). */
+  const placePair = (p: DualPair) => {
+    const i = p.leftStart;
+    let leftRows = 0;
+    for (let k = p.leftStart; k < p.leftEnd; k++) leftRows += blocks[k].rows;
+    let rightRows = 0;
+    for (let k = p.rightStart; k < p.rightEnd; k++) rightRows += blocks[k].rows;
+    const height = Math.max(leftRows, rightRows);
+    let lead = atPageTop ? 0 : blocks[i].spaceBefore;
+    if (!atPageTop && lead + height > remaining() && height <= linesPerPage) {
+      moveWhole(i);
+      lead = 0;
+    }
+    if (lead > 0) {
+      if (lead >= remaining()) moveWhole(i);
+      else advanceBlank(lead);
+    }
+    let row = 0;
+    while (row < height) {
+      if (remaining() <= 0) {
+        newPage({
+          index: i,
+          row,
+          rowFromStart: row,
+          rowsAfter: height - row,
+          more: false,
+          contd: false,
+        });
+      }
+      const take = Math.min(height - row, remaining());
+      placeRows(take);
+      row += take;
+    }
+  };
+
   for (let i = 0; i < n; i++) {
     activeIndex = i;
+    const pair = pairAt.get(i);
+    if (pair) {
+      placePair(pair);
+      i = pair.rightEnd - 1;
+      continue;
+    }
     const b = blocks[i];
     let leadingBlanks = atPageTop ? 0 : b.spaceBefore;
 
@@ -353,14 +419,17 @@ export function planPages(blocks: PlanBlock[], linesPerPage: number): PlanResult
     // actually fit on a fresh page. The exact reservation asks the next
     // speech where its sentences end, so it is only worked out when the whole
     // run could not fit anyway.
+    // A dual line outside a pair is placed on its own, before any keep rule
+    // (the export's placeDualSolo), so it neither keeps nor is kept.
     const keeps =
-      b.kind === "character" || b.kind === "parenthetical" || b.kind === "scene_heading";
+      !b.dual &&
+      (b.kind === "character" || b.kind === "parenthetical" || b.kind === "scene_heading");
     if (
       keeps &&
       !atPageTop &&
-      leadingBlanks + keepSlotsFrom(blocks, i, false) > remaining()
+      leadingBlanks + keepSlotsFrom(blocks, i, false, pairHeights) > remaining()
     ) {
-      const keep = keepSlotsFrom(blocks, i, true);
+      const keep = keepSlotsFrom(blocks, i, true, pairHeights);
       if (leadingBlanks + keep > remaining() && keep <= linesPerPage) {
         moveWhole(i);
         leadingBlanks = 0;
@@ -711,11 +780,15 @@ function compute(
       currentCue = null;
     }
     const hosted = hostedAll.get(offset) ?? [];
+    // The only inline padding a line ever carries is the one this engine puts
+    // on the end of a dual pair's shorter column; it is never part of the
+    // line's own height, even on the pass after the pair has come apart.
+    const padding = dom.style.paddingBottom ? parseFloat(dom.style.paddingBottom) || 0 : 0;
     measured.push({
       pos: offset,
       node,
       el: dom,
-      cleanHeight: hosted.length ? cleanBlockHeight(dom) : dom.offsetHeight,
+      cleanHeight: (hosted.length ? cleanBlockHeight(dom) : dom.offsetHeight) - padding,
       element,
       dual: node.attrs.dual === true,
       mt: 0,
@@ -728,6 +801,11 @@ function compute(
   });
 
   const n = measured.length;
+
+  // Dual pairs, by the index of their left column's cue.
+  const pairs = findDualPairs(measured.map((b) => ({ kind: b.element, dual: b.dual })));
+  const pairStart = new Map<number, DualPair>();
+  for (const p of pairs) pairStart.set(p.leftStart, p);
 
   // Margins, line height, and the column width in characters come from the
   // per-kind cache (one getComputedStyle per distinct class list, not per
@@ -853,7 +931,73 @@ function compute(
     return top;
   };
 
+  // A pair's columns, measured: the page lays them side by side by pulling
+  // the right column up by the left column's height and padding the shorter
+  // side's end, so the pair takes exactly as much page as its taller column.
+  const columnHeight = (from: number, to: number) => {
+    let h = 0;
+    for (let k = from; k < to; k++) {
+      const m = measured[k];
+      if (k > from) h += m.mt;
+      h += Math.max(1, Math.round(m.cleanHeight / lineH)) * lineH;
+    }
+    return h;
+  };
+
   for (let i = 0; i < n; i++) {
+    const pair = pairStart.get(i);
+    if (pair) {
+      const first = measured[i];
+      const brs = breaksByBlock.get(i) ?? [];
+      let segTextY: number;
+      if (brs[0]?.row === 0) {
+        const top = nextPageTop(y + first.mt);
+        const gap = Math.max(0, top - y - first.mt);
+        const specKey = `gap-${Math.round(gap)}`;
+        decos.push(
+          Decoration.widget(first.pos, () => spacerEl(gap), {
+            side: -1,
+            key: specKey,
+            ignoreSelection: true,
+            marks: [],
+            pageBreak: true,
+          })
+        );
+        sigEntries.push({ from: first.pos, key: specKey });
+        segTextY = top;
+      } else {
+        segTextY = y + first.mt;
+      }
+      const left = columnHeight(pair.leftStart, pair.leftEnd);
+      const right = columnHeight(pair.rightStart, pair.rightEnd);
+      const cue = measured[pair.rightStart];
+      const last = measured[pair.rightEnd - 1];
+      const pad = Math.max(0, left - right);
+      const styleFor = (block: MeasuredBlock) => {
+        const parts: string[] = [];
+        if (block === cue) parts.push(`margin-top: ${-left}px`);
+        if (block === last && pad > 0) parts.push(`padding-bottom: ${pad}px`);
+        return parts.join("; ");
+      };
+      for (const block of cue === last ? [cue] : [cue, last]) {
+        const style = styleFor(block);
+        if (!style) continue;
+        const specKey = `dual:${style}`;
+        decos.push(
+          Decoration.node(
+            block.pos,
+            block.pos + block.node.nodeSize,
+            { style },
+            { dualColumn: true, key: specKey }
+          )
+        );
+        sigEntries.push({ from: block.pos, key: specKey });
+      }
+      y = segTextY + Math.max(left, right) + last.mb;
+      i = pair.rightEnd - 1;
+      continue;
+    }
+
     const b = measured[i];
     const brs = breaksByBlock.get(i) ?? [];
     let segTextY: number; // y where the current piece's first row renders
@@ -876,6 +1020,7 @@ function compute(
           key: specKey,
           ignoreSelection: true,
           marks: [],
+          pageBreak: true,
         })
       );
       sigEntries.push({ from: b.pos, key: specKey });
@@ -906,6 +1051,7 @@ function compute(
           key: specKey,
           ignoreSelection: true,
           marks: [],
+          pageBreak: true,
         })
       );
       sigEntries.push({ from: widgetPos, key: specKey });
@@ -992,7 +1138,7 @@ function sigOfState(state: EditorState): string {
 export function pageAtPos(state: EditorState, pos: number): number {
   const s = key.getState(state);
   if (!s) return 1;
-  return 1 + s.decos.find(0, pos).length;
+  return 1 + s.decos.find(0, pos, (spec) => spec.pageBreak === true).length;
 }
 
 /* ============================================================================

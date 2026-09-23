@@ -11,6 +11,7 @@ import {
   normalizeLibraryName,
 } from "@/lib/storage/library";
 import { ThemeToggle } from "./ThemeToggle";
+import { useCalmPending } from "@/lib/ui/useCalmPending";
 import type { DuetConnectionStatus, DuetParticipant } from "@/lib/collab/duet";
 
 /**
@@ -78,6 +79,14 @@ export function TopBar({
    *  brand-new "Untitled screenplay" can be named by just typing. */
   autoFocusTitle?: boolean;
 }) {
+  // A push follows every pause in typing; "Saving" only shows when one takes
+  // longer than that, so the word next to the title is not in constant motion.
+  // Until then the last settled word stays (an error keeps saying so).
+  const slowSync = useCalmPending(syncStatus === "syncing", 3500);
+  const settledSync = useRef<SyncStatus>(syncStatus === "syncing" ? "synced" : syncStatus);
+  if (syncStatus !== "syncing") settledSync.current = syncStatus;
+  const shownSync: SyncStatus =
+    syncStatus === "syncing" && !slowSync ? settledSync.current : syncStatus;
   const safeTitle = normalizeLibraryName(title, "Untitled");
   const [draft, setDraft] = useState(safeTitle);
   useEffect(() => setDraft(safeTitle), [safeTitle]);
@@ -167,8 +176,8 @@ export function TopBar({
           </button>
         ) : user ? (
           <span className="topbar-sync" title="Cloud sync">
-            <span className={"sync-dot sync-" + syncStatus} aria-hidden="true" />
-            {SYNC_WORD[syncStatus]}
+            <span className={"sync-dot sync-" + shownSync} aria-hidden="true" />
+            {SYNC_WORD[shownSync]}
           </span>
         ) : (
           <button

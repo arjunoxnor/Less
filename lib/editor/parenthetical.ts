@@ -208,3 +208,60 @@ export const ParentheticalEditing = Extension.create({
     ];
   },
 });
+
+const bracketsKey = new PluginKey<DecorationSet>("parentheticalBrackets");
+
+function bracketSpan(text: string): () => HTMLElement {
+  return () => {
+    const span = document.createElement("span");
+    span.className = "sp-paren-supplied";
+    span.setAttribute("contenteditable", "false");
+    span.textContent = text;
+    return span;
+  };
+}
+
+function suppliedBrackets(doc: PMNode): DecorationSet {
+  const decos: Decoration[] = [];
+  doc.forEach((node, pos) => {
+    if (node.attrs.element !== "parenthetical") return;
+    const text = node.textContent;
+    if (text.trim() === "") return;
+    const from = pos + 1;
+    const to = pos + 1 + node.content.size;
+    if (!text.trimStart().startsWith("(")) {
+      decos.push(Decoration.widget(from, bracketSpan("("), { side: -1, key: "paren-open", marks: [] }));
+    }
+    if (!text.trimEnd().endsWith(")")) {
+      decos.push(Decoration.widget(to, bracketSpan(")"), { side: 1, key: "paren-close", marks: [] }));
+    }
+  });
+  return decos.length ? DecorationSet.create(doc, decos) : DecorationSet.empty;
+}
+
+/**
+ * A parenthetical from an older document or an import may have no brackets
+ * of its own. The printed page adds them (ensureParentheticalParens), so the
+ * page on screen shows them too, as marks the writer cannot type into: the
+ * script reads as it will print, and the line wraps where the PDF wraps it.
+ */
+export const ParentheticalBrackets = Extension.create({
+  name: "parentheticalBrackets",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<DecorationSet>({
+        key: bracketsKey,
+        state: {
+          init: (_config, state) => suppliedBrackets(state.doc),
+          apply: (tr, old, _oldState, newState) =>
+            tr.docChanged ? suppliedBrackets(newState.doc) : old,
+        },
+        props: {
+          decorations(state) {
+            return bracketsKey.getState(state);
+          },
+        },
+      }),
+    ];
+  },
+});

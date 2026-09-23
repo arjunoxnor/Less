@@ -543,20 +543,49 @@ body {
 }
 
 /* ---- Dual (side-by-side) dialogue --------------------------------------- */
-/* On screen we indent the right-column cue and its lines into the right half,
-   immediately after the left block (visually paired, not pixel-aligned equal
-   height). True equal-height side-by-side needs a NodeView and is a follow-up;
-   the exported PDF lays the two columns out exactly. */
+/* The two speeches of a pair sit side by side, in the export engine's column
+   geometry so a line wraps in the same place on screen and in the PDF: each
+   column is 25 characters of dialogue, the cue four characters in (22 wide),
+   the parenthetical three in (20 wide, no hanging indent), the right column
+   starting three inches from the left margin. The columns are named by the
+   DualLayout plugin (sp-dual-left / sp-dual-right); the page engine pulls the
+   right column up beside the left and pads the shorter side, because only
+   measured heights can do that (a CSS float cannot rise above an earlier
+   float, so a float cannot line the two cues up). */
+.sp-prose .sp-dual-left,
+.sp-prose .sp-line[data-dual="true"] {
+  margin-right: 0;
+  padding-left: 0;
+  text-indent: 0;
+  text-align: left;
+}
+.sp-prose .sp-dialogue.sp-dual-left {
+  margin-left: 0;
+  width: 2.5in;
+}
+.sp-prose .sp-character.sp-dual-left {
+  margin-left: 0.4in;
+  width: 2.2in;
+}
+.sp-prose .sp-parenthetical.sp-dual-left {
+  margin-left: 0.3in;
+  width: 2in;
+}
+/* The right column: every dual line, paired or not. A dual line outside a
+   pair (an orphan from an import, or a pair taken apart by an edit) is drawn
+   exactly where the PDF draws it, in the same column; any line that is not a
+   cue or a parenthetical takes the dialogue's column, as the export does. */
 .sp-prose .sp-line[data-dual="true"] {
   margin-left: 3in;
-  margin-right: 0;
-  width: 2.7in;
+  width: 2.5in;
 }
 .sp-prose .sp-character[data-dual="true"] {
-  margin-left: 3.3in;
+  margin-left: 3.4in;
+  width: 2.2in;
 }
 .sp-prose .sp-parenthetical[data-dual="true"] {
-  margin-left: 3.2in;
+  margin-left: 3.3in;
+  width: 2in;
 }
 
 
@@ -2992,16 +3021,34 @@ body {
     margin-left: 12%;
     margin-right: 10%;
   }
-  .sp-prose .sp-line[data-dual="true"] {
-    margin-left: 46%;
+  /* Dual columns on a narrow page: two halves with a small gutter. */
+  .sp-prose .sp-dialogue.sp-dual-left {
+    margin-left: 0;
+    width: 46%;
+  }
+  .sp-prose .sp-character.sp-dual-left {
+    margin-left: 7%;
+    width: 39%;
+  }
+  .sp-prose .sp-parenthetical.sp-dual-left {
+    margin-left: 5%;
+    width: 41%;
+  }
+  .sp-prose .sp-line[data-dual="true"],
+  .sp-prose .sp-dialogue.sp-dual-right {
+    margin-left: 52%;
     margin-right: 0;
-    width: 50%;
+    width: 46%;
   }
-  .sp-prose .sp-character[data-dual="true"] {
-    margin-left: 50%;
+  .sp-prose .sp-character[data-dual="true"],
+  .sp-prose .sp-character.sp-dual-right {
+    margin-left: 59%;
+    width: 39%;
   }
-  .sp-prose .sp-parenthetical[data-dual="true"] {
-    margin-left: 48%;
+  .sp-prose .sp-parenthetical[data-dual="true"],
+  .sp-prose .sp-parenthetical.sp-dual-right {
+    margin-left: 57%;
+    width: 41%;
   }
   .pm-split-more,
   .pm-split-contd {
@@ -4251,16 +4298,33 @@ body {
   .sp-prose .sp-transition {
     margin-right: 0.4in;
   }
-  .sp-prose .sp-line[data-dual="true"] {
-    width: 2.7in;
+  .sp-prose .sp-dialogue.sp-dual-left {
+    margin-left: 0;
+    width: 2.5in;
+  }
+  .sp-prose .sp-character.sp-dual-left {
+    margin-left: 0.4in;
+    width: 2.2in;
+  }
+  .sp-prose .sp-parenthetical.sp-dual-left {
+    margin-left: 0.3in;
+    width: 2in;
+  }
+  .sp-prose .sp-line[data-dual="true"],
+  .sp-prose .sp-dialogue.sp-dual-right {
+    width: 2.5in;
     margin-left: 3in;
     margin-right: 0;
   }
-  .sp-prose .sp-character[data-dual="true"] {
-    margin-left: 3.3in;
+  .sp-prose .sp-character[data-dual="true"],
+  .sp-prose .sp-character.sp-dual-right {
+    margin-left: 3.4in;
+    width: 2.2in;
   }
-  .sp-prose .sp-parenthetical[data-dual="true"] {
-    margin-left: 3.2in;
+  .sp-prose .sp-parenthetical[data-dual="true"],
+  .sp-prose .sp-parenthetical.sp-dual-right {
+    margin-left: 3.3in;
+    width: 2in;
   }
   .show-scene-numbers .sp-prose .sp-scene_heading::before {
     left: -1.15in;

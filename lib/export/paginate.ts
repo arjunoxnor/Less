@@ -16,6 +16,7 @@ import {
 import { cueBaseName } from "@/lib/editor/outline";
 import { computeContinuations, CONTD } from "@/lib/editor/contd";
 import { ensureParentheticalParens } from "./flatten";
+import { findDualPairs } from "@/lib/editor/dualLayout";
 import {
   MIN_SPLIT_LINES,
   chooseSplit,
@@ -155,9 +156,18 @@ function firstDialogueKeep(block: Block): number {
  * heading legitimately ends the final page). Depth-bounded against degenerate
  * chains.
  */
-function keepSlotsFrom(blocks: Block[], i: number, depth = 0): number {
+function keepSlotsFrom(
+  blocks: Block[],
+  i: number,
+  pairHeights: Map<number, number>,
+  depth = 0
+): number {
   // The block's own leading blank (spaceBefore) is handled by the caller; this
   // counts its rows plus the blanks + rows of every successor it reserves.
+  // A dual pair is placed whole, so a block kept with one keeps the whole
+  // pair, as tall as its taller column in the narrow dual widths.
+  const keepFrom = (j: number) =>
+    pairHeights.get(j) ?? keepSlotsFrom(blocks, j, pairHeights, depth + 1);
   let slots = blocks[i].rows.length;
   let j = i + 1;
   while (j < blocks.length && blocks[j].kind === "parenthetical") {
@@ -169,14 +179,14 @@ function keepSlotsFrom(blocks: Block[], i: number, depth = 0): number {
     if (next.kind === "dialogue") {
       slots += next.spaceBefore + firstDialogueKeep(next);
     } else if (depth < 8 && (next.kind === "scene_heading" || next.kind === "character")) {
-      slots += next.spaceBefore + keepSlotsFrom(blocks, j, depth + 1);
+      slots += next.spaceBefore + keepFrom(j);
     } else if (blocks[i].kind === "scene_heading" && next.kind === "action") {
       const rows = next.rows.length;
       slots += next.spaceBefore + Math.min(HEADING_KEEP_LINES, rows);
       const after = blocks[j + 1];
       if (rows < HEADING_KEEP_LINES && after) {
         if (depth < 8 && (after.kind === "character" || after.kind === "scene_heading")) {
-          slots += after.spaceBefore + keepSlotsFrom(blocks, j + 1, depth + 1);
+          slots += after.spaceBefore + keepFrom(j + 1);
         } else {
           slots += after.spaceBefore + Math.min(HEADING_KEEP_LINES - rows, after.rows.length);
         }
@@ -241,7 +251,13 @@ function buildBlocks(
         ? ensureParentheticalParens(sourceText)
         : sourceText;
     const text = clean(rawText);
-    const rows: Row[] = layoutRows(kind, text);
+    // A dual line is drawn in a narrow column (placeDualPair / placeDualSolo
+    // re-wrap it there); its rows are counted in that column everywhere else
+    // too, so a keep rule reserving room for it reserves what it will take.
+    const rows: Row[] =
+      line.dual === true
+        ? buildDualRows([{ kind, text } as Block], DUAL_RIGHT_X)
+        : layoutRows(kind, text);
 
     if (kind === "character") {
       currentCue = cueBaseName(text).toUpperCase() || undefined;
@@ -260,11 +276,22 @@ function buildBlocks(
       cueName: kind === "dialogue" ? currentCue : undefined,
       sceneNumber: kind === "scene_heading" ? ++sceneCounter : undefined,
       revised: line.revised === true,
+      // A dual line never breaks across a page (it is placed whole), so it has
+      // no sentence breaks to offer.
       splits:
-        kind === "dialogue" || kind === "action"
+        (kind === "dialogue" || kind === "action") && line.dual !== true
           ? splitOptions(text, (piece) => rowCount(kind, piece))
           : undefined,
     });
+  }
+
+  // The height of every dual pair, in the narrow columns it is drawn in, by
+  // the index of its left cue (what a kept block before it has to reserve).
+  const pairHeights = new Map<number, number>();
+  for (const p of findDualPairs(blocks)) {
+    const left = buildDualRows(blocks.slice(p.leftStart, p.leftEnd), DUAL_LEFT_X).length;
+    const right = buildDualRows(blocks.slice(p.rightStart, p.rightEnd), DUAL_RIGHT_X).length;
+    pairHeights.set(p.leftStart, Math.max(left, right));
   }
 
   // Precompute the keep-with-next room for every block that must not be stranded
@@ -272,7 +299,7 @@ function buildBlocks(
   for (let i = 0; i < blocks.length; i++) {
     const k = blocks[i].kind;
     if (k === "character" || k === "parenthetical" || k === "scene_heading") {
-      blocks[i].keepWithNextSlots = keepSlotsFrom(blocks, i);
+      blocks[i].keepWithNextSlots = keepSlotsFrom(blocks, i, pairHeights);
     }
   }
 
