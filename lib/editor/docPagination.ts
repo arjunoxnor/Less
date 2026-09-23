@@ -8,6 +8,7 @@ import {
   STRIDE,
   blockDoms,
   captureViewAnchor,
+  passCostTracker,
   restoreViewAnchor,
 } from "./pagination";
 
@@ -688,8 +689,8 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
     let passes = 0;
     let lastPages = -1;
     let microQueued = false;
-    // Running cost of a pass, to decide between same-frame and deferred.
-    let costMs = 0;
+    // What a pass costs, to decide between same-frame and deferred.
+    const cost = passCostTracker();
     // What the last pass measured (see editKeepsDocPages).
     let geometry: DocGeometry | null = null;
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -767,8 +768,7 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
             );
             restoreViewAnchor(view, anchor);
             geometry = docGeometry(view);
-            const elapsed = performance.now() - started;
-            costMs = costMs ? costMs * 0.7 + elapsed * 0.3 : elapsed;
+            cost.record(performance.now() - started);
             if (result.sig !== before) {
               if (passes < 4) {
                 passes++;
@@ -801,7 +801,7 @@ export const DocPagination = Extension.create<DocPaginationOptions>({
            */
           const soon = () => {
             if (destroyed) return;
-            if (costMs > SAME_FRAME_BUDGET_MS || view.composing) {
+            if (cost.typical() > SAME_FRAME_BUDGET_MS || view.composing) {
               schedule();
               return;
             }

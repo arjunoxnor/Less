@@ -278,6 +278,13 @@ export function planPages(blocks: PlanBlock[], linesPerPage: number): PlanResult
       (MORE) below the last line, NAME (CONT'D) on the next page. */
   const placeParagraph = (i: number) => {
     const b = blocks[i];
+    // Nearly every block fits where it stands. Only one that has to break
+    // asks for its text: reading the model is what marks a block's words as
+    // able to move a break (see editKeepsPages), and it costs a wrap.
+    if (b.rows <= remaining()) {
+      placeRows(b.rows);
+      return;
+    }
     const speech = b.kind === "dialogue";
     const model = b.model ?? null;
     let from = 0;
@@ -1264,6 +1271,28 @@ export interface PaginationOptions {
  */
 const SAME_FRAME_BUDGET_MS = 24;
 
+/**
+ * What a pass typically costs, for the same-frame decision: the lower median
+ * of the last five. One slow pass (a whole script arriving, a garbage
+ * collection mid-pass) must not push the next several keystrokes onto the
+ * deferred path, where text visibly spills past the page until it lands. A
+ * machine that is slow every time still defers.
+ */
+export function passCostTracker() {
+  const recent: number[] = [];
+  return {
+    record(ms: number) {
+      recent.push(ms);
+      if (recent.length > 5) recent.shift();
+    },
+    typical(): number {
+      if (recent.length === 0) return 0;
+      const sorted = [...recent].sort((a, b) => a - b);
+      return sorted[(sorted.length - 1) >> 1];
+    },
+  };
+}
+
 export const Pagination = Extension.create<PaginationOptions>({
   name: "pagination",
   addOptions() {
@@ -1305,8 +1334,8 @@ export const Pagination = Extension.create<PaginationOptions>({
           let firstQueuedAt = 0;
           let destroyed = false;
           let microQueued = false;
-          // Running cost of a pass, to decide between same-frame and deferred.
-          let costMs = 0;
+          // What a pass costs, to decide between same-frame and deferred.
+          const cost = passCostTracker();
           // What the last full pass measured (see editKeepsPages).
           let geometry: PassGeometry | null = null;
           let settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1331,8 +1360,7 @@ export const Pagination = Extension.create<PaginationOptions>({
             const started = performance.now();
             const { decos, pages, sig, geometry: measured } = compute(view, metrics);
             geometry = measured;
-            const elapsed = performance.now() - started;
-            costMs = costMs ? costMs * 0.7 + elapsed * 0.3 : elapsed;
+            cost.record(performance.now() - started);
             if (sig !== sigOfState(view.state)) {
               const anchor = captureViewAnchor(view);
               view.dispatch(view.state.tr.setMeta(key, { decos, pages }));
@@ -1386,7 +1414,7 @@ export const Pagination = Extension.create<PaginationOptions>({
            */
           const soon = () => {
             if (destroyed) return;
-            if (costMs > SAME_FRAME_BUDGET_MS || view.composing) {
+            if (cost.typical() > SAME_FRAME_BUDGET_MS || view.composing) {
               schedule();
               return;
             }
