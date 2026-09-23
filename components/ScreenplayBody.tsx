@@ -26,7 +26,11 @@ import {
   type AcState,
 } from "@/lib/editor/autocomplete";
 import { getSpeller } from "@/lib/editor/spellEngine";
-import { rescanSpelling, type SpellState } from "@/lib/editor/spellcheck";
+import {
+  refreshSpellingNames,
+  rescanSpelling,
+  type SpellState,
+} from "@/lib/editor/spellcheck";
 import { rescanContd } from "@/lib/editor/contd";
 import { rescanBreakdown } from "@/lib/editor/breakdownMarks";
 import { breakdownToText, BREAKDOWN_CATEGORIES, type BreakdownItem } from "@/lib/editor/breakdown";
@@ -712,7 +716,9 @@ function ScreenplayEditor({
   );
   outlineRef.current = outline;
   useEffect(() => {
-    if (editor) rescanAutocomplete(editor.view);
+    if (!editor) return;
+    rescanAutocomplete(editor.view);
+    refreshSpellingNames(editor.view);
   }, [editor, outline]);
 
   const currentSceneNumber = useMemo(() => {

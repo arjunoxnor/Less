@@ -19,6 +19,10 @@ export function TitlePageModal({
   onClose: () => void;
 }) {
   const [tp, setTp] = useState<TitlePage>(value);
+  // Today, the way a title page writes it, as the example for the draft date.
+  const [today] = useState(() =>
+    new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+  );
 
   const field = (key: keyof TitlePage) => (e: { target: { value: string } }) =>
     setTp((prev) => ({ ...prev, [key]: e.target.value }));
@@ -78,7 +82,7 @@ export function TitlePageModal({
             <input
               value={tp.source ?? ""}
               onChange={field("source")}
-              placeholder="Based on the novel by ..."
+              placeholder="Based on the novel by…"
             />
         </label>
         <label className="field">
@@ -86,7 +90,7 @@ export function TitlePageModal({
             <input
               value={tp.draftDate ?? ""}
               onChange={field("draftDate")}
-              placeholder="June 19, 2026"
+              placeholder={today}
             />
         </label>
         <label className="field">

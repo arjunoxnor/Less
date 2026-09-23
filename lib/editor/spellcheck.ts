@@ -70,7 +70,7 @@ const sessionIgnore = new Set<string>();
 /** The resolved checker, shared across helpers once the engine loads. */
 let speller: NSpell | null = null;
 /** Per-view immediate rescan triggers, so the helpers can refresh underlines. */
-const viewScanners = new WeakMap<EditorView, (full?: boolean) => void>();
+const viewScanners = new WeakMap<EditorView, (full?: boolean, namesOnly?: boolean) => void>();
 
 /** Lowercased set of every word in the outline's names, so they never flag. */
 function buildNameSet(outline: Outline): Set<string> {
@@ -322,7 +322,7 @@ export function buildSpellcheck(
             let timer: ReturnType<typeof setTimeout> | null = null;
             let destroyed = false;
 
-            const scanNow = (forceFull = false) => {
+            const scanNow = (forceFull = false, namesOnly = false) => {
               if (destroyed) return;
               if (!isEnabled()) {
                 const current = spellKey.getState(view.state);
@@ -350,6 +350,9 @@ export function buildSpellcheck(
               }
               const current = spellKey.getState(view.state);
               const outlineNames = ensureNames();
+              // Only catching up with the cast: nothing to do unless a name
+              // came or went. Lines being typed wait for the usual pause.
+              if (namesOnly && !outlineNames.changed) return;
               const full = forceFull || current?.dirty === null || outlineNames.changed;
               const dirty = current?.dirty ?? [];
               if (!full && dirty.length === 0) return;
@@ -427,6 +430,17 @@ export function addWord(view: EditorView, word: string): void {
 /** Force an immediate rescan, e.g. when the Spelling toggle flips. */
 export function rescanSpelling(view: EditorView): void {
   viewScanners.get(view)?.(true);
+}
+
+/**
+ * The cast changed without an edit: rescan if a character or location name
+ * came or went, so names never flag. The outline arrives a render after a new
+ * editor's first scan, and with the dictionary already loaded (the second
+ * script opened in a session) that scan ran without any names, flagging every
+ * one of them until the writer typed something.
+ */
+export function refreshSpellingNames(view: EditorView): void {
+  viewScanners.get(view)?.(false, true);
 }
 
 /** Flush pending changed-line work for the feature-length benchmark. */

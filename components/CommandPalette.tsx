@@ -131,7 +131,7 @@ export const CommandPalette = memo(function CommandPalette({
         <input
           ref={inputRef}
           className="cmd-input"
-          placeholder="Type a command or search scenes..."
+          placeholder="Type a command or search scenes…"
           role="combobox"
           aria-expanded="true"
           aria-haspopup="listbox"

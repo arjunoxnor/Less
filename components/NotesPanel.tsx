@@ -77,7 +77,7 @@ export const NotesPanel = memo(function NotesPanel({
       <div className="notes-add">
         <textarea
           className="notes-input"
-          placeholder="Note for the line your cursor is in..."
+          placeholder="Note for the line your cursor is in…"
           value={draft}
           rows={2}
           onChange={(e) => setDraft(e.target.value)}
