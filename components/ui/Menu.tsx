@@ -22,6 +22,8 @@ export type MenuItem =
       disabled?: boolean;
       /** Right-aligned muted hint, e.g. a keyboard shortcut. */
       hint?: string;
+      /** A small color dot before the label (a storyline, a folder color). */
+      swatch?: string;
     }
   | {
       kind: "checkbox";
@@ -38,6 +40,7 @@ export type MenuItem =
       /** Rows sharing a group name announce as one radio set. */
       group?: string;
       hint?: string;
+      swatch?: string;
     }
   | { kind: "divider" }
   /** A small heading over the items that follow it (not selectable). */
@@ -228,6 +231,13 @@ export function Menu({
             <span className="ui-menu-mark" aria-hidden="true">
               {checked ? (it.kind === "radio" ? "•" : "✓") : ""}
             </span>
+            {"swatch" in it && it.swatch !== undefined && (
+              <span
+                className={"ui-menu-swatch" + (it.swatch ? "" : " ui-menu-swatch-none")}
+                style={it.swatch ? { background: it.swatch } : undefined}
+                aria-hidden="true"
+              />
+            )}
             {it.label}
             {"hint" in it && it.hint && (
               <span className="ui-menu-hint">{it.hint}</span>

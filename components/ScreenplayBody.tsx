@@ -106,6 +106,8 @@ import { AuthModal } from "./AuthModal";
 import { DocsPanel } from "./DocsPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
+import { StructureBoard } from "./StructureBoard";
+import { moveSceneTr } from "@/lib/editor/sceneMove";
 import { CastListPanel } from "./CastListPanel";
 import { ReportsPanel } from "./ReportsPanel";
 import { NotesPanel } from "./NotesPanel";
@@ -513,6 +515,8 @@ function ScreenplayEditor({
   const [showAuth, setShowAuth] = useState(false);
   // ONE dock panel at a time (2B.3): replaces the old per-panel booleans.
   const [activePanel, setActivePanel] = useState<PanelId | null>(null);
+  // What the page column shows: the script, or its scenes as cards.
+  const [view, setView] = useState<"script" | "board">("script");
   const [showTitlePage, setShowTitlePage] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -1080,6 +1084,28 @@ function ScreenplayEditor({
     [editor]
   );
 
+  // Move a whole scene (the Scenes panel's drag and Alt+Arrow). One undo step.
+  const moveScene = useCallback(
+    (from: number, slot: number) => {
+      if (!editor) return;
+      const tr = moveSceneTr(editor.state, from, slot);
+      if (tr) editor.view.dispatch(tr);
+    },
+    [editor]
+  );
+
+  // A card opened from the board: back to the page, caret at the end of its
+  // heading, the scene brought to the middle of the window.
+  const openSceneFromBoard = useCallback(
+    (headingPos: number) => {
+      if (!editor) return;
+      const node = editor.state.doc.nodeAt(headingPos);
+      setView("script");
+      requestAnimationFrame(() => jumpToScene(headingPos + 1 + (node?.content.size ?? 0)));
+    },
+    [editor, jumpToScene]
+  );
+
   const jumpToSceneNumber = useCallback(
     (n: number) => {
       if (n === 0) {
@@ -1288,6 +1314,12 @@ function ScreenplayEditor({
     cmds.push({ id: "dual", group: "Format", label: "Toggle dual dialogue", hint: mod + "D", run: toggleDual });
     cmds.push({ id: "scenes", group: "Panel", label: "Open scenes", run: () => setActivePanel("scenes") });
     cmds.push({
+      id: "board",
+      group: "Go",
+      label: view === "board" ? "Back to the script" : "Structure board",
+      run: () => setView((v) => (v === "board" ? "script" : "board")),
+    });
+    cmds.push({
       id: "find",
       group: "Panel",
       label: "Find and replace",
@@ -1331,7 +1363,7 @@ function ScreenplayEditor({
       });
     }
     return cmds;
-  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection, mod]);
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection, mod, view]);
 
   // ---- Chrome wiring (Part 2B): menus, rail, dock content ------------------
 
@@ -1447,6 +1479,7 @@ function ScreenplayEditor({
         scenes={outline.scenes}
         currentSceneNumber={currentSceneNumber}
         onJump={jumpToScene}
+        onMove={moveScene}
         onClose={closePanel}
       />
     ) : activePanel === "docs" ? (
@@ -1553,6 +1586,24 @@ function ScreenplayEditor({
         activePanel={activePanel}
         onPanelChange={setActivePanel}
         dockPanel={dockPanel}
+        viewSwitch={
+          <div className="view-switch" role="group" aria-label="View">
+            <button
+              type="button"
+              aria-pressed={view === "script"}
+              onClick={() => setView("script")}
+            >
+              Script
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "board"}
+              onClick={() => setView("board")}
+            >
+              Board
+            </button>
+          </div>
+        }
         statusBar={
           <EditorStatusBar
             currentElement={currentElement}
@@ -1577,7 +1628,7 @@ function ScreenplayEditor({
           />
         }
       >
-        <div className="page-scroll">
+        <div className="page-scroll" inert={view === "board"}>
           <div className="page-wrap">
             <div
               className="page-host page-host-sp"
@@ -1593,7 +1644,15 @@ function ScreenplayEditor({
             </div>
           </div>
         </div>
-        <HintCard modLabel={mod} />
+        {view === "board" && editor && (
+          <StructureBoard
+            editor={editor}
+            pageCount={pages}
+            initialScene={(currentSceneNumber ?? 1) - 1}
+            onOpenScene={openSceneFromBoard}
+          />
+        )}
+        {view === "script" && <HintCard modLabel={mod} />}
       </EditorShell>
 
       {duetActive && !duetReady && (

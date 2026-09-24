@@ -36,6 +36,10 @@ export interface SceneEntry {
   lineIndex: number;
   /** Estimated page the scene begins on, or null if not estimable. */
   page: number | null;
+  /** The storyline the scene belongs to (structure board), if any. */
+  storyline?: string;
+  /** That storyline's color, a plain hex, if any. */
+  color?: string;
 }
 
 /** A speaking character, with where they first appear and how often. */

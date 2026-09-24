@@ -56,6 +56,7 @@ export function TopBar({
   onToggleRail,
   railOpen,
   autoFocusTitle,
+  viewSwitch,
 }: {
   title: string;
   onRename: (title: string) => void;
@@ -78,6 +79,8 @@ export function TopBar({
   /** Instant-create flow (2C): focus and select the title on first open so a
    *  brand-new "Untitled screenplay" can be named by just typing. */
   autoFocusTitle?: boolean;
+  /** Switch what the page column shows (a screenplay's Script / Board). */
+  viewSwitch?: React.ReactNode;
 }) {
   // A push follows every pause in typing; "Saving" only shows when one takes
   // longer than that, so the word next to the title is not in constant motion.
@@ -211,6 +214,8 @@ export function TopBar({
       )}
 
       <div className="toolbar-spacer" />
+
+      {viewSwitch}
 
       {onOpenPalette && (
         <button

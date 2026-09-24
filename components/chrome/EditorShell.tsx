@@ -59,6 +59,7 @@ export function EditorShell({
   secondRow,
   statusBar,
   autoFocusTitle,
+  viewSwitch,
   children,
 }: {
   /** Extra classes for the shell root (font choice, scene numbers, etc). */
@@ -92,6 +93,8 @@ export function EditorShell({
   statusBar?: ReactNode;
   /** Focus and select the title input on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
+  /** A way to switch what the page column shows (Script / Board). */
+  viewSwitch?: ReactNode;
   children: ReactNode;
 }) {
   const [railOpen, setRailOpen] = useState(false);
@@ -217,6 +220,7 @@ export function EditorShell({
           onToggleRail={() => setRailOpen((v) => !v)}
           railOpen={railOpen}
           autoFocusTitle={autoFocusTitle}
+          viewSwitch={viewSwitch}
         />
       </div>
 

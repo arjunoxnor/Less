@@ -112,13 +112,16 @@ export function runEnterFlow(editor: Editor): boolean {
       const keepDual =
         !!a.dual && (nextType === "dialogue" || nextType === "parenthetical");
       const needsFix =
-        a.element !== nextType || a.dual !== keepDual || !!a.note;
+        a.element !== nextType || a.dual !== keepDual || !!a.note || a.scene != null;
       if (needsFix) {
+        // Nor a scene heading's storyline and summary: they belong to the
+        // heading, not to the line typed after it.
         tr.setNodeMarkup(line.pos, undefined, {
           ...a,
           element: nextType,
           dual: keepDual,
           note: "",
+          scene: null,
         });
       }
       return true;

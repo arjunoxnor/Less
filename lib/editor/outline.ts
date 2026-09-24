@@ -10,6 +10,7 @@ import type {
   TransitionEntry,
 } from "@/types/screenplay";
 import type { ElementType } from "@/lib/editor/elements";
+import { sceneCard } from "./sceneAttrs";
 
 /**
  * Pure, editor-agnostic derivation. One walk of the document yields everything
@@ -172,12 +173,14 @@ export function buildOutline(doc: PMNode): Outline {
 
     if (element === "scene_heading") {
       sceneCounter++;
+      const card = sceneCard(node.attrs.scene);
       scenes.push({
         number: sceneCounter,
         heading: text,
         pos,
         lineIndex: index,
         page: Math.floor(printedLines / LINES_PER_PAGE) + 1,
+        ...(card?.storyline ? { storyline: card.storyline, color: card.color } : {}),
       });
       const { location } = parseLocation(text);
       if (location) {

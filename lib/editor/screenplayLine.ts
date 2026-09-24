@@ -11,6 +11,7 @@ import {
   wrapParentheticalText,
 } from "./parenthetical";
 import { SKIP_REVISION_META } from "./revisions";
+import { sceneCard } from "./sceneAttrs";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 
 const dualNormalizeKey = new PluginKey("screenplayDualNormalize");
@@ -89,6 +90,33 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
         default: false,
         parseHTML: (el) => el.getAttribute("data-revised") === "true",
         renderHTML: (attrs) => (attrs.revised ? { "data-revised": "true" } : {}),
+      },
+      // Scene headings only: the scene's card on the structure board. One
+      // attribute holding { storyline, color, synopsis }, null for every other
+      // line, so a script without a board costs a few bytes a line rather than
+      // three empty fields. None of it is screenplay text and export never sees
+      // it. The storyline color is a CSS variable on the heading, so the page
+      // can mark the scene's storyline in the margin; only a plain hex passes.
+      scene: {
+        default: null,
+        parseHTML: (el) => {
+          const storyline = el.getAttribute("data-storyline") ?? "";
+          const color = el.getAttribute("data-story-color") ?? "";
+          const synopsis = el.getAttribute("data-synopsis") ?? "";
+          return sceneCard({ storyline, color, synopsis });
+        },
+        renderHTML: (attrs) => {
+          const card = sceneCard(attrs.scene);
+          if (!card) return {};
+          const out: Record<string, string> = {};
+          if (card.storyline) out["data-storyline"] = card.storyline;
+          if (card.color) {
+            out["data-story-color"] = card.color;
+            out.style = `--story-color: ${card.color}`;
+          }
+          if (card.synopsis) out["data-synopsis"] = card.synopsis;
+          return out;
+        },
       },
     };
   },
