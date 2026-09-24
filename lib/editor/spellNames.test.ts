@@ -56,6 +56,19 @@ describe("spelling and the cast", () => {
     editor.destroy();
   });
 
+  it("knows a name in the possessive", async () => {
+    let outline: Outline = EMPTY_OUTLINE;
+    const editor = openScript(() => outline);
+    await Promise.resolve();
+    await Promise.resolve();
+    const end = editor.state.doc.content.size - 1;
+    editor.view.dispatch(editor.state.tr.insertText(" Nikhil's hands shake.", end));
+    outline = buildOutline(editor.state.doc);
+    refreshSpellingNames(editor.view);
+    expect(flagged(editor)).toEqual([]);
+    editor.destroy();
+  });
+
   it("leaves a line being typed alone when no name came or went", async () => {
     let outline: Outline = EMPTY_OUTLINE;
     const editor = openScript(() => outline);

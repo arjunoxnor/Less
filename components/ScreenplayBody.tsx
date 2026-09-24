@@ -182,6 +182,10 @@ export function ScreenplayBody({ duet, onSaveDuetCopy, ...props }: ScreenplayBod
   const [session, setSession] = useState<DuetSession | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [showShare, setShowShare] = useState(false);
+  // Choosing Share asks first: making a link puts the script on the sharing
+  // server and lets anyone holding the link edit it.
+  const [confirmShare, setConfirmShare] = useState(false);
+  const [startingShare, setStartingShare] = useState(false);
   const [copyPlan, setCopyPlan] = useState<DuetCopyPlan | null>(null);
   const [savingCopy, setSavingCopy] = useState(false);
   const [participants, setParticipants] = useState<DuetParticipant[]>([]);
@@ -257,19 +261,26 @@ export function ScreenplayBody({ duet, onSaveDuetCopy, ...props }: ScreenplayBod
     };
   }, [session]);
 
-  const openShare = async () => {
-    if (!access) {
-      try {
-        const record = await createProjectShare(props.projectId);
-        setAccess({ token: record.token, owner: true, ownerKey: record.ownerKey });
-      } catch (cause) {
-        showToast(cause instanceof Error ? cause.message : "Sharing could not start.", {
-          variant: "danger",
-        });
-        return;
-      }
+  const openShare = () => {
+    if (access) setShowShare(true);
+    else setConfirmShare(true);
+  };
+
+  const startSharing = async () => {
+    if (startingShare) return;
+    setStartingShare(true);
+    try {
+      const record = await createProjectShare(props.projectId);
+      setAccess({ token: record.token, owner: true, ownerKey: record.ownerKey });
+      setConfirmShare(false);
+      setShowShare(true);
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : "Sharing could not start.", {
+        variant: "danger",
+      });
+    } finally {
+      setStartingShare(false);
     }
-    setShowShare(true);
   };
 
   // Duet stage 3. The room is only READ here: the snapshot becomes an ordinary
@@ -360,6 +371,27 @@ export function ScreenplayBody({ duet, onSaveDuetCopy, ...props }: ScreenplayBod
       />
     ) : null;
 
+  const confirmModal = confirmShare ? (
+    <Modal
+      title="Share this script?"
+      onClose={() => setConfirmShare(false)}
+      actions={[
+        { label: "Cancel", onClick: () => setConfirmShare(false) },
+        {
+          label: startingShare ? "Creating link…" : "Create link",
+          variant: "solid",
+          disabled: startingShare,
+          onClick: () => void startSharing(),
+        },
+      ]}
+    >
+      <p className="modal-sub">
+        This makes a link. Anyone who has it can read and edit this script with
+        you, live, until you stop sharing.
+      </p>
+    </Modal>
+  ) : null;
+
   const copyModal = copyPlan ? (
     <DuetSaveCopyModal
       plan={copyPlan}
@@ -381,6 +413,7 @@ export function ScreenplayBody({ duet, onSaveDuetCopy, ...props }: ScreenplayBod
           )}
         </div>
         {modal}
+        {confirmModal}
       </>
     );
   }
@@ -402,6 +435,7 @@ export function ScreenplayBody({ duet, onSaveDuetCopy, ...props }: ScreenplayBod
         }
       />
       {modal}
+      {confirmModal}
       {copyModal}
     </>
   );

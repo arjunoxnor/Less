@@ -29,7 +29,7 @@ async function copyText(value: string): Promise<void> {
 }
 
 /**
- * Sign in to sync. Primary path is "Sign in with Google" (when a client id is
+ * Sign in to back up. Primary path is "Sign in with Google" (when a client id is
  * configured); a private sync code is offered as a no-account fallback and for
  * linking a device. There is no password.
  */
@@ -190,13 +190,13 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      title="Sign in to sync"
+      title="Sign in to back up"
       onClose={close}
-      actions={[{ label: "Keep writing without sync", onClick: close }]}
+      actions={[{ label: "Not now", onClick: close }]}
     >
         <p className="modal-sub">
-          Your work is saved on this device already. Sign in to back it up and open it from your
-          other computers.
+          Your work is already saved on this computer. Sign in to back it up online and open it
+          on your other computers.
         </p>
 
         {GOOGLE_CLIENT_ID && (
@@ -219,7 +219,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
             type="text"
             value={entry}
             onChange={(e) => setEntry(e.target.value)}
-            placeholder="ABCD-EFGH-..."
+            placeholder="ABCD-EFGH-…"
             autoComplete="off"
             spellCheck={false}
             onKeyDown={(event) => {

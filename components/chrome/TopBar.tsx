@@ -184,7 +184,7 @@ export function TopBar({
             type="button"
             className="topbar-sync-btn"
             onClick={onSignIn}
-            title="Save your work to the cloud"
+            title="Back up your work online and open it on your other computers"
           >
             Sign in to back up
           </button>

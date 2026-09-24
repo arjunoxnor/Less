@@ -122,7 +122,16 @@ function decorationsForLine(
     const raw = match[0];
     if (raw.length < 2) continue;
     const lower = raw.toLowerCase();
-    if (names.has(lower) || SCREENPLAY_TERMS.has(lower) || sessionIgnore.has(lower)) continue;
+    // A name in the possessive ("Nikhil's", "James'") is still the name.
+    const stem = lower.replace(/['’]s?$/, "");
+    if (
+      names.has(lower) ||
+      names.has(stem) ||
+      SCREENPLAY_TERMS.has(lower) ||
+      sessionIgnore.has(lower)
+    ) {
+      continue;
+    }
     let correct = acceptable.get(raw);
     if (correct === undefined) {
       correct = isAcceptable(sp, raw);
