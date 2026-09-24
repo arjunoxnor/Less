@@ -107,6 +107,8 @@ import { DocsPanel } from "./DocsPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { SceneNavigatorPanel } from "./SceneNavigatorPanel";
 import { StructureBoard } from "./StructureBoard";
+import { CompareView, type CompareSource } from "./CompareView";
+import { MAX_LIBRARY_NAME_LENGTH } from "@/lib/storage/library";
 import { moveSceneTr } from "@/lib/editor/sceneMove";
 import { CastListPanel } from "./CastListPanel";
 import { ReportsPanel } from "./ReportsPanel";
@@ -158,6 +160,13 @@ export interface DuetAccess {
   ownerKey?: string;
 }
 
+/** File a frozen copy of the script beside it as a named draft (host-provided). */
+export type SaveDraft = (input: {
+  title: string;
+  content: JSONContent;
+  titlePage: TitlePage | null;
+}) => { id: string; title: string };
+
 interface ScreenplayBodyProps {
   projectId: string;
   title: string;
@@ -172,6 +181,7 @@ interface ScreenplayBodyProps {
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
   /** Save-and-switch to a sibling project (the Docs panel's jump). */
   onOpenProject?: (id: string) => void;
+  onSaveDraft?: SaveDraft;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
   duet?: DuetAccess;
@@ -456,6 +466,7 @@ function ScreenplayEditor({
   sessionExpired,
   onImportAsNew,
   onOpenProject,
+  onSaveDraft,
   autoFocusTitle,
   duetSession,
   duetStatus,
@@ -517,6 +528,9 @@ function ScreenplayEditor({
   const [activePanel, setActivePanel] = useState<PanelId | null>(null);
   // What the page column shows: the script, or its scenes as cards.
   const [view, setView] = useState<"script" | "board">("script");
+  // An earlier version laid over the page with its changes marked.
+  const [compare, setCompare] = useState<CompareSource | null>(null);
+  const [draftName, setDraftName] = useState<string | null>(null);
   const [showTitlePage, setShowTitlePage] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -819,6 +833,7 @@ function ScreenplayEditor({
     pulledSaveOk,
     getVersions,
     restoreVersion,
+    markVersion,
     importContent,
     titlePage,
     setTitlePage,
@@ -1084,6 +1099,29 @@ function ScreenplayEditor({
     [editor]
   );
 
+  // Save a draft: a frozen copy of the script filed beside it under a name,
+  // and the same name marked in History. The writer stays in this script.
+  const openSaveDraft = useCallback(() => {
+    const day = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    setDraftName(`${activeTitle}, ${day}`);
+  }, [activeTitle]);
+
+  const saveDraft = (name: string) => {
+    const clean = name.trim();
+    if (!editor || !onSaveDraft || !clean) return;
+    try {
+      const content = editor.getJSON();
+      onSaveDraft({ title: clean, content, titlePage: titlePage ?? null });
+      markVersion(clean);
+      setDraftName(null);
+      showToast(`Saved a draft: ${clean}. It sits beside this script; you keep writing here.`);
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : "The draft could not be saved.", {
+        variant: "danger",
+      });
+    }
+  };
+
   // Move a whole scene (the Scenes panel's drag and Alt+Arrow). One undo step.
   const moveScene = useCallback(
     (from: number, slot: number) => {
@@ -1331,6 +1369,9 @@ function ScreenplayEditor({
     cmds.push({ id: "notes", group: "Panel", label: "Notes", run: () => setActivePanel("notes") });
     cmds.push({ id: "breakdown", group: "Panel", label: "Breakdown", run: () => setActivePanel("breakdown") });
     cmds.push({ id: "history", group: "Panel", label: "Version history", run: () => setActivePanel("history") });
+    if (onSaveDraft && localCloudSyncAllowed) {
+      cmds.push({ id: "save-draft", group: "Script", label: "Save a draft", run: () => openSaveDraft() });
+    }
     cmds.push({ id: "titlepage", group: "Panel", label: "Title page", run: () => setShowTitlePage(true) });
     cmds.push({ id: "shortcuts", group: "Help", label: "Keyboard shortcuts", hint: "?", run: () => setShowShortcuts(true) });
     cmds.push({ id: "exp-pdf", group: "Export", label: "Export PDF", run: () => handleExport("pdf") });
@@ -1363,7 +1404,7 @@ function ScreenplayEditor({
       });
     }
     return cmds;
-  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection, mod, view]);
+  }, [editor, prefs, user, outline.scenes, toggleDual, handleExport, onPrefsChange, onBack, jumpToScene, pageLock, lockPages, unlockPages, hasSelection, tagSelection, mod, view, onSaveDraft, localCloudSyncAllowed, openSaveDraft]);
 
   // ---- Chrome wiring (Part 2B): menus, rail, dock content ------------------
 
@@ -1403,6 +1444,9 @@ function ScreenplayEditor({
       ? [{ label: "Save a copy to my library…", onSelect: onSaveCopy } as MenuItem]
       : []),
     { label: "Title page…", onSelect: () => setShowTitlePage(true) },
+    ...(onSaveDraft && localCloudSyncAllowed
+      ? [{ label: "Save a draft…", onSelect: () => openSaveDraft() } as MenuItem]
+      : []),
     { label: "Import into this project…", onSelect: () => importInputRef.current?.click() },
     { kind: "divider" },
     { kind: "label", label: "View" },
@@ -1486,6 +1530,16 @@ function ScreenplayEditor({
       <DocsPanel
         projectId={projectId}
         onOpen={(id) => onOpenProject?.(id)}
+        onCompare={(id, label) => {
+          const content = loadProjectDoc(id);
+          if (!content) {
+            showToast("That draft is not on this device yet. Open it once, then compare.");
+            return;
+          }
+          setActivePanel(null);
+          setView("script");
+          setCompare({ label, content });
+        }}
         onClose={closePanel}
       />
     ) : activePanel === "cast" ? (
@@ -1537,6 +1591,12 @@ function ScreenplayEditor({
           // is recoverable either way.
           setConfirmRestore({ content, titlePage: tp });
         }}
+        onCompare={(label, content) => {
+          setActivePanel(null);
+          setView("script");
+          setCompare({ label, content });
+        }}
+        onSaveDraft={onSaveDraft && localCloudSyncAllowed ? openSaveDraft : undefined}
         onClose={closePanel}
       />
     ) : activePanel === "find" ? (
@@ -1628,7 +1688,7 @@ function ScreenplayEditor({
           />
         }
       >
-        <div className="page-scroll" inert={view === "board"}>
+        <div className="page-scroll" inert={view === "board" || compare !== null}>
           <div className="page-wrap">
             <div
               className="page-host page-host-sp"
@@ -1652,7 +1712,10 @@ function ScreenplayEditor({
             onOpenScene={openSceneFromBoard}
           />
         )}
-        {view === "script" && <HintCard modLabel={mod} />}
+        {compare && editor && (
+          <CompareView earlier={compare} current={editor.getJSON()} onClose={() => setCompare(null)} />
+        )}
+        {view === "script" && !compare && <HintCard modLabel={mod} />}
       </EditorShell>
 
       {duetActive && !duetReady && (
@@ -1679,6 +1742,41 @@ function ScreenplayEditor({
       />
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+
+      {draftName !== null && (
+        <Modal
+          title="Save a draft"
+          onClose={() => setDraftName(null)}
+          actions={[
+            { label: "Cancel", onClick: () => setDraftName(null) },
+            {
+              label: "Save draft",
+              variant: "solid",
+              disabled: !draftName.trim(),
+              onClick: () => saveDraft(draftName),
+            },
+          ]}
+        >
+          <p className="modal-sub">
+            Keeps a copy of the script as it is now, filed beside it, and marks
+            this moment in History. You keep writing in this one.
+          </p>
+          <label className="field">
+            <span>Name</span>
+            <input
+              value={draftName}
+              maxLength={MAX_LIBRARY_NAME_LENGTH}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveDraft(draftName);
+                }
+              }}
+            />
+          </label>
+        </Modal>
+      )}
 
       {confirmRestore && (
         <Modal

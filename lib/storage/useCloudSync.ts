@@ -956,6 +956,9 @@ export function useCloudSync(
     pulledSaveOk,
     getVersions,
     restoreVersion,
+    /** Mark this moment in History under a name ("Draft 2"): on this device
+     *  always, in the cloud too when signed in. */
+    markVersion: snapshotLive,
     importContent,
     titlePage,
     setTitlePage,

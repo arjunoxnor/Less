@@ -426,6 +426,13 @@ export function AppShell() {
           sessionExpired={sessionExpired}
           onImportAsNew={(file) => importScreenplays([file])}
           onOpenProject={openProject}
+          onSaveDraft={({ title, content, titlePage }) =>
+            create("screenplay", title, {
+              content,
+              titlePage,
+              folderId: current.folderId ?? undefined,
+            })
+          }
           autoFocusTitle={autoFocusTitle}
           duet={
             duetShare

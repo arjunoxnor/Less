@@ -5078,3 +5078,239 @@ html.is-dragging * {
 .scene-ghost .scene-item {
   background: var(--paper);
 }
+
+/* ---- Version history: named drafts, Compare, Save a draft ----------------- */
+.history-save {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+.history-save-btn {
+  width: 100%;
+  justify-content: center;
+}
+.history-name {
+  margin-bottom: 2px;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.history-item.is-named .history-when {
+  font-weight: 400;
+  color: var(--muted);
+}
+.history-actions {
+  display: flex;
+  gap: 6px;
+}
+.dock-inner .history-compare {
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.dock-inner .history-item:hover .history-compare,
+.dock-inner .history-item:focus-within .history-compare {
+  opacity: 1;
+}
+
+/* ---- Docs panel: compare another draft with this one --------------------- */
+.docs-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.docs-row .docs-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.docs-compare {
+  position: absolute;
+  right: 10px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.docs-row:hover .docs-compare,
+.docs-row:focus-within .docs-compare {
+  opacity: 1;
+}
+.docs-row.has-compare:hover .docs-item-meta,
+.docs-row.has-compare:focus-within .docs-item-meta {
+  visibility: hidden;
+}
+
+/* ---- Compare (components/CompareView.tsx) --------------------------------- */
+/* An earlier version against the script now, on one long page. Cut lines are
+   struck through, added lines carry a bar in the margin and a faint wash, and
+   reworded lines mark the words that changed. */
+.cmp-root {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  background: var(--desk);
+  outline: none;
+}
+.cmp-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+.cmp-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.cmp-title strong {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.cmp-sub {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.cmp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cmp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  cursor: pointer;
+}
+.cmp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px 16px 96px;
+}
+.cmp-sheet.sp-prose {
+  width: 8.5in;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0.6in 1in 1in 1.5in;
+  background: var(--paper);
+  box-shadow: var(--sheet-shadow);
+  color: var(--page-fg);
+  font-family: var(--sp-font);
+  font-size: 12pt;
+  line-height: 16px;
+}
+.cmp-row {
+  scroll-margin: 120px;
+}
+.cmp-row.cmp-removed {
+  color: var(--danger);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: 0.8;
+}
+.cmp-row.cmp-added {
+  background: color-mix(in srgb, var(--ok) 11%, transparent);
+}
+/* The change bar in the left margin, like a revision mark. */
+.cmp-row.cmp-added::before,
+.cmp-row.cmp-removed::before,
+.cmp-row.cmp-changed::before {
+  content: "";
+  position: absolute;
+  left: -0.45in;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--ok);
+}
+.cmp-row.cmp-removed::before {
+  background: var(--danger);
+}
+.cmp-row.cmp-changed::before {
+  background: var(--warn);
+}
+.cmp-row ins {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  border-radius: 2px;
+}
+.cmp-row del {
+  color: var(--danger);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.cmp-row.is-current::before {
+  width: 5px;
+  left: calc(-0.45in - 1px);
+}
+.cmp-fold {
+  display: block;
+  width: 100%;
+  margin: 16px 0 0;
+  padding: 6px 0;
+  border: none;
+  border-top: 1px dashed var(--hairline);
+  border-bottom: 1px dashed var(--hairline);
+  background: none;
+  color: var(--faint);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  text-align: center;
+  cursor: pointer;
+}
+.cmp-fold:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+@media (max-width: 720px) {
+  .cmp-head {
+    padding: var(--space-3) var(--space-4);
+  }
+  .cmp-sheet.sp-prose {
+    padding: 0.5in 0.4in;
+  }
+}
+/* Below 1280px the rail floats over the page column's right edge. */
+@media (min-width: 721px) and (max-width: 1279px) {
+  .cmp-head {
+    padding-right: calc(var(--space-5) + 44px);
+  }
+}
+/* Change bars sit in the page margin whatever the line's indent. */
+.cmp-row.sp-dialogue::before {
+  left: calc(-0.45in - 1in);
+}
+.cmp-row.sp-parenthetical::before {
+  left: calc(-0.45in - 1.5in);
+}
+.cmp-row.sp-character::before {
+  left: calc(-0.45in - 2in);
+}
+.cmp-row.is-current.sp-dialogue::before {
+  left: calc(-0.45in - 1in - 1px);
+}
+.cmp-row.is-current.sp-parenthetical::before {
+  left: calc(-0.45in - 1.5in - 1px);
+}
+.cmp-row.is-current.sp-character::before {
+  left: calc(-0.45in - 2in - 1px);
+}

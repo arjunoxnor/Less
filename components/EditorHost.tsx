@@ -15,6 +15,7 @@ import { ScreenplayBody } from "./ScreenplayBody";
 import { PlainBody } from "./PlainBody";
 import type { DuetAccess } from "./ScreenplayBody";
 import type { SaveDuetCopy } from "@/lib/collab/duetCopy";
+import type { SaveDraft } from "./ScreenplayBody";
 
 /**
  * Picks the editor body by project type. Mounted by AppShell with key={id} so
@@ -29,6 +30,7 @@ export function EditorHost({
   type,
   onImportAsNew,
   onSaveDuetCopy,
+  onSaveDraft,
   ...rest
 }: {
   projectId: string;
@@ -47,6 +49,8 @@ export function EditorHost({
   onImportAsNew?: (file: File) => Promise<{ imported: number; failed: string[] }>;
   /** Save-and-switch to a sibling project (the Docs panel's jump). */
   onOpenProject?: (id: string) => void;
+  /** File a frozen copy of this script beside it, as a named draft. */
+  onSaveDraft?: SaveDraft;
   /** Focus and select the title on mount (instant-create flow, 2C). */
   autoFocusTitle?: boolean;
   /** Screenplay-only link collaboration. Guests have no local project row. */
@@ -116,6 +120,7 @@ export function EditorHost({
       {...rest}
       onImportAsNew={onImportAsNew}
       onSaveDuetCopy={onSaveDuetCopy}
+      onSaveDraft={onSaveDraft}
     />
   );
 }

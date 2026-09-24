@@ -19,10 +19,13 @@ import { relativeTime } from "./ProjectsHome";
 export function DocsPanel({
   projectId,
   onOpen,
+  onCompare,
   onClose,
 }: {
   projectId: string;
   onOpen: (id: string) => void;
+  /** See what changed between another draft and this one. */
+  onCompare?: (id: string, label: string) => void;
   onClose: () => void;
 }) {
   // Read on every shell render. Renames and folder changes can arrive while
@@ -38,23 +41,35 @@ export function DocsPanel({
 
   const item = (p: ProjectMeta) => {
     const current = p.id === projectId;
+    const comparable = !current && p.type === "screenplay" && !!onCompare;
     return (
-      <button
-        key={p.id}
-        type="button"
-        className={"docs-item" + (current ? " docs-item-current" : "")}
-        title={p.title}
-        onClick={() => (current ? onClose() : onOpen(p.id))}
-      >
-        <span className="docs-item-title">{p.title}</span>
-        <span className="docs-item-meta">
-          {current
-            ? "Current"
-            : p.type === "screenplay" && p.pageCount != null
-              ? `${p.pageCount} pp`
-              : relativeTime(p.updatedAt)}
-        </span>
-      </button>
+      <div key={p.id} className={"docs-row" + (comparable ? " has-compare" : "")}>
+        <button
+          type="button"
+          className={"docs-item" + (current ? " docs-item-current" : "")}
+          title={p.title}
+          onClick={() => (current ? onClose() : onOpen(p.id))}
+        >
+          <span className="docs-item-title">{p.title}</span>
+          <span className="docs-item-meta">
+            {current
+              ? "Current"
+              : p.type === "screenplay" && p.pageCount != null
+                ? `${p.pageCount} pp`
+                : relativeTime(p.updatedAt)}
+          </span>
+        </button>
+        {comparable && (
+          <button
+            type="button"
+            className="docs-compare"
+            title={`See what changed between ${p.title} and this draft`}
+            onClick={() => onCompare!(p.id, p.title)}
+          >
+            Compare
+          </button>
+        )}
+      </div>
     );
   };
 
