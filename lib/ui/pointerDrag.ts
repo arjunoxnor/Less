@@ -22,10 +22,21 @@ export interface DragPoint {
 export interface PointerDragOptions {
   /** What was pressed. A copy of it follows the pointer. */
   source: HTMLElement;
-  /** The scroller to run near its edges. Defaults to the nearest one above the source. */
-  scroller?: HTMLElement | null;
+  /**
+   * The scroller to run near its edges. Defaults to the nearest one above the
+   * source. A function picks one for each point, for a page with two panes
+   * (the home's sidebar and its main list) that should each scroll under the
+   * pointer.
+   */
+  scroller?: HTMLElement | null | ((point: DragPoint) => HTMLElement | null);
   /** Build the floating copy. Defaults to a clone of the source. */
   ghost?: (source: HTMLElement) => HTMLElement;
+  /**
+   * Where the floating copy sits: by default it keeps the spot where it was
+   * grabbed under the pointer; an offset puts its top-left corner that far
+   * from the pointer instead (a small chip that should not hide the target).
+   */
+  ghostOffset?: { x: number; y: number };
   /** How far a mouse press travels before it becomes a drag. */
   threshold?: number;
   /** The drag has begun. */
@@ -106,9 +117,10 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
   let grab = { x: 0, y: 0 };
   let ghost: HTMLElement | null = null;
   let frame = 0;
-  const scroller = options.scroller ?? scrollParentOf(source);
-  const pageScroller =
-    scroller === document.scrollingElement || scroller === document.documentElement;
+  const fixed =
+    typeof options.scroller === "function" ? null : (options.scroller ?? scrollParentOf(source));
+  const scrollerAt = (point: DragPoint): HTMLElement | null =>
+    typeof options.scroller === "function" ? options.scroller(point) : fixed;
 
   const place = () => {
     if (ghost) {
@@ -118,6 +130,10 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
 
   const run = () => {
     frame = requestAnimationFrame(run);
+    const scroller = scrollerAt(last);
+    if (!scroller) return;
+    const pageScroller =
+      scroller === document.scrollingElement || scroller === document.documentElement;
     const rect = pageScroller
       ? { top: 0, bottom: window.innerHeight }
       : scroller.getBoundingClientRect();
@@ -134,7 +150,9 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
     started = true;
     active = true;
     const rect = source.getBoundingClientRect();
-    grab = { x: startX - rect.left, y: startY - rect.top };
+    grab = options.ghostOffset
+      ? { x: -options.ghostOffset.x, y: -options.ghostOffset.y }
+      : { x: startX - rect.left, y: startY - rect.top };
     window.getSelection()?.removeAllRanges();
     ghost = (options.ghost ?? defaultGhost)(source);
     ghost.classList.add("drag-ghost");
@@ -143,7 +161,7 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
       position: "fixed",
       left: "0px",
       top: "0px",
-      width: `${rect.width}px`,
+      width: options.ghostOffset ? "auto" : `${rect.width}px`,
       margin: "0px",
       pointerEvents: "none",
       zIndex: "1000",

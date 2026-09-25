@@ -3,7 +3,7 @@
 import { act } from "react";
 import type { ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFS } from "@/lib/storage/localStore";
 import type { Folder } from "@/lib/storage/folders";
 import type { ProjectMeta } from "@/lib/storage/projects";
@@ -22,7 +22,7 @@ Object.defineProperty(window, "localStorage", {
   },
 });
 
-const folder: Folder = {
+const stage: Folder = {
   id: "top",
   name: "Top",
   color: "#3F7D5C",
@@ -31,7 +31,9 @@ const folder: Folder = {
   createdAt: "2026-07-01T00:00:00.000Z",
   updatedAt: "2026-07-01T00:00:00.000Z",
 };
-const project: ProjectMeta = {
+const card: Folder = { ...stage, id: "card", name: "Card", parentId: "top" };
+const other: Folder = { ...stage, id: "other", name: "Other", parentId: "top", order: 1 };
+const draft: ProjectMeta = {
   id: "draft",
   title: "Draft",
   type: "screenplay",
@@ -45,10 +47,7 @@ const project: ProjectMeta = {
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
-function renderHome(
-  folders: Folder[],
-  overrides: Partial<ComponentProps<typeof ProjectsHome>> = {}
-) {
+function renderHome(folders: Folder[], overrides: Partial<ComponentProps<typeof ProjectsHome>> = {}) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -83,45 +82,70 @@ function renderHome(
   return props;
 }
 
-function dragStart(target: Element) {
-  const transfer = { effectAllowed: "", setData: vi.fn() };
-  const event = new Event("dragstart", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "dataTransfer", { value: transfer });
-  target.dispatchEvent(event);
-  return transfer;
+/** Open a project in the main pane from the sidebar. */
+function openProject(name: string) {
+  const row = [...host!.querySelectorAll<HTMLElement>(".lib-project")].find((el) =>
+    el.textContent?.startsWith(name)
+  )!;
+  act(() => row.click());
 }
 
-function dragEnd(target: Element, transfer: object) {
-  const event = new Event("dragend", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "dataTransfer", { value: transfer });
-  target.dispatchEvent(event);
+function clickMenuItem(text: string) {
+  act(() => {
+    [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
+      .find((button) => button.textContent?.includes(text))!
+      .click();
+  });
 }
 
-afterEach(() => {
-  if (root) {
-    act(() => root?.unmount());
-  }
+beforeEach(() => {
+  // jsdom has no layout: the drag hit-test asks the page what is under the
+  // pointer, so each test says what that is.
+  document.elementFromPoint = () => null;
+});
+
+afterEach(async () => {
+  vi.useRealTimers();
+  // A finished drag swallows the click that follows it for one task; let that
+  // pass so it cannot eat the next test's first click.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (root) act(() => root?.unmount());
   root = null;
   host?.remove();
   host = null;
   storage.clear();
+  document.querySelectorAll(".drag-ghost").forEach((el) => el.remove());
+  document.documentElement.classList.remove("is-dragging");
   vi.useRealTimers();
 });
 
-describe("ProjectsHome drag lifecycle", () => {
+describe("ProjectsHome library", () => {
+  it("lists stages and their projects in the sidebar, and a project's contents on the right", () => {
+    renderHome([stage, card], { projects: [draft] });
+    expect(host!.querySelector(".lib-stage-name")?.textContent).toBe("Top");
+    expect(host!.querySelector(".lib-project")?.textContent).toContain("Card");
+    openProject("Card");
+    expect(host!.querySelector(".lib-title")?.textContent).toBe("Card");
+    expect(host!.querySelector(".lib-main .lib-row-title")?.textContent).toBe("Draft");
+  });
+
+  it("comes back to the view the writer left, after the first render", () => {
+    storage.set("less:home:view:v1", "project:card");
+    renderHome([stage, card], { projects: [draft] });
+    expect(host!.querySelector(".lib-title")?.textContent).toBe("Card");
+    expect(host!.querySelector(".lib-project.is-on")?.textContent).toContain("Card");
+  });
+
   it("does not erase saved folds before folders finish hydrating", () => {
-    window.localStorage.setItem("less:home:folds:v1", JSON.stringify({ top: false }));
+    storage.set("less:home:folds:v1", JSON.stringify({ top: false }));
     renderHome([]);
-    expect(window.localStorage.getItem("less:home:folds:v1")).toBe(
-      JSON.stringify({ top: false })
-    );
+    expect(storage.get("less:home:folds:v1")).toBe(JSON.stringify({ top: false }));
   });
 
   it("adopts fold changes made in another tab", () => {
-    renderHome([folder]);
-    const caret = host!.querySelector<HTMLButtonElement>(".band-caret")!;
+    renderHome([stage]);
+    const caret = host!.querySelector<HTMLButtonElement>(".lib-stage-head .lib-caret")!;
     expect(caret.getAttribute("aria-expanded")).toBe("true");
-
     act(() => {
       window.dispatchEvent(
         new StorageEvent("storage", {
@@ -130,255 +154,178 @@ describe("ProjectsHome drag lifecycle", () => {
         })
       );
     });
-
     expect(caret.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("clears an active drag before creating inside a folder", () => {
-    const child = { ...folder, id: "child", name: "New folder", parentId: "top" };
-    const createFolder = vi.fn(() => child);
-    renderHome([folder], { onCreateFolder: createFolder });
-
-    const band = host!.querySelector<HTMLElement>(".band")!;
-    act(() => dragStart(band));
-    expect(band?.classList.contains("dragging")).toBe(true);
-
-    const create = host!.querySelector<HTMLButtonElement>(".pcard-new");
-    act(() => create?.click());
-    expect(createFolder).toHaveBeenCalledWith("top");
-    expect(host!.querySelector(".dragging")).toBeNull();
-  });
-
-  it("dropping a folder back on itself ignores a stale reorder target", () => {
-    const second = { ...folder, id: "second", name: "Second", order: 1 };
-    const reorder = vi.fn();
-    renderHome([folder, second], { onReorderFolders: reorder });
-    const bands = host!.querySelectorAll<HTMLElement>(".band");
-
-    act(() => dragStart(bands[0]));
-    const overSecond = new Event("dragover", { bubbles: true, cancelable: true });
-    Object.defineProperty(overSecond, "clientY", { value: 1 });
-    act(() => bands[1].dispatchEvent(overSecond));
-    const dropSelf = new Event("drop", { bubbles: true, cancelable: true });
-    act(() => bands[0].dispatchEvent(dropSelf));
-
-    expect(reorder).not.toHaveBeenCalled();
-    expect(host!.querySelector(".dragging")).toBeNull();
-  });
-
-  it("dropping a project onto its current folder does not stamp placement", () => {
-    const card = { ...folder, id: "card", name: "Card", parentId: "top" };
-    const setFolder = vi.fn();
-    renderHome([folder, card], { projects: [project], onSetFolder: setFolder });
-    const row = host!.querySelector<HTMLElement>(".fh-item")!;
-    const cardNode = host!.querySelector<HTMLElement>(".pcard-head")!;
-
-    act(() => dragStart(row));
-    const drop = new Event("drop", { bubbles: true, cancelable: true });
-    act(() => cardNode.dispatchEvent(drop));
-
-    expect(setFolder).not.toHaveBeenCalled();
-    expect(host!.querySelector(".dragging")).toBeNull();
-  });
-
-  it("does not let an older dragend cancel a newer drag session", () => {
-    const second = { ...folder, id: "second", name: "Second", order: 1 };
-    renderHome([folder, second]);
-    const bands = host!.querySelectorAll<HTMLElement>(".band");
-
-    let firstTransfer: object;
-    act(() => {
-      firstTransfer = dragStart(bands[0]);
-      dragStart(bands[1]);
-      dragEnd(bands[0], firstTransfer);
-    });
-
-    expect(bands[1].classList.contains("dragging")).toBe(true);
-  });
-
-  it("does not start a drag while an actions menu is open", () => {
-    const card = { ...folder, id: "card", name: "Card", parentId: "top" };
-    renderHome([folder, card], { projects: [project] });
-    const row = host!.querySelector<HTMLElement>(".fh-item")!;
-    act(() => host!.querySelector<HTMLButtonElement>(".fh-item .fh-kebab")!.click());
-
-    let event: Event;
-    act(() => {
-      const transfer = { effectAllowed: "", setData: vi.fn() };
-      event = new Event("dragstart", { bubbles: true, cancelable: true });
-      Object.defineProperty(event, "dataTransfer", { value: transfer });
-      row.dispatchEvent(event);
-    });
-
-    expect(event!.defaultPrevented).toBe(true);
-    expect(row.classList.contains("dragging")).toBe(false);
-  });
-
-  it("rejects a drop whose caret belongs to a different live list", () => {
-    const firstCard = { ...folder, id: "card", name: "First", parentId: "top" };
-    const secondCard = {
-      ...folder,
-      id: "card-2",
-      name: "Second",
-      parentId: "top",
-      order: 1,
-    };
-    const secondProject = { ...project, id: "second-draft", folderId: "card-2" };
-    storage.set(
-      "less:home:folds:v1",
-      JSON.stringify({ card: true, "card-2": true })
-    );
-    const setFolder = vi.fn();
-    const reorder = vi.fn();
-    renderHome([folder, firstCard, secondCard], {
-      projects: [project, secondProject],
-      onSetFolder: setFolder,
-      onReorder: reorder,
-    });
-    const rows = host!.querySelectorAll<HTMLElement>(".fh-item");
-    const lists = host!.querySelectorAll<HTMLElement>(".pcard-list");
-
-    act(() => dragStart(rows[0]));
-    const overSecond = new Event("dragover", { bubbles: true, cancelable: true });
-    Object.defineProperty(overSecond, "clientY", { value: 0 });
-    act(() => lists[1].dispatchEvent(overSecond));
-    const dropOnFirst = new Event("drop", { bubbles: true, cancelable: true });
-    act(() => lists[0].dispatchEvent(dropOnFirst));
-
-    expect(setFolder).not.toHaveBeenCalled();
-    expect(reorder).not.toHaveBeenCalled();
-  });
-});
-
-describe("ProjectsHome layered interactions", () => {
-  const card = { ...folder, id: "card", name: "Card", parentId: "top" };
-
-  it("does not open a project when Enter is pressed on its actions button", () => {
-    const open = vi.fn();
-    renderHome([folder, card], { projects: [project], onOpen: open });
-    const button = host!.querySelector<HTMLButtonElement>(".fh-item .fh-kebab")!;
-    expect(button.getAttribute("aria-expanded")).toBe("false");
-
-    act(() => {
-      button.focus();
-      button.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
-      );
-    });
-
-    expect(open).not.toHaveBeenCalled();
-    act(() => button.click());
-    expect(button.getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("closes a delete modal when its project disappears in another tab", async () => {
-    const props = renderHome([folder, card], { projects: [project] });
-    act(() => host!.querySelector<HTMLButtonElement>(".fh-item .fh-kebab")!.click());
-    act(() => {
-      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
-        .find((button) => button.textContent?.includes("Delete"))!
-        .click();
-    });
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-
-    act(() => root?.render(<ProjectsHome {...props} projects={[]} />));
-    await act(async () => {});
-
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(host!.querySelector(".home-search"));
-  });
-
-  it("updates an open delete modal after a cross-tab rename", () => {
-    const props = renderHome([folder, card], { projects: [project] });
-    act(() => host!.querySelector<HTMLButtonElement>(".fh-item .fh-kebab")!.click());
-    act(() => {
-      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
-        .find((button) => button.textContent?.includes("Delete"))!
-        .click();
-    });
-
-    const renamed = { ...project, title: "Renamed elsewhere" };
-    act(() => root?.render(<ProjectsHome {...props} projects={[renamed]} />));
-
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-      "Renamed elsewhere"
-    );
-  });
-
-  it("does not write when the keyboard move dialog selects the current folder", () => {
-    const setFolder = vi.fn();
-    renderHome([folder, card], { projects: [project], onSetFolder: setFolder });
-    act(() => host!.querySelector<HTMLButtonElement>(".fh-item .fh-kebab")!.click());
-    act(() => {
-      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
-        .find((button) => button.textContent?.includes("Move to"))!
-        .click();
-    });
-    const current = [...document.querySelectorAll<HTMLButtonElement>(".move-item")].find(
-      (button) => button.textContent?.includes("Card")
-    )!;
-    expect(current.getAttribute("aria-current")).toBe("location");
-    act(() => current.click());
-
-    expect(setFolder).not.toHaveBeenCalled();
-  });
-
-  it("hides nested shelves until their parent shelf is opened", () => {
-    const child = { ...folder, id: "child", name: "Child", parentId: "card" };
-    const grandchild = {
-      ...folder,
-      id: "grandchild",
-      name: "Grandchild",
-      parentId: "child",
-    };
-    const deepProject = { ...project, folderId: "grandchild" };
-    renderHome([folder, card, child, grandchild], { projects: [deepProject] });
-
-    expect(host!.textContent).toContain("Child");
-    expect(host!.textContent).not.toContain("Grandchild");
+  it("hides nested folders until their parent folder is opened", () => {
+    const child = { ...stage, id: "child", name: "Child", parentId: "card" };
+    const grandchild = { ...stage, id: "grandchild", name: "Grandchild", parentId: "child" };
+    renderHome([stage, card, child, grandchild], { projects: [{ ...draft, folderId: "grandchild" }] });
+    openProject("Card");
+    expect(host!.querySelector(".lib-main")!.textContent).toContain("Child");
+    expect(host!.querySelector(".lib-main")!.textContent).not.toContain("Grandchild");
     act(() => {
       [...host!.querySelectorAll<HTMLButtonElement>(".shelf-name")]
         .find((button) => button.textContent === "Child")!
         .click();
     });
-    expect(host!.textContent).toContain("Grandchild");
+    expect(host!.querySelector(".lib-main")!.textContent).toContain("Grandchild");
   });
 
   it("keeps empty nested folders reachable", () => {
-    const child = { ...folder, id: "child", name: "Empty child", parentId: "card" };
-    renderHome([folder, card, child]);
-    const openCard = host!.querySelector<HTMLButtonElement>(".pcard .film-caret")!;
-    act(() => openCard.click());
-    expect(host!.textContent).toContain("Empty child");
+    const child = { ...stage, id: "child", name: "Empty child", parentId: "card" };
+    renderHome([stage, card, child]);
+    openProject("Card");
+    expect(host!.querySelector(".lib-main")!.textContent).toContain("Empty child");
+  });
+});
+
+/** Carry a row with the pointer and let go over whatever the page reports. */
+function carry(from: HTMLElement, over: () => Element | null) {
+  const at = (x: number, y: number) => ({
+    pointerId: 1,
+    isPrimary: true,
+    pointerType: "mouse",
+    button: 0,
+    buttons: 1,
+    clientX: x,
+    clientY: y,
+    bubbles: true,
+    cancelable: true,
+  });
+  document.elementFromPoint = () => over();
+  act(() => {
+    from.dispatchEvent(new PointerEvent("pointerdown", at(10, 10)));
+    window.dispatchEvent(new PointerEvent("pointermove", at(40, 40)));
+  });
+  act(() => {
+    window.dispatchEvent(new PointerEvent("pointerup", at(40, 40)));
+  });
+}
+
+describe("ProjectsHome dragging", () => {
+  it("files a script into a project it is dropped on in the sidebar", () => {
+    const setFolder = vi.fn();
+    renderHome([stage, card, other], { projects: [draft], onSetFolder: setFolder });
+    openProject("Card");
+    const row = host!.querySelector<HTMLElement>(".lib-main .lib-row")!;
+    const target = [...host!.querySelectorAll(".lib-project")].find((el) =>
+      el.textContent?.startsWith("Other")
+    )!;
+    carry(row.querySelector(".lib-row-title") as HTMLElement, () => target);
+    expect(setFolder).toHaveBeenCalledWith("draft", "other");
+    expect(host!.querySelector(".is-lifted")).toBeNull();
+  });
+
+  it("does not stamp placement when a script is dropped on its own folder", () => {
+    const setFolder = vi.fn();
+    const reorder = vi.fn();
+    renderHome([stage, card], { projects: [draft], onSetFolder: setFolder, onReorder: reorder });
+    openProject("Card");
+    const row = host!.querySelector<HTMLElement>(".lib-main .lib-row")!;
+    const own = host!.querySelector(".lib-project")!;
+    carry(row.querySelector(".lib-row-title") as HTMLElement, () => own);
+    expect(setFolder).not.toHaveBeenCalled();
+    expect(reorder).not.toHaveBeenCalled();
+  });
+
+  it("does not start a drag while an actions menu is open", () => {
+    const setFolder = vi.fn();
+    renderHome([stage, card, other], { projects: [draft], onSetFolder: setFolder });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!.click());
+    const row = host!.querySelector<HTMLElement>(".lib-main .lib-row")!;
+    const target = [...host!.querySelectorAll(".lib-project")].find((el) =>
+      el.textContent?.startsWith("Other")
+    )!;
+    carry(row.querySelector(".lib-row-title") as HTMLElement, () => target);
+    expect(setFolder).not.toHaveBeenCalled();
+    expect(document.querySelector(".drag-ghost")).toBeNull();
+  });
+
+  it("does not open the script after it has been carried", () => {
+    const open = vi.fn();
+    renderHome([stage, card, other], { projects: [draft], onOpen: open });
+    openProject("Card");
+    const title = host!.querySelector<HTMLElement>(".lib-main .lib-row .lib-row-title")!;
+    carry(title, () => null);
+    act(() => title.click());
+    expect(open).not.toHaveBeenCalled();
+  });
+});
+
+describe("ProjectsHome layered interactions", () => {
+  it("does not open a script when Enter is pressed on its actions button", () => {
+    const open = vi.fn();
+    renderHome([stage, card], { projects: [draft], onOpen: open });
+    openProject("Card");
+    const button = host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!;
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    act(() => {
+      button.focus();
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(open).not.toHaveBeenCalled();
+    act(() => button.click());
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("closes a delete dialog when its script disappears in another tab", async () => {
+    const props = renderHome([stage, card], { projects: [draft] });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!.click());
+    clickMenuItem("Delete");
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    act(() => root?.render(<ProjectsHome {...props} projects={[]} />));
+    await act(async () => {});
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(host!.querySelector(".home-search"));
+  });
+
+  it("updates an open delete dialog after a rename in another tab", () => {
+    const props = renderHome([stage, card], { projects: [draft] });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!.click());
+    clickMenuItem("Delete");
+    act(() => root?.render(<ProjectsHome {...props} projects={[{ ...draft, title: "Renamed elsewhere" }]} />));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Renamed elsewhere");
+  });
+
+  it("does not write when the move dialog picks the current folder", () => {
+    const setFolder = vi.fn();
+    renderHome([stage, card], { projects: [draft], onSetFolder: setFolder });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!.click());
+    clickMenuItem("Move to");
+    const current = [...document.querySelectorAll<HTMLButtonElement>(".move-item")].find((button) =>
+      button.textContent?.includes("Card")
+    )!;
+    expect(current.getAttribute("aria-current")).toBe("location");
+    act(() => current.click());
+    expect(setFolder).not.toHaveBeenCalled();
   });
 
   it("moves cyclic folder contents to the top when deleting the folder", () => {
     vi.useFakeTimers();
-    const a = { ...folder, id: "a", name: "A", parentId: "b" };
-    const b = { ...folder, id: "b", name: "B", parentId: "a" };
-    const inside = { ...project, folderId: "a" };
+    const a = { ...stage, id: "a", name: "A", parentId: "b" };
+    const b = { ...stage, id: "b", name: "B", parentId: "a" };
     const updateFolder = vi.fn();
     const setFolder = vi.fn();
     renderHome([a, b], {
-      projects: [inside],
+      projects: [{ ...draft, folderId: "a" }],
       onUpdateFolder: updateFolder,
       onSetFolder: setFolder,
     });
-    const aBand = [...host!.querySelectorAll<HTMLElement>(".band")].find((band) =>
-      band.textContent?.includes("A")
+    const aHead = [...host!.querySelectorAll<HTMLElement>(".lib-stage-head")].find((head) =>
+      head.textContent?.includes("A")
     )!;
-    act(() => aBand.querySelector<HTMLButtonElement>(".fh-kebab")!.click());
-    act(() => {
-      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
-        .find((button) => button.textContent?.includes("Delete folder"))!
-        .click();
-    });
+    act(() => aHead.querySelector<HTMLButtonElement>(".lib-kebab")!.click());
+    clickMenuItem("Delete folder");
     const hold = document.querySelector<HTMLButtonElement>(".hold-btn")!;
     act(() => {
       hold.dispatchEvent(new Event("pointerdown", { bubbles: true }));
       vi.advanceTimersByTime(2_000);
     });
-
     expect(updateFolder).toHaveBeenCalledWith("b", { parentId: null });
     expect(setFolder).toHaveBeenCalledWith("draft", null);
     expect(updateFolder).not.toHaveBeenCalledWith("b", { parentId: "b" });
@@ -396,11 +343,9 @@ describe("ProjectsHome layered interactions", () => {
       value: [new File(["text"], "draft.fountain")],
     });
     act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
-
     act(() => root?.render(<ToastHost />));
     await act(async () => finish({ imported: 1, failed: [] }));
-
-    expect(document.querySelector('[role="status"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Imported 1 script");
   });
 });
 
@@ -413,7 +358,6 @@ describe("HoldDelete", () => {
     root = createRoot(host);
     act(() => root?.render(<HoldDelete onConfirm={confirm} />));
     const button = host.querySelector("button")!;
-
     act(() => {
       button.dispatchEvent(new Event("pointerdown", { bubbles: true }));
       button.dispatchEvent(new Event("pointerdown", { bubbles: true }));
@@ -421,7 +365,6 @@ describe("HoldDelete", () => {
       root = null;
       vi.advanceTimersByTime(2_000);
     });
-
     expect(confirm).not.toHaveBeenCalled();
   });
 
@@ -433,14 +376,10 @@ describe("HoldDelete", () => {
     root = createRoot(host);
     act(() => root?.render(<HoldDelete onConfirm={confirm} />));
     const button = host.querySelector("button")!;
-
     act(() => {
-      button.dispatchEvent(
-        new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })
-      );
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
       vi.advanceTimersByTime(2_000);
     });
-
     expect(confirm).toHaveBeenCalledOnce();
   });
 });
