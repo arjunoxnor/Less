@@ -1,4 +1,63 @@
-# Voice scripts: the Mac side
+# Voice: the Mac side
+
+## Voice notes in documents (since 2026-09-28)
+
+Arjun records inside any ordinary LESS document: the Record button in the
+document toolbar, a waveform bar across the top of the page while it records,
+and a card in the text where the note goes. The audio uploads to the server
+under the note's own id (KV, via `PUT /api/assets/<id>`, rules in
+`lib/server/assets.ts`). Nothing is transcribed in the cloud: transcription
+waits for a Claude Code session on this Mac.
+
+When he says **"process the voice notes"**:
+
+    set -a
+    source ../secrets/cloudflare.env
+    source ../secrets/less-voice.env
+    set +a
+    npm run -s voice -- notes                  # every note waiting, and whether its audio is up
+    npm run -s voice -- transcribe <noteId>    # download + whisper large-v3-turbo, prints raw
+    npm run -s voice -- deliver-note <docId> <noteId> <raw.txt> <clean.txt> [--duration-ms N]
+
+1. `notes` lists each waiting note with its document. `audio: null` means the
+   recording is still on the device that made it (it uploads the next time
+   LESS is open there with a connection): skip it and say so.
+2. `transcribe` downloads the recording, converts it with ffmpeg and runs
+   `whisper-cli` with `ggml-large-v3-turbo.bin` plus the Silero VAD model
+   (`ggml-silero-v5.1.2.bin`, keeps whisper from inventing words in silences),
+   both in `Arjun Health/models/`. It writes `raw.txt` (the word-for-word
+   transcript, paragraphs at long pauses) into a working folder in the temp
+   directory and prints it. A minute of speech takes a few seconds.
+   `--lang xx` for another language, `--prompt "..."` to seed names.
+3. Write `clean.txt` by the rules below.
+4. `deliver-note` swaps the card for the transcribed note: the cleaned text as
+   ordinary editable paragraphs, the original kept in the note (its
+   "Original" button). For a note listed as `unfinished` (the tab closed
+   mid-recording, so no length was stored) pass `--duration-ms` from step 2.
+   Exit 3 means the document changed while you worked: run it again.
+
+An open document picks the transcript up within about 20 seconds (or when its
+tab regains focus). Unsent typing in that document at that moment is not lost:
+the app moves it into History and says so.
+
+### Cleanup rules
+
+- Remove fillers (um, uh, "like" and "you know" used as filler), false starts,
+  stutters and words said twice by accident.
+- Fix punctuation and capitalization; start a new paragraph where the thought
+  changes.
+- Never add, reword, reorder or summarize. His words, in his order. When he
+  corrects himself mid-sentence ("on Tuesday, no, Wednesday"), keep the
+  correction and drop only the abandoned words of that same sentence.
+- Keep names, slang, profanity and deliberate repetition.
+- A dictated list may be written as `- item` lines; it becomes a bulleted list.
+- Fix a plainly misheard word only when the document makes the intended one
+  certain (a character name already in it). Tell him about anything doubtful.
+- Nothing usable (silence, a pocket recording): do not deliver; tell him.
+
+---
+
+# Voice scripts (the older path)
 
 ## The workflow that stuck (2026-09-16)
 

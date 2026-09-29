@@ -66,7 +66,7 @@ export function DeleteProjectModal({
       : project.type === "board"
         ? "board"
         : project.type === "voice"
-          ? "voice note"
+          ? "voice script"
           : "document";
   return (
     <Modal

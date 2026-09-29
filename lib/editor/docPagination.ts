@@ -348,7 +348,9 @@ function lineTopsFor(
     acceptNode(node: Node) {
       let parent = node.parentElement;
       while (parent && parent !== el) {
-        if (parent.classList.contains("doc-page-gap")) {
+        // Spacers, and chrome such as a voice note's header, are not lines
+        // of text a page can break between.
+        if (parent.classList.contains("doc-page-gap") || parent.hasAttribute("data-page-skip")) {
           return nodeFilter?.FILTER_REJECT ?? 2;
         }
         parent = parent.parentElement;
@@ -545,7 +547,8 @@ function compute(view: EditorView): {
       marginTop: block.marginTop,
       marginBottom: block.marginBottom,
       lineTops: block.lineTops,
-      splittable: block.kind !== "heading" && block.kind !== "horizontalRule",
+      // A leaf block (a rule, a voice note card) has no lines to break between.
+      splittable: block.kind !== "heading" && block.kind !== "horizontalRule" && !block.node.isLeaf,
     }))
   );
   const decos: Decoration[] = [];

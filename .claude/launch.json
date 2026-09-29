@@ -21,6 +21,20 @@
         "out"
       ],
       "port": 3100
+    },
+    {
+      "name": "less-api-local",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "--yes",
+        "wrangler@4",
+        "pages",
+        "dev",
+        "out",
+        "--port",
+        "8788"
+      ],
+      "port": 8788
     }
   ]
 }

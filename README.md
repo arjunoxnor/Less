@@ -43,8 +43,12 @@ npm run build      # production build (static export)
 ```
 
 `next dev` serves the app but not the `/api` layer. To exercise the full stack
-(sign-in, cloud sync) locally, run it under `wrangler pages dev` so the Pages
-Function and D1 binding are present.
+(sign-in, cloud sync, uploads) locally, build, then run `wrangler pages dev out`
+(the `less-api-local` launch configuration) so the Pages Function, D1 and KV
+are simulated on this machine. It needs a `.dev.vars` with any
+`SESSION_SECRET=...` and the migrations applied once with
+`wrangler d1 execute less-db --local --file migrations/d1/<file>.sql`. Both
+`.dev.vars` and the `.wrangler/` state are ignored.
 
 ## Where things live
 
@@ -58,6 +62,7 @@ Function and D1 binding are present.
 | Cloud sync | `lib/storage/useProjects.ts` (dashboard reconcile), `lib/storage/useCloudSync.ts` (open doc), `lib/storage/lww.ts` and `lib/storage/syncBaseline.ts` (tested decision logic: who wins between an open doc and a cloud copy written elsewhere), `lib/cloud/*` |
 | Boards (images) | `lib/editor/boardNodes.ts` (image with caption, image grid, palette; board documents only), `components/BoardTools.tsx`, `lib/cloud/assets.ts` (shrink and upload), `lib/server/assets.ts` (the upload rules, tested), `migrations/d1/0005_assets.sql`, the `IMAGES` KV namespace |
 | Outside edits | `tools/write/write.ts` (`npm run write`): how a Claude Code session reads and replaces a document body safely (guarded on the timestamp it read, both versions kept in History) |
+| Voice notes | `lib/voicenote/*` (recorder, crash-safe local copy, upload queue, player, waveform, the Mac's delivery transform), `lib/editor/voiceNodes.ts` (the waiting card and the transcribed note), `components/RecordingBar.tsx`, `PUT /api/assets/<id>` for audio, `tools/voice/` (`npm run voice -- notes / transcribe / deliver-note`: transcription on the Mac) |
 | API | `functions/api/[[path]].ts`, `migrations/d1/*` |
 
 ## Keyboard

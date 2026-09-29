@@ -10,8 +10,11 @@
 import {
   ASSET_ID,
   MAX_ASSET_BYTES,
+  MAX_AUDIO_BYTES,
   assetHeaders,
+  byteRange,
   isGoogleIdentity,
+  judgeAudioUpload,
   judgeUpload,
   newAssetId,
 } from "../../lib/server/assets";
@@ -295,11 +298,28 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
     // cannot send a session header. The id is the capability: 128 random bits
     // that only ever appear inside the owner's own documents. Everything else
     // about an image (adding, deleting) needs the owner's session, below.
-    if (method === "GET" && seg[0] === "assets" && seg.length === 2) {
+    if ((method === "GET" || method === "HEAD") && seg[0] === "assets" && seg.length === 2) {
       if (!env.IMAGES || !ASSET_ID.test(seg[1])) return fail("Not found", 404);
       const hit = await env.IMAGES.getWithMetadata(seg[1], "arrayBuffer");
       if (!hit.value) return fail("Not found", 404);
-      return new Response(hit.value, { headers: assetHeaders(hit.metadata?.type ?? "") });
+      const headers = assetHeaders(hit.metadata?.type ?? "");
+      const size = hit.value.byteLength;
+      // Recordings are played and scrubbed, so answer byte ranges (Safari
+      // will not play audio without them). A view, not a copy, of the bytes.
+      const range = byteRange(request.headers.get("range"), size);
+      if (!range) {
+        return new Response(null, { status: 416, headers: { ...headers, "content-range": `bytes */${size}` } });
+      }
+      const length = range.end - range.start + 1;
+      const body = method === "HEAD" ? null : new Uint8Array(hit.value, range.start, length);
+      return new Response(body, {
+        status: range.partial ? 206 : 200,
+        headers: {
+          ...headers,
+          "content-length": String(length),
+          ...(range.partial ? { "content-range": `bytes ${range.start}-${range.end}/${size}` } : {}),
+        },
+      });
     }
 
     const user = await userFrom(request, env);
@@ -375,6 +395,55 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
           .bind(id, uid, bytes.length, verdict.type, new Date().toISOString())
           .run();
         return json({ id, url: `/api/assets/${id}`, bytes: bytes.length, type: verdict.type });
+      }
+      // A voice recording is stored under the id the app chose when recording
+      // began, so the note in the document can name its audio before the
+      // upload lands (on a phone with no signal, that can be much later). The
+      // id is 128 random bits from the owner's browser; another account's id
+      // is refused. The same owner re-sending the same recording is a harmless
+      // retry, and a longer copy of it (a note rescued from a closed tab, then
+      // finished properly) replaces the shorter one.
+      if (method === "PUT" && seg.length === 2 && ASSET_ID.test(seg[1])) {
+        if (!isGoogleIdentity(uid)) return fail("Sign in with Google to save voice notes", 403);
+        if (await rateLimited(env, "a:" + uid, 240, 600_000))
+          return fail("Too many uploads, try again shortly", 429);
+        const declared = Number(request.headers.get("content-length") || "0");
+        if (declared > MAX_AUDIO_BYTES) return fail("Recording is too long to store", 413);
+        const existing = await db
+          .prepare("SELECT user_id, bytes, content_type FROM assets WHERE id=?")
+          .bind(seg[1])
+          .first<{ user_id: string; bytes: number; content_type: string }>();
+        if (existing && (existing.user_id !== uid || !existing.content_type.startsWith("audio/")))
+          return fail("That id is taken", 409);
+        const bytes = new Uint8Array(await request.arrayBuffer());
+        if (existing && existing.bytes === bytes.length) {
+          return json({ id: seg[1], url: `/api/assets/${seg[1]}`, bytes: bytes.length });
+        }
+        const used = await db
+          .prepare("SELECT COALESCE(SUM(bytes),0) AS b, COUNT(*) AS n FROM assets WHERE user_id=?")
+          .bind(uid)
+          .first<{ b: number; n: number }>();
+        const verdict = judgeAudioUpload({
+          userId: uid,
+          bytes,
+          // A replacement frees what the copy it replaces was using.
+          usedBytes: (used?.b ?? 0) - (existing?.bytes ?? 0),
+          usedCount: (used?.n ?? 0) - (existing ? 1 : 0),
+        });
+        if (!verdict.ok) return fail(verdict.error, verdict.status);
+        await env.IMAGES.put(seg[1], bytes.buffer as ArrayBuffer, { metadata: { type: verdict.type } });
+        if (existing) {
+          await db
+            .prepare("UPDATE assets SET bytes=?, content_type=? WHERE id=? AND user_id=?")
+            .bind(bytes.length, verdict.type, seg[1], uid)
+            .run();
+        } else {
+          await db
+            .prepare("INSERT INTO assets (id,user_id,bytes,content_type,created_at) VALUES (?,?,?,?,?)")
+            .bind(seg[1], uid, bytes.length, verdict.type, new Date().toISOString())
+            .run();
+        }
+        return json({ id: seg[1], url: `/api/assets/${seg[1]}`, bytes: bytes.length, type: verdict.type });
       }
       if (method === "DELETE" && seg.length === 2 && ASSET_ID.test(seg[1])) {
         const row = await db

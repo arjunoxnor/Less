@@ -157,6 +157,12 @@ function markdownBlock(node: JSONContent): string {
       return (node.content ?? []).map(markdownBlock).filter(Boolean).join("\n\n");
     case "palette":
       return paletteLines(node).map((line) => `- ${line}`).join("\n");
+    // Voice notes (lib/editor/voiceNodes.ts). A transcribed note leaves as its
+    // text; one still waiting says so, with a link to its recording.
+    case "voiceNote":
+      return (node.content ?? []).map(markdownBlock).join("\n\n");
+    case "voicePending":
+      return `*${escapeMarkdownText(voicePendingLine(node))}*`;
     default:
       return inlineMarkdown(node);
   }
@@ -169,6 +175,15 @@ function exportedImageUrl(value: unknown): string {
   if (!value.startsWith("/")) return value;
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return origin + value;
+}
+
+function voicePendingLine(node: JSONContent): string {
+  const id = typeof node.attrs?.id === "string" && /^[a-f0-9]{32}$/.test(node.attrs.id) ? node.attrs.id : "";
+  const ms = Number(node.attrs?.duration);
+  const seconds = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
+  const length = seconds ? ` (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")})` : "";
+  const url = id ? `: ${exportedImageUrl(`/api/assets/${id}`)}` : "";
+  return `[Voice note, not transcribed yet${length}${url}]`;
 }
 
 function paletteLines(node: JSONContent): string[] {
@@ -228,6 +243,10 @@ function textBlock(node: JSONContent): string {
       return (node.content ?? []).map(textBlock).filter(Boolean).join("\n\n");
     case "palette":
       return paletteLines(node).join("\n");
+    case "voiceNote":
+      return (node.content ?? []).map(textBlock).join("\n\n");
+    case "voicePending":
+      return voicePendingLine(node);
     default:
       return inlineText(node);
   }

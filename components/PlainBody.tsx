@@ -59,6 +59,18 @@ import { listFolders } from "@/lib/storage/folders";
 import { cardForProject } from "@/lib/storage/library";
 import { PageBackdrop } from "./PageBackdrop";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
+import { MicGlyph, RecordingBar } from "./RecordingBar";
+import { canRecord, newVoiceId, VoiceRecording } from "@/lib/voicenote/recorder";
+import { encodePeaks, formatDuration } from "@/lib/voicenote/waveform";
+import { flushUploads } from "@/lib/voicenote/upload";
+import { rememberLocalRecording } from "@/lib/voicenote/player";
+import {
+  ensureVoicePending,
+  formatRecordedAt,
+  insertVoicePending,
+  removeVoicePending,
+  type OriginalTranscript,
+} from "@/lib/editor/voiceNodes";
 
 export function PlainBody({
   projectId,
@@ -120,6 +132,16 @@ export function PlainBody({
   } | null>(null);
   const editorRef = useRef<Editor | null>(null);
 
+  // Voice notes: record into an ordinary document (lib/voicenote,
+  // lib/editor/voiceNodes.ts). Transcription happens later, on the Mac.
+  const canVoice = type === "plain";
+  const [recording, setRecording] = useState<VoiceRecording | null>(null);
+  const [micStarting, setMicStarting] = useState(false);
+  const recordingRef = useRef<VoiceRecording | null>(null);
+  const [originalNote, setOriginalNote] = useState<OriginalTranscript | null>(null);
+  const showOriginalRef = useRef<(note: OriginalTranscript) => void>(() => {});
+  showOriginalRef.current = setOriginalNote;
+
   // True only while an edit is newer than the last successful write, so the
   // exit flushes below never re-save an untouched document (a save stamps
   // updatedAt, and the home orders by that clock: reading must not reorder).
@@ -160,10 +182,13 @@ export function PlainBody({
     () => [
       ...buildPlainExtensions(
         type === "voice"
-          ? { placeholder: "Talk, or type. Then press Process." }
+          ? {
+              placeholder: "Talk, or type. Then press Process.",
+              onOriginalTranscript: (note) => showOriginalRef.current(note),
+            }
           : isBoard
             ? { board: true, placeholder: "Drop images here, or start typing." }
-            : undefined
+            : { onOriginalTranscript: (note) => showOriginalRef.current(note) }
       ),
       // A board has no sheets: pictures do not break across pages.
       // flushSync: the sheets behind the text change in the same frame as the
@@ -200,6 +225,82 @@ export function PlainBody({
   };
   const addImagesRef = useRef(addImages);
   addImagesRef.current = addImages;
+
+  /** The card gets its length and shape the moment recording stops. The audio
+   *  file is finished and kept on the device a beat later (VoiceRecording.stop). */
+  const finishCard = (rec: VoiceRecording) => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    ensureVoicePending(ed, {
+      id: rec.id,
+      mime: rec.mime,
+      recordedAt: rec.recordedAt,
+      duration: rec.elapsedMs(),
+      peaks: encodePeaks(rec.samples),
+      state: "saved",
+    });
+  };
+  const finishCardRef = useRef(finishCard);
+  finishCardRef.current = finishCard;
+
+  const stopRecording = () => {
+    const rec = recordingRef.current;
+    if (!rec) return;
+    recordingRef.current = null;
+    setRecording(null);
+    finishCard(rec);
+    void rec.stop().then((done) => {
+      rememberLocalRecording(rec.id, done.blob);
+      return flushUploads();
+    });
+  };
+  const stopRecordingRef = useRef(stopRecording);
+  stopRecordingRef.current = stopRecording;
+
+  const startRecording = async () => {
+    if (!editorRef.current || recordingRef.current || micStarting) return;
+    if (!canRecord()) {
+      showToast("This browser cannot record audio.", { variant: "danger" });
+      return;
+    }
+    setMicStarting(true);
+    let rec: VoiceRecording;
+    try {
+      rec = await VoiceRecording.start(newVoiceId());
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Recording could not start.", { variant: "danger" });
+      return;
+    } finally {
+      setMicStarting(false);
+    }
+    // The document may have closed while the browser asked for the microphone.
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed || recordingRef.current) {
+      rec.cancel();
+      return;
+    }
+    insertVoicePending(ed, { id: rec.id, mime: rec.mime, recordedAt: rec.recordedAt, state: "recording" });
+    rec.onFull = () => {
+      showToast("This note reached the longest a recording can be, so it was saved. Record another to keep going.");
+      stopRecordingRef.current();
+    };
+    rec.onEnded = () => {
+      showToast("The microphone stopped, so the recording was saved.");
+      stopRecordingRef.current();
+    };
+    recordingRef.current = rec;
+    setRecording(rec);
+  };
+
+  const discardRecording = () => {
+    const rec = recordingRef.current;
+    if (!rec) return;
+    recordingRef.current = null;
+    setRecording(null);
+    rec.cancel();
+    const ed = editorRef.current;
+    if (ed && !ed.isDestroyed) removeVoicePending(ed, rec.id);
+  };
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -318,6 +419,17 @@ export function PlainBody({
   flushBeaconRef.current = flushBeacon;
   useEffect(() => {
     return () => {
+      // Closing the document mid-recording finishes the note rather than
+      // losing it: its card is completed before the last save below.
+      const rec = recordingRef.current;
+      if (rec) {
+        recordingRef.current = null;
+        finishCardRef.current(rec);
+        void rec.stop().then((done) => {
+          rememberLocalRecording(rec.id, done.blob);
+          return flushUploads();
+        });
+      }
       debouncedSave.cancel();
       const ed = editorRef.current;
       // Only a real pending edit gets written on the way out; see unsavedRef.
@@ -489,6 +601,21 @@ export function PlainBody({
               />
             ) : null}
             <PlainToolbar editor={editor} />
+            {canVoice ? (
+              <div className="toolbar-group">
+                <button
+                  type="button"
+                  className={"tb-btn tb-record" + (recording ? " tb-record-live" : "")}
+                  onClick={() => (recording ? stopRecording() : void startRecording())}
+                  disabled={micStarting || !editor}
+                  aria-label={recording ? "Stop recording" : "Record a voice note"}
+                  title={recording ? "Stop recording" : "Record a voice note"}
+                >
+                  <MicGlyph />
+                  <span className="tb-record-label">{recording ? "Stop" : "Record"}</span>
+                </button>
+              </div>
+            ) : null}
             {isBoard ? (
               <BoardTools
                 editor={editor}
@@ -560,6 +687,9 @@ export function PlainBody({
           </div>
         }
       >
+        {recording ? (
+          <RecordingBar rec={recording} onDone={stopRecording} onDiscard={discardRecording} />
+        ) : null}
         <div
           className="page-scroll"
           style={{ ["--doc-font-size" as string]: `${prefs.docFontSize ?? 16}px` }}
@@ -605,6 +735,46 @@ export function PlainBody({
           <p className="ui-modal-note">
             A snapshot of the current text is kept in History, so you can come back.
           </p>
+        </Modal>
+      )}
+
+      {originalNote && (
+        <Modal
+          title="Original transcript"
+          onClose={() => setOriginalNote(null)}
+          actions={[
+            {
+              label: "Copy",
+              variant: "text",
+              onClick: () => {
+                const text = originalNote.raw;
+                void navigator.clipboard?.writeText(text).then(
+                  () => showToast("Copied."),
+                  () => showToast("Could not copy.", { variant: "danger" })
+                );
+              },
+            },
+            { label: "Close", variant: "solid", onClick: () => setOriginalNote(null) },
+          ]}
+        >
+          <p className="ui-modal-note">
+            {[
+              formatRecordedAt(originalNote.recordedAt),
+              originalNote.duration ? formatDuration(originalNote.duration / 1000) : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            {originalNote.recordedAt || originalNote.duration ? ". " : ""}
+            Word for word, before the cleanup.
+          </p>
+          <div className="vn-original">
+            {originalNote.raw
+              .split(/\n{2,}/)
+              .filter((para) => para.trim())
+              .map((para, i) => (
+                <p key={i}>{para}</p>
+              ))}
+          </div>
         </Modal>
       )}
     </>

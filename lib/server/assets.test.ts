@@ -4,10 +4,14 @@ import {
   MAX_ACCOUNT_ASSET_BYTES,
   MAX_ACCOUNT_ASSET_COUNT,
   MAX_ASSET_BYTES,
+  MAX_AUDIO_BYTES,
   assetHeaders,
+  byteRange,
   isGoogleIdentity,
+  judgeAudioUpload,
   judgeUpload,
   newAssetId,
+  sniffAudioType,
   sniffImageType,
 } from "./assets";
 
@@ -96,6 +100,56 @@ describe("asset ids and headers", () => {
     expect(h["content-security-policy"]).toContain("default-src 'none'");
     // A type that somehow is not on the list is never served as something a
     // browser would render.
+    expect(assetHeaders("text/html")["content-type"]).toBe("application/octet-stream");
+  });
+});
+
+describe("voice recordings", () => {
+  const bytes = (...values: number[]) => new Uint8Array(values);
+  const text = (s: string, pad = 0) => new Uint8Array([...Array(pad).fill(0), ...[...s].map((c) => c.charCodeAt(0))]);
+
+  it("knows a recording by its bytes, whatever it claims to be", () => {
+    expect(sniffAudioType(bytes(0x1a, 0x45, 0xdf, 0xa3, 0x9f))).toBe("audio/webm");
+    expect(sniffAudioType(text("OggS\0\x02"))).toBe("audio/ogg");
+    expect(sniffAudioType(text("ftypM4A ", 4))).toBe("audio/mp4");
+    const wav = new Uint8Array(12);
+    wav.set(text("RIFF"), 0);
+    wav.set(text("WAVE"), 8);
+    expect(sniffAudioType(wav)).toBe("audio/wav");
+    expect(sniffAudioType(text("ID3\x04"))).toBe("audio/mpeg");
+    expect(sniffAudioType(bytes(0xff, 0xfb, 0x90))).toBe("audio/mpeg");
+    expect(sniffAudioType(text("<svg onload=alert(1)>"))).toBeNull();
+    expect(sniffAudioType(bytes(0x89, 0x50, 0x4e, 0x47))).toBeNull();
+  });
+
+  it("stores recordings for Google accounts only, within the size and the shared quota", () => {
+    const webm = bytes(0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3);
+    const google = "112377490000000000000";
+    expect(judgeAudioUpload({ userId: "c_abc", bytes: webm, usedBytes: 0, usedCount: 0 })).toMatchObject({ ok: false, status: 403 });
+    expect(judgeAudioUpload({ userId: google, bytes: new Uint8Array(0), usedBytes: 0, usedCount: 0 })).toMatchObject({ ok: false, status: 400 });
+    expect(judgeAudioUpload({ userId: google, bytes: text("hello"), usedBytes: 0, usedCount: 0 })).toMatchObject({ ok: false, status: 415 });
+    expect(
+      judgeAudioUpload({ userId: google, bytes: webm, usedBytes: MAX_ACCOUNT_ASSET_BYTES, usedCount: 1 })
+    ).toMatchObject({ ok: false, status: 507 });
+    expect(judgeAudioUpload({ userId: google, bytes: webm, usedBytes: 0, usedCount: 0 })).toEqual({ ok: true, type: "audio/webm" });
+    expect(MAX_AUDIO_BYTES).toBeLessThanOrEqual(25 * 1024 * 1024);
+  });
+
+  it("answers byte ranges the way media players ask for them", () => {
+    expect(byteRange(null, 1000)).toEqual({ start: 0, end: 999, partial: false });
+    expect(byteRange("bytes=0-1", 1000)).toEqual({ start: 0, end: 1, partial: true });
+    expect(byteRange("bytes=500-", 1000)).toEqual({ start: 500, end: 999, partial: true });
+    expect(byteRange("bytes=-100", 1000)).toEqual({ start: 900, end: 999, partial: true });
+    expect(byteRange("bytes=900-5000", 1000)).toEqual({ start: 900, end: 999, partial: true });
+    expect(byteRange("bytes=1000-1001", 1000)).toBeNull();
+    expect(byteRange("bytes=5-2", 1000)).toBeNull();
+    expect(byteRange("items=0-5", 1000)).toEqual({ start: 0, end: 999, partial: false });
+  });
+
+  it("serves recordings as audio, with ranges advertised", () => {
+    const headers = assetHeaders("audio/webm");
+    expect(headers["content-type"]).toBe("audio/webm");
+    expect(headers["accept-ranges"]).toBe("bytes");
     expect(assetHeaders("text/html")["content-type"]).toBe("application/octet-stream");
   });
 });

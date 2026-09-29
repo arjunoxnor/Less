@@ -9,6 +9,7 @@ import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
 import { SmartCaps } from "./smartCaps";
 import { boardExtensions } from "./boardNodes";
+import { VoiceNote, VoicePending, type VoiceNoteOptions } from "./voiceNodes";
 
 /**
  * Notes use paragraph spacing for their visible rhythm. At the top level,
@@ -24,7 +25,9 @@ export const UniformPlainBreaks = Extension.create({
     return {
       "Shift-Enter": () => {
         const { $from } = this.editor.state.selection;
-        if ($from.depth !== 1) return false;
+        // A voice note's paragraphs keep the same rhythm as the page's.
+        const inVoiceNote = $from.depth === 2 && $from.node(1).type.name === "voiceNote";
+        if ($from.depth !== 1 && !inVoiceNote) return false;
         if ($from.parent.type.name !== "paragraph" && $from.parent.type.name !== "heading") {
           return false;
         }
@@ -41,7 +44,12 @@ export const UniformPlainBreaks = Extension.create({
  * bold/italic/underline/strike. On top we add the rest of the Google-Docs-style
  * toolset: text alignment, highlight, text color, and checklists.
  */
-export function buildPlainExtensions(opts?: { placeholder?: string; board?: boolean }) {
+export function buildPlainExtensions(opts?: {
+  placeholder?: string;
+  board?: boolean;
+  /** Opens a transcribed voice note's original transcript. */
+  onOriginalTranscript?: VoiceNoteOptions["onOriginal"];
+}) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
@@ -59,7 +67,10 @@ export function buildPlainExtensions(opts?: { placeholder?: string; board?: bool
       placeholder: opts?.placeholder ?? "Start writing. Outline, beats, notes, anything.",
     }),
     // Images, image grids, and palettes exist only in boards, so an ordinary
-    // document, its paginator, and its exporters never meet them.
-    ...(opts?.board ? boardExtensions : []),
+    // document, its paginator, and its exporters never meet them. Voice notes
+    // (lib/editor/voiceNodes.ts) are the other way round: documents only.
+    ...(opts?.board
+      ? boardExtensions
+      : [VoicePending, VoiceNote.configure({ onOriginal: opts?.onOriginalTranscript ?? null })]),
   ];
 }

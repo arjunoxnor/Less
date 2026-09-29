@@ -76,7 +76,7 @@ export const BoardGlyph = () => (
     <rect x="13" y="13" width="7" height="7" rx="1" />
   </svg>
 );
-/** A microphone: a voice note. */
+/** A microphone: a voice script (the older dictation documents). */
 export const VoiceGlyph = () => (
   <svg {...svg}>
     <rect x="9" y="3" width="6" height="11" rx="3" />

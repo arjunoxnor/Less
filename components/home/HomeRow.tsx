@@ -5,7 +5,7 @@ import { DotsIcon } from "../chrome/icons";
 import { NameInput, relativeTime, STATUS_LABEL, TypeGlyph } from "./homeParts";
 
 /**
- * One script, document, board or voice note in a list on the home. The whole
+ * One script, document, board or voice script in a list on the home. The whole
  * row opens it; it can be picked up and carried (see useHomeDrag); its
  * actions sit behind the dots at the end.
  */
@@ -42,7 +42,7 @@ export function HomeRow({
       : p.type === "board"
         ? "Board"
         : p.type === "voice"
-          ? "Voice note"
+          ? "Voice script"
           : "Document";
   const status = p.type === "screenplay" && p.status !== "not_started" ? STATUS_LABEL[p.status] : null;
   return (

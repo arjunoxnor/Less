@@ -32,6 +32,7 @@ import { getFolder, type Stage } from "@/lib/storage/folders";
 import { getProjectShare } from "@/lib/collab/duet";
 import type { DuetCopyInput } from "@/lib/collab/duetCopy";
 import { showToast } from "./ui/Toast";
+import { flushUploads, startUploadLoop } from "@/lib/voicenote/upload";
 
 /**
  * Two places, and no third: the home, and a document. A folder is not a place
@@ -114,6 +115,13 @@ export function AppShell() {
   useEffect(() => {
     setPrefs(loadPrefs());
   }, []);
+
+  // Voice notes recorded on this device go to the server whenever they can,
+  // whatever is open (lib/voicenote/upload.ts), and right after a sign-in.
+  useEffect(() => startUploadLoop(), []);
+  useEffect(() => {
+    if (user?.id) void flushUploads();
+  }, [user?.id]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;

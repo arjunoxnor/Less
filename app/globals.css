@@ -1606,7 +1606,9 @@ body {
 .pl-prose > ul,
 .pl-prose > ol,
 .pl-prose > blockquote,
-.pl-prose > pre {
+.pl-prose > pre,
+.pl-prose > .vn-card,
+.pl-prose > .vn-note {
   margin-bottom: 0.8em;
 }
 .pl-prose blockquote > * + *,
@@ -5499,5 +5501,364 @@ html.is-dragging * {
   }
   .lib-new {
     padding: 0 10px;
+  }
+}
+
+/* ---- Voice notes (components/RecordingBar.tsx, lib/editor/voiceNodes.ts) -- */
+/* Recording happens in an ordinary document: a Record button in its toolbar,
+   a bar across the top of the page while the microphone is open, and a card
+   in the text where the note will go. Once transcribed on the Mac, the card
+   becomes the cleaned-up text, marked by a thin line in the left margin. */
+
+.editor-secondrow .tb-record {
+  gap: 5px;
+}
+.editor-secondrow .tb-record-live,
+.editor-secondrow .tb-record-live:hover {
+  color: var(--danger);
+}
+@media (max-width: 760px) {
+  .tb-record-label {
+    display: none;
+  }
+}
+
+.rec-bar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+  animation: rec-in var(--dur-2) var(--ease);
+}
+@keyframes rec-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.rec-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 8.5in;
+  min-height: 40px;
+}
+.rec-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger-fill);
+  animation: rec-pulse 1.6s ease-in-out infinite;
+}
+.rec-paused .rec-dot {
+  background: var(--faint);
+  animation: none;
+}
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.rec-state {
+  flex: 0 0 auto;
+  min-width: 5.5em;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.rec-wave {
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: 36px;
+  color: var(--ink);
+  --rec-rest: var(--line-strong);
+}
+.rec-paused .rec-wave {
+  color: var(--muted);
+}
+.rec-time {
+  flex: 0 0 auto;
+  min-width: 3.5em;
+  text-align: right;
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+.rec-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.rec-icon:hover {
+  background: var(--surface-2);
+}
+.rec-done {
+  flex: 0 0 auto;
+}
+.rec-ask {
+  font-size: var(--text-md);
+}
+.rec-fill {
+  flex: 1 1 auto;
+}
+@media (max-width: 520px) {
+  .rec-state {
+    display: none;
+  }
+}
+
+/* The card for a note that has not been transcribed yet. */
+.pl-prose .vn-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  line-height: 1.35;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pl-prose .vn-card.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.vn-play {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+.vn-play:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.vn-card-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.vn-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.vn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+}
+.vn-label svg {
+  align-self: center;
+  color: var(--muted);
+}
+.vn-meta {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.vn-bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+}
+.vn-bar {
+  flex: 1 1 0;
+  min-width: 1px;
+  max-width: 4px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+.vn-bar.on {
+  background: var(--ink);
+}
+.vn-status {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.vn-card-live .vn-status {
+  color: var(--danger);
+}
+
+/* A transcribed note: ordinary text, with a line in the margin beside it and
+   a small header where it starts. */
+.pl-prose .vn-note {
+  position: relative;
+  margin-top: 0;
+}
+.vn-rail {
+  position: absolute;
+  top: 0.35em;
+  bottom: 0.2em;
+  left: -16px;
+  width: 2px;
+  pointer-events: none;
+}
+/* Pieces placed by the node view, one per page the note is on. Until it has
+   measured, the one piece runs the full height. */
+.vn-rail-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.vn-rail::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.55;
+}
+.vn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 0.3em;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.vn-head .vn-label {
+  color: var(--ink);
+}
+.vn-head-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.vn-head-play:hover {
+  background: var(--surface-2);
+}
+.vn-head-play:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.vn-head-play svg {
+  width: 11px;
+  height: 11px;
+}
+.vn-spacer {
+  flex: 1 1 auto;
+}
+.vn-head-btn {
+  padding: 1px 7px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.vn-head-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.vn-head-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.vn-note:hover .vn-head-x,
+.vn-head-x:focus-visible {
+  opacity: 1;
+}
+.vn-head-x:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+@media (pointer: coarse) {
+  .vn-head-x {
+    opacity: 1;
+  }
+}
+.pl-prose .vn-body > * + * {
+  margin-top: 0.8em;
+}
+
+/* The original transcript, in its dialog. */
+.vn-original {
+  max-height: 50vh;
+  overflow: auto;
+  margin-top: var(--space-3);
+  font-size: var(--text-md);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.vn-original p {
+  margin: 0 0 0.8em;
+}
+.vn-original p:last-child {
+  margin-bottom: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-bar,
+  .rec-dot {
+    animation: none;
+  }
+}
+@media print {
+  .vn-head-play,
+  .vn-head-btn,
+  .vn-head-x,
+  .vn-play {
+    display: none !important;
   }
 }
