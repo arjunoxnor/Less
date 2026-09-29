@@ -23,9 +23,6 @@ yarn-error.log*
 # local env files (secrets never get committed)
 .env
 .env*.local
-# wrangler pages dev: local secrets and the simulated D1/KV state
-.dev.vars
-.wrangler/
 
 # typescript
 *.tsbuildinfo
