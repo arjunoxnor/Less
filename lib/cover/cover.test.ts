@@ -174,3 +174,20 @@ describe("versionName", () => {
     expect(suggestStacks([blank("a"), blank("b")], () => "script")).toEqual([]);
   });
 });
+
+describe("digest field order", () => {
+  it("is the same whether computed here or read back from the server", () => {
+    const content = {
+      type: "doc",
+      content: [
+        line("scene_heading", "int. diner - night"),
+        line("character", "MAYA"),
+        { type: "voiceNote", attrs: { duration: 4200, peaks: "a1b2c3d4" }, content: [{ type: "text", text: "said" }] },
+        para("A line."),
+      ],
+    };
+    const local = digestOf(content);
+    const fromServer = readDigest(JSON.stringify(digestOf(content)));
+    expect(JSON.stringify(local)).toBe(JSON.stringify(fromServer));
+  });
+});

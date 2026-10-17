@@ -201,7 +201,11 @@ export function digestOf(content: unknown): CoverDigest {
   if (items.length) d.items = items;
   if (images.length) d.images = images;
   if (swatches.length) d.swatches = swatches;
-  return d;
+  // One field order everywhere: sync compares digests as JSON, and a digest
+  // read back from the server is rebuilt in readDigest's order. Without this a
+  // script's own digest (firstScene first) never equals the cloud's copy, and
+  // every reconcile would rewrite it.
+  return readDigest(d) ?? d;
 }
 
 /** A digest read back from storage or the network: shape-checked, never trusted. */
