@@ -3815,7 +3815,9 @@ body {
   line-height: 1.4;
   color: var(--muted);
 }
-.brd-caption:has(> br.ProseMirror-trailingBreak:only-child)::before {
+/* The caption hint shows only on the picture being pointed at or worked in,
+   never as a row of "Caption" under every picture on the wall. */
+.brd-figure:is(:hover, .brd-figure-current) .brd-caption:has(> br.ProseMirror-trailingBreak:only-child)::before {
   content: "Caption";
   float: left;
   height: 0;
@@ -3918,6 +3920,13 @@ body {
    gets an ink frame so a wall can be scanned for the votes at a glance. */
 .brd-media {
   position: relative;
+  /* As wide as the picture, so its buttons sit on the picture's corners. */
+  width: fit-content;
+  max-width: 100%;
+}
+.brd-grid .brd-media,
+.brd-figure-empty .brd-media {
+  width: auto;
 }
 .brd-like {
   position: absolute;
@@ -3930,8 +3939,52 @@ body {
   border-radius: 50%;
   background: color-mix(in srgb, var(--paper) 86%, transparent);
   cursor: pointer;
-  opacity: 0.35;
+  opacity: 0;
   transition: opacity 120ms ease;
+}
+/* Remove: a plain round button at the other corner, on the picture being
+   pointed at or worked in only. */
+.brd-remove {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1c1c1e;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.brd-remove::before,
+.brd-remove::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+.brd-remove::after {
+  transform: rotate(-45deg);
+}
+.brd-remove:hover {
+  background: var(--danger-fill);
+  color: var(--on-danger);
+}
+.brd-figure:is(:hover, .brd-figure-current, .ProseMirror-selectednode) .brd-remove,
+.brd-remove:focus-visible {
+  opacity: 1;
+}
+.brd-figure-empty .brd-remove {
+  opacity: 0.6;
 }
 .brd-like::after {
   content: "";
@@ -3945,9 +3998,13 @@ body {
   transform: rotate(45deg);
   opacity: 0.45;
 }
-.brd-figure:hover .brd-like,
+.brd-figure:is(:hover, .brd-figure-current, .ProseMirror-selectednode) .brd-like,
 .brd-like:focus-visible {
   opacity: 1;
+}
+/* A click on a picture selects it: Backspace or Delete then removes it. */
+.brd-media img {
+  cursor: pointer;
 }
 .brd-like[aria-pressed="true"] {
   opacity: 1;

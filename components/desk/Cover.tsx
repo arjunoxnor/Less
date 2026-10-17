@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { CoverDigest } from "@/lib/cover/digest";
 import type { DocKind } from "@/lib/cover/kinds";
 import {
@@ -127,6 +127,19 @@ function decodePeaks(peaks: string, count: number, seed: string): number[] {
 
 const fallbackText = (d?: CoverDigest) => d?.logline ?? d?.lines?.[0] ?? "";
 
+/** "Untitled", "Untitled board", "": a placeholder, not a name worth printing on a cover. */
+export const isPlaceholderTitle = (title: string) => !title.trim() || /^untitled\b/i.test(title.trim());
+
+/**
+ * A board's picture is shown whole, at its own shape, never cropped or
+ * covered: its width to height, once it has loaded, kept here so the desk can
+ * size the cover before the picture arrives again. Very tall or very wide
+ * pictures are held to a sensible range.
+ */
+const PHOTO_RATIO = new Map<string, number>();
+export const photoRatioOf = (src: string): number | undefined => PHOTO_RATIO.get(src);
+const clampRatio = (r: number) => Math.min(1.6, Math.max(0.56, r));
+
 const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 /**
  * A plain document's title is often its own first line, so a cover would say
@@ -143,14 +156,22 @@ function withoutTitle(lines: readonly string[], title: string): string[] {
 
 function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, mini }: CoverProps) {
   const p = paletteFor(seed ?? id);
-  const name = title.trim() || "Untitled";
-  const ownLines = withoutTitle(digest?.lines ?? [], name);
+  // A placeholder ("Untitled board") is never printed on the art: the label
+  // under the cover already says it, and on a cover it only gets in the way.
+  const name = isPlaceholderTitle(title) ? "" : title.trim();
+  const ownLines = withoutTitle(digest?.lines ?? [], title.trim());
+  const images = kind === "board" ? digest?.images ?? [] : [];
+  // One picture on a board: shown whole, at its own shape.
+  const photo = images.length === 1 && !mini ? images[0] : null;
+  const [ratio, setRatio] = useState<number | null>(() => (photo ? (PHOTO_RATIO.get(photo) ?? null) : null));
+  const shownRatio = photo ? (ratio ?? PHOTO_RATIO.get(photo) ?? null) : null;
   const shapes = kind === "board" || kind === "notes" ? [] : artFor(id, kind, p);
   const style = {
     ["--cv-bg" as string]: kind === "notes" ? stickyFor(seed ?? id) : p.bg,
     ["--cv-ink" as string]: kind === "notes" ? "#1F1C18" : p.ink,
     ["--cv-accent" as string]: p.accent,
     ["--cv-alt" as string]: p.alt,
+    ...(shownRatio ? { aspectRatio: String(shownRatio) } : {}),
   } as React.CSSProperties;
 
   let body: React.ReactNode;
@@ -160,7 +181,7 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
       body = (
         <>
           <div className="cv-sheet">
-            <div className="cv-sheet-title">{name}</div>
+            {name && <div className="cv-sheet-title">{name}</div>}
             {author ? (
               <>
                 <div className="cv-sheet-by">Written by</div>
@@ -182,11 +203,13 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
       body = (
         <>
           <div className="cv-eyebrow">Treatment</div>
-          <div className="cv-initial" aria-hidden="true">
-            {name.replace(/^(the|a|an)\s+/i, "").slice(0, 1).toUpperCase()}
-          </div>
-          <div className="cv-title cv-serif">{name}</div>
-          {prose && <div className="cv-prose">{prose}</div>}
+          {name && (
+            <div className="cv-initial" aria-hidden="true">
+              {name.replace(/^(the|a|an)\s+/i, "").slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          {name && <div className="cv-title cv-serif">{name}</div>}
+          {prose && <div className={"cv-prose" + (name ? "" : " is-lead")}>{prose}</div>}
         </>
       );
       break;
@@ -196,8 +219,8 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
       body = (
         <>
           <div className="cv-eyebrow">One-pager</div>
-          <div className="cv-logline">{line ? `“${line}”` : name}</div>
-          {line && <div className="cv-foot">{name}</div>}
+          {(line || name) && <div className="cv-logline">{line ? `“${line}”` : name}</div>}
+          {line && name && <div className="cv-foot">{name}</div>}
         </>
       );
       break;
@@ -216,7 +239,11 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
       }));
       body = (
         <>
-          <div className="cv-title cv-title-top cv-serif">{name}</div>
+          {name ? (
+            <div className="cv-title cv-title-top cv-serif">{name}</div>
+          ) : (
+            <div className="cv-eyebrow">Outline</div>
+          )}
           <div className="cv-cards">
             {cards.map((c, i) => (
               <div key={i} className="cv-card" style={{ transform: `rotate(${c.tilt}deg)`, ["--stripe" as string]: c.stripe }}>
@@ -230,11 +257,11 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
     }
     case "characters": {
       const names = (digest?.headings?.length ? digest.headings : digest?.items ?? []).slice(0, 3);
-      const faces = names.length ? names : [name];
+      const faces = names.length ? names : name ? [name] : [];
       body = (
         <>
           <div className="cv-eyebrow">Characters</div>
-          <div className={"cv-faces cv-faces-" + faces.length}>
+          <div className={"cv-faces cv-faces-" + Math.max(1, faces.length)}>
             {faces.map((n, i) => (
               <div
                 key={i}
@@ -248,8 +275,8 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
               </div>
             ))}
           </div>
-          <div className="cv-face-names">{faces.join(" · ")}</div>
-          <div className="cv-foot">{name}</div>
+          {faces.length > 0 && <div className="cv-face-names">{faces.join(" · ")}</div>}
+          {name && <div className="cv-foot">{name}</div>}
         </>
       );
       break;
@@ -259,18 +286,36 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
       body = (
         <>
           <div className="cv-tape" aria-hidden="true" />
-          <div className="cv-note-title">{name}</div>
+          {name && <div className="cv-note-title">{name}</div>}
           <div className="cv-note-lines">{lines.join(" ")}</div>
         </>
       );
       break;
     }
     case "board": {
-      const images = digest?.images ?? [];
       const swatches = digest?.swatches ?? [];
       body = (
         <>
-          {images.length > 0 ? (
+          {photo ? (
+            <div className="cv-photo">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photo}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                draggable={false}
+                onLoad={(e) => {
+                  const img = e.currentTarget;
+                  if (!img.naturalWidth || !img.naturalHeight) return;
+                  const r = clampRatio(img.naturalWidth / img.naturalHeight);
+                  PHOTO_RATIO.set(photo, r);
+                  setRatio(r);
+                }}
+              />
+            </div>
+          ) : images.length > 0 ? (
             <div className={"cv-collage cv-collage-" + Math.min(images.length, 4)}>
               {images.slice(0, 4).map((src, i) => (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -292,7 +337,7 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
               })}
             </div>
           )}
-          <div className="cv-band">{name}</div>
+          {images.length === 0 && name && <div className="cv-band">{name}</div>}
         </>
       );
       break;
@@ -309,7 +354,7 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
             ))}
           </div>
           {digest?.voice?.ms ? <div className="cv-dur">{formatMs(digest.voice.ms)}</div> : null}
-          {said ? <div className="cv-say">{said}</div> : <div className="cv-foot">{name}</div>}
+          {said ? <div className="cv-say">{said}</div> : name ? <div className="cv-foot">{name}</div> : null}
         </>
       );
       break;
@@ -318,7 +363,7 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
       const lines = ownLines;
       body = (
         <div className="cv-page">
-          <div className="cv-page-title">{name}</div>
+          {name && <div className="cv-page-title">{name}</div>}
           {lines.length > 0 && <div className="cv-page-lines">{lines.join(" ")}</div>}
           <span className="cv-dogear" aria-hidden="true" />
         </div>
@@ -330,7 +375,7 @@ function CoverInner({ id, seed, title, kind, digest, author, pageCount, spine, m
     <div className={"cv cv-" + kind + (mini ? " cv-mini" : "")} style={style} aria-hidden="true">
       {shapes.length > 0 && <Art shapes={shapes} />}
       <div className="cv-body">{body}</div>
-      {spine && <span className="cv-spine" style={{ background: spine }} />}
+      {spine && images.length === 0 && <span className="cv-spine" style={{ background: spine }} />}
     </div>
   );
 }

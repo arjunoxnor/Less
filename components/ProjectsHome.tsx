@@ -66,7 +66,7 @@ import { CoversGlyph, ListGlyph } from "./desk/glyphs";
 import { DeskCanvas, DeskSpotView } from "./desk/DeskCanvas";
 import { FolderObject } from "./desk/FolderObject";
 import { DeskRow, FolderColumn } from "./desk/FolderColumn";
-import { DeskToolbar, type DeskTool } from "./desk/DeskToolbar";
+import { DESK_TOOLS, DeskToolbar, type DeskTool } from "./desk/DeskToolbar";
 import {
   arrangeDesk,
   COLUMN_W,
@@ -74,7 +74,7 @@ import {
   DESK_PAD,
   deskExtent,
   firstFree,
-  FOLDER_H,
+  folderHeight,
   FOLDER_W,
   freezeDesk,
   KIND_WIDTH,
@@ -190,7 +190,9 @@ function firstLineOf(id: string): string {
 type HomeMenu =
   | null
   | { kind: "overflow" | "account" | "new"; anchor: DOMRect }
-  | { kind: "folder" | "item"; id: string; anchor: DOMRect };
+  | { kind: "folder" | "item"; id: string; anchor: DOMRect }
+  /** Right-click on a project's desk: make something right there. */
+  | { kind: "desk"; card: string; at: { x: number; y: number }; anchor: DOMRect };
 
 export function ProjectsHome({
   projects,
@@ -334,6 +336,8 @@ export function ProjectsHome({
     setQuery("");
     setTrayKey(null);
     setKindFilter(null);
+    // A menu belongs to the page it was opened on.
+    setMenu(null);
     mainRef.current?.scrollTo?.({ top: 0 });
   };
 
@@ -1419,6 +1423,69 @@ export function ProjectsHome({
     ];
   };
 
+  /* ---- Right-click: LESS's own menu, never the browser's ---- */
+
+  /** What a right-click on a desk offers: anything new, made right where it was clicked. */
+  const deskMenuItems = (cardId: string, at: { x: number; y: number }): MenuItem[] => {
+    const card = cardById.get(cardId);
+    if (!card) return [];
+    return [
+      ...DESK_TOOLS.filter((t) => onSetOrg || t.tool === "script" || t.tool === "board" || t.tool === "folder").map(
+        (t): MenuItem => ({
+          label: `New ${t.tool === "characters" ? "characters doc" : t.label.toLowerCase()}`,
+          ...(t.tool === "folder" ? {} : { swatch: KIND_COLOR[t.tool] }),
+          onSelect: () => createOnDesk(card, t.tool, at),
+        })
+      ),
+      ...(onSetDesk
+        ? ([{ kind: "divider" }, { label: "Tidy up", onSelect: () => tidyUp(card) }] as MenuItem[])
+        : []),
+    ];
+  };
+
+  /**
+   * A right-click anywhere on the home opens LESS's own menu for what is under
+   * the pointer: a document's actions, a folder's, or on empty space what can
+   * be made there. Text fields keep the browser's menu (spelling, paste).
+   */
+  const onContextMenu = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("input, textarea, [contenteditable='true'], .ui-menu, [role='dialog']")) return;
+    // From the keyboard (the menu key) there is no pointer: use the thing itself.
+    const keyed = e.clientX === 0 && e.clientY === 0;
+    const anchorFor = (el: Element | null) =>
+      keyed && el ? el.getBoundingClientRect() : new DOMRect(e.clientX, e.clientY, 0, 0);
+    const docEl = t.closest<HTMLElement>("[data-id]");
+    if (docEl?.dataset.id && projectById.has(docEl.dataset.id)) {
+      e.preventDefault();
+      setMenu({ kind: "item", id: docEl.dataset.id, anchor: anchorFor(docEl) });
+      return;
+    }
+    const folderEl = t.closest<HTMLElement>("[data-folder-id], [data-drop-into], [data-stage-head]");
+    const folderId = folderEl?.dataset.folderId ?? folderEl?.dataset.dropInto ?? folderEl?.dataset.stageHead;
+    if (folderId && folderId !== "none" && folderById.has(folderId)) {
+      e.preventDefault();
+      setMenu({ kind: "folder", id: folderId, anchor: anchorFor(folderEl) });
+      return;
+    }
+    const canvas = t.closest<HTMLElement>("[data-desk]");
+    if (canvas?.dataset.desk && cardById.has(canvas.dataset.desk)) {
+      e.preventDefault();
+      const box = canvas.getBoundingClientRect();
+      setMenu({
+        kind: "desk",
+        card: canvas.dataset.desk,
+        at: { x: Math.max(0, Math.round(e.clientX - box.left)), y: Math.max(0, Math.round(e.clientY - box.top)) },
+        anchor: anchorFor(null),
+      });
+      return;
+    }
+    if (t.closest(".lib-main, .lib-side")) {
+      e.preventDefault();
+      setMenu({ kind: "new", anchor: anchorFor(null) });
+    }
+  };
+
   /* ---- Search: one flat list across everything ---- */
 
   const q = query.trim().toLowerCase();
@@ -2384,7 +2451,7 @@ export function ProjectsHome({
       .map((x) => x.g);
     const things: DeskThing[] = [];
     const groupOf = new Map<string, StackGroup<ProjectMeta>>();
-    const shelfOf = new Map<string, { shelf: Shelf; open: boolean }>();
+    const shelfOf = new Map<string, { shelf: Shelf; open: boolean; w: number; h?: number }>();
     for (const g of ordered) {
       // A stack finds the spot one of its versions had before it was a stack.
       const aliases = g.members.length > 1 ? g.members.map((m) => "d:" + m.id) : [];
@@ -2396,10 +2463,19 @@ export function ProjectsHome({
     for (const shelf of card.shelves) {
       if (shelf.depth !== 1) continue;
       const key = "f:" + shelf.folder.id;
-      const open = !!spotOf.get(key)?.open;
-      const rows = open ? groupStacks(shelf.items).length + childShelves(card, shelf).length : 0;
-      things.push({ key, w: open ? COLUMN_W : FOLDER_W, h: open ? columnHeight(rows) : FOLDER_H });
-      shelfOf.set(key, { shelf, open });
+      const spot = spotOf.get(key);
+      const open = !!spot?.open;
+      // Shut and open, a folder keeps its own size for each.
+      if (open) {
+        const rows = groupStacks(shelf.items).length + childShelves(card, shelf).length;
+        const w = spot?.ow ?? COLUMN_W;
+        things.push({ key, w, h: spot?.oh ?? columnHeight(rows) });
+        shelfOf.set(key, { shelf, open, w, h: spot?.oh });
+      } else {
+        const w = spot?.w ?? FOLDER_W;
+        things.push({ key, w, h: folderHeight(w) });
+        shelfOf.set(key, { shelf, open, w });
+      }
     }
     return { layout, things, groupOf, shelfOf };
   };
@@ -2486,9 +2562,10 @@ export function ProjectsHome({
   };
 
   /** A folder on its desk: shut (rifle through it) or open (a column of what it holds). */
-  const deskFolder = (card: Card, shelf: Shelf, open: boolean) => {
+  const deskFolder = (card: Card, shelf: Shelf, open: boolean, width: number, height?: number) => {
     const s = shelf.folder;
     const deskId = card.folder.id;
+    const key = "f:" + s.id;
     const groups = groupStacks(shelf.items);
     const lifted = drag.source?.kind === "deskFolder" && drag.source.id === s.id;
     const isDrop = drag.dropKey === s.id;
@@ -2510,6 +2587,10 @@ export function ProjectsHome({
           onOpen={() => setFolderOpen(deskId, s.id, true)}
           onMenu={(anchor) => setMenu({ kind: "folder", id: s.id, anchor })}
           onPointerDown={(e, el) => drag.start(e, { kind: "deskFolder", id: s.id, desk: deskId }, el)}
+          width={width}
+          onResize={
+            onSetDesk ? (w) => commitDesk(deskId, (l) => placeOnDesk(l, key, { w }), "Resize") : undefined
+          }
           // Pulling a paper out takes that one document, on its own.
           onPullStart={(e, el, doc) =>
             drag.start(e, { kind: "item", id: doc.id, group: "d:" + doc.id, onDesk: deskId }, el)
@@ -2546,6 +2627,13 @@ export function ProjectsHome({
         onFold={() => setFolderOpen(deskId, s.id, false)}
         onMenu={(anchor) => setMenu({ kind: "folder", id: s.id, anchor })}
         onHeadPointerDown={(e, el) => drag.start(e, { kind: "deskFolder", id: s.id, desk: deskId }, el)}
+        width={width}
+        height={height}
+        onResize={
+          onSetDesk
+            ? (size) => commitDesk(deskId, (l) => placeOnDesk(l, key, { ow: size.w, oh: size.h }), "Resize")
+            : undefined
+        }
       >
         {groups.map((g) => deskRow(g, deskId))}
         {sub.map((child) => nestedFolderRow(card, child, deskId))}
@@ -2696,7 +2784,7 @@ export function ProjectsHome({
                           },
                         })
                       : sh
-                        ? deskFolder(card, sh.shelf, sh.open)
+                        ? deskFolder(card, sh.shelf, sh.open, sh.w, sh.h)
                         : null}
                   </DeskSpotView>
                 );
@@ -2778,7 +2866,10 @@ export function ProjectsHome({
   const stackDoc = stackTarget ? projectById.get(stackTarget) ?? null : null;
 
   return (
-    <div className={"lib" + (desk ? " is-desk" : "") + (drag.source ? " is-carrying" : "")}>
+    <div
+      className={"lib" + (desk ? " is-desk" : "") + (drag.source ? " is-carrying" : "")}
+      onContextMenu={onContextMenu}
+    >
       <header className="lib-top">
         <button
           type="button"
@@ -2927,6 +3018,14 @@ export function ProjectsHome({
       )}
       {menu?.kind === "new" && (
         <Menu anchor={menu.anchor} items={newItems()} onClose={() => setMenu(null)} ariaLabel="Create" />
+      )}
+      {menu?.kind === "desk" && (
+        <Menu
+          anchor={menu.anchor}
+          items={deskMenuItems(menu.card, menu.at)}
+          onClose={() => setMenu(null)}
+          ariaLabel="Make something here"
+        />
       )}
       {menuFolder && menu?.kind === "folder" && (
         <Menu

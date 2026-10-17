@@ -152,8 +152,15 @@ export const ScreenplayKeymap = Extension.create({
         return setCurrent(prevElement(type));
       },
 
-      // Mod+D toggles dual (side-by-side) dialogue on the current cue cluster.
-      "Mod-d": () => editor.commands.toggleDual(),
+      // Mod+D toggles dual (side-by-side) dialogue. The key is always the
+      // script's: when there is nothing to pair here, the page is told (it
+      // shows how), and the browser never gets to turn Ctrl+D into a bookmark.
+      "Mod-d": () => {
+        if (!editor.commands.toggleDual()) {
+          editor.view.dom.dispatchEvent(new CustomEvent("less:dual-help", { bubbles: true }));
+        }
+        return true;
+      },
 
       // Mod+1 through Mod+6 select an element directly.
       "Mod-1": () => setCurrent(NUMBER_SHORTCUTS["1"]),

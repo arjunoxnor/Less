@@ -1,6 +1,6 @@
-import { Node, mergeAttributes, type Editor, type JSONContent } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import type { EditorView } from "@tiptap/pm/view";
+import { Extension, Node, mergeAttributes, type Editor, type JSONContent } from "@tiptap/core";
+import { NodeSelection, Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 /**
  * The three blocks that make a BOARD: a document for looking at things rather
@@ -11,6 +11,9 @@ import type { EditorView } from "@tiptap/pm/view";
  *            and a check mark the writer can tick: "I like this one". A wall of
  *            references is only useful once it has been voted on, and the votes
  *            live in the document, so whoever built the wall can read them back.
+ *            A picture comes off the board three ways: its remove button, a
+ *            click on it and then Backspace or Delete, or Backspace from the
+ *            start of its caption (which first selects it). Undo puts it back.
  *   board    a grid of figures, 2 to 6 columns: a reference wall, or a row of
  *            storyboard panels whose captions are the shot descriptions
  *   palette  a strip of named colors
@@ -138,8 +141,11 @@ export const Figure = Node.create({
     return [{ tag: "figure[data-figure]", contentElement: "figcaption" }];
   },
 
-  // The check mark is plain DOM inside the figure, so a click on it never
-  // reaches the document as an edit. This turns that click into one.
+  // The check mark and the remove button are plain DOM inside the figure, so
+  // a click on them never reaches the document as an edit. This turns those
+  // clicks into edits, makes a click on the picture select it (so Backspace or
+  // Delete removes it), and marks the picture the writer is working in, which
+  // is where its buttons and its caption hint show.
   addProseMirrorPlugins() {
     return [
       new Plugin({
@@ -147,24 +153,40 @@ export const Figure = Node.create({
         props: {
           handleDOMEvents: {
             mousedown: (_view, event) => {
-              if (!likeButtonOf(event.target)) return false;
+              if (!figureButtonOf(event.target)) return false;
               event.preventDefault(); // no node selection, no drag
               return true;
             },
             click: (view, event) => {
-              const button = likeButtonOf(event.target);
+              const button = figureButtonOf(event.target);
               if (!button) return false;
               event.preventDefault();
               const figure = button.closest("figure[data-figure]");
               const caption = figure?.querySelector("figcaption");
               if (!caption) return true;
-              return toggleLikeAt(view, view.posAtDOM(caption, 0));
+              const pos = view.posAtDOM(caption, 0);
+              return button.classList.contains("brd-remove") ? removeFigureAt(view, pos) : toggleLikeAt(view, pos);
             },
+          },
+          handleClickOn: (view, _pos, node, nodePos, event) => {
+            if (node.type.name !== "figure") return false;
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            if (!target?.closest(".brd-media") || figureButtonOf(target)) return false;
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, nodePos)));
+            return true;
+          },
+          decorations: (state) => {
+            const at = figureAt(state, state.selection.from);
+            if (!at) return null;
+            return DecorationSet.create(state.doc, [
+              Decoration.node(at.pos, at.pos + at.node.nodeSize, { class: "brd-figure-current" }),
+            ]);
           },
         },
       }),
     ];
   },
+
 
   renderHTML({ node }) {
     const src = safeImageSrc(node.attrs.src);
@@ -199,6 +221,17 @@ export const Figure = Node.create({
         title: liked ? "Liked. Click to undo" : "Like this one",
       },
     ];
+    const remove = [
+      "button",
+      {
+        type: "button",
+        class: "brd-remove",
+        contenteditable: "false",
+        tabindex: "-1",
+        "aria-label": "Remove this picture",
+        title: "Remove this picture (Ctrl+Z puts it back)",
+      },
+    ];
     return [
       "figure",
       {
@@ -206,14 +239,60 @@ export const Figure = Node.create({
         ...(liked ? { "data-liked": "true" } : {}),
         class: src ? "brd-figure" : "brd-figure brd-figure-empty",
       },
-      ["div", { class: "brd-media", contenteditable: "false" }, media, ...(src ? [like] : [])],
+      ["div", { class: "brd-media", contenteditable: "false" }, media, ...(src ? [like, remove] : [remove])],
       ["figcaption", { class: "brd-caption" }, 0],
     ];
   },
 });
 
-function likeButtonOf(target: EventTarget | null): HTMLElement | null {
-  return target instanceof HTMLElement ? target.closest<HTMLElement>(".brd-like") : null;
+function figureButtonOf(target: EventTarget | null): HTMLElement | null {
+  return target instanceof HTMLElement ? target.closest<HTMLElement>(".brd-like, .brd-remove") : null;
+}
+
+/** The figure at or around `pos`: selected as a whole, or holding the caret. */
+export function figureAt(state: EditorState, pos: number): { pos: number; node: import("@tiptap/pm/model").Node } | null {
+  const doc = state.doc;
+  const at = Math.max(0, Math.min(pos, doc.content.size));
+  const direct = doc.nodeAt(at);
+  if (direct?.type.name === "figure" && state.selection instanceof NodeSelection && state.selection.from === at) {
+    return { pos: at, node: direct };
+  }
+  const $pos = doc.resolve(at);
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    if ($pos.node(depth).type.name === "figure") return { pos: $pos.before(depth), node: $pos.node(depth) };
+  }
+  return null;
+}
+
+/**
+ * Take a picture off the board. The last picture in a grid takes the grid
+ * with it (a grid cannot be empty), and a board is never left with no block
+ * at all: an empty line stays, ready to type or drop into.
+ */
+export function removeFigureAt(view: EditorView, pos: number): boolean {
+  const found = figureAt(view.state, pos);
+  if (!found) return false;
+  const doc = view.state.doc;
+  const $figure = doc.resolve(found.pos);
+  let from = found.pos;
+  let to = found.pos + found.node.nodeSize;
+  if ($figure.parent.type.name === "board" && $figure.parent.childCount === 1 && $figure.depth > 0) {
+    from = $figure.before();
+    to = $figure.after();
+  }
+  const tr = view.state.tr;
+  const onlyBlock = from === 0 && to === doc.content.size;
+  if (onlyBlock) tr.replaceWith(from, to, view.state.schema.nodes.paragraph.create());
+  else tr.delete(from, to);
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+  return true;
+}
+
+/** The picture the caret is in or that is selected, for the toolbar. */
+export function currentFigure(editor: Editor): { pos: number } | null {
+  const found = figureAt(editor.state, editor.state.selection.from);
+  return found ? { pos: found.pos } : null;
 }
 
 /** Flip the check mark of the figure that contains `pos`. */
@@ -321,7 +400,45 @@ export const Palette = Node.create({
   },
 });
 
-export const boardExtensions = [Figure, Board, Palette];
+/**
+ * The keys that take a picture off the board, in an extension of their own:
+ * they have to run before the paragraph keymaps (which would swallow a
+ * Backspace at the start of a caption), and raising the figure node's own
+ * priority would also move it ahead of paragraph in the schema, which would
+ * make an empty board start as an empty picture frame.
+ *
+ * Backspace at the very start of a caption selects the picture (a second
+ * Backspace removes it); with the picture selected, Backspace or Delete
+ * removes it, along with its grid when it was the grid's last one.
+ */
+export const FigureKeys = Extension.create({
+  name: "figureKeys",
+  priority: 1100,
+
+  addKeyboardShortcuts() {
+    const removeSelected = () => {
+      const { state, view } = this.editor;
+      const sel = state.selection;
+      if (!(sel instanceof NodeSelection) || sel.node.type.name !== "figure") return false;
+      return removeFigureAt(view, sel.from);
+    };
+    return {
+      Backspace: () => {
+        if (removeSelected()) return true;
+        const { state, view } = this.editor;
+        const { selection } = state;
+        if (!selection.empty || selection.$from.parent.type.name !== "figure" || selection.$from.parentOffset !== 0) {
+          return false;
+        }
+        view.dispatch(state.tr.setSelection(NodeSelection.create(state.doc, selection.$from.before())));
+        return true;
+      },
+      Delete: () => removeSelected(),
+    };
+  },
+});
+
+export const boardExtensions = [Figure, Board, Palette, FigureKeys];
 
 /* --- Editing helpers ------------------------------------------------------ */
 

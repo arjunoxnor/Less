@@ -8,12 +8,15 @@ import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
 import { NameInput, relativeTime } from "../home/homeParts";
 import { Cover } from "./Cover";
+import { useCornerResize } from "./useCornerResize";
 
 /**
  * A folder opened on its desk: a column of what it holds, like a column on a
  * Milanote board. Pick it up by its head to move it out of the way; fold it
  * shut again into a folder; carry things into it (onto its head to file them,
  * or between its rows to put them in a place) and out of it onto the desk.
+ * Its corner handle sets its width and height; shorter than what it holds,
+ * it scrolls.
  */
 export function FolderColumn({
   folder,
@@ -26,6 +29,9 @@ export function FolderColumn({
   onFold,
   onMenu,
   onHeadPointerDown,
+  width,
+  height,
+  onResize,
   children,
 }: {
   folder: Folder;
@@ -39,13 +45,41 @@ export function FolderColumn({
   onFold: () => void;
   onMenu: (anchor: DOMRect) => void;
   onHeadPointerDown: (e: React.PointerEvent, el: HTMLElement) => void;
+  /** Its width on the desk, and its height when the writer set one. */
+  width: number;
+  height?: number;
+  /** Offer the corner handle; called with the new size when it is let go. */
+  onResize?: (size: { w: number; h: number }) => void;
   children: ReactNode;
 }) {
+  const resize = useCornerResize({
+    width,
+    height: height ?? 320,
+    minW: 220,
+    maxW: 720,
+    minH: 150,
+    maxH: 2400,
+    // A column that has never been sized starts from the size it has on screen.
+    measure: (handle) => {
+      const box = handle.closest(".dk-column")?.getBoundingClientRect();
+      return box && box.width > 0 ? { w: Math.round(box.width), h: Math.round(box.height) } : null;
+    },
+    onCommit: onResize ? (size) => onResize({ w: size.w, h: size.h ?? height ?? 320 }) : undefined,
+  });
+  const shownW = resize.live?.w ?? width;
+  const shownH = resize.live?.h ?? height;
   return (
     <section
-      className={"dk-column" + (lifted ? " is-lifted" : "")}
-      style={{ ["--fc" as string]: folder.color } as React.CSSProperties}
+      className={"dk-column" + (lifted ? " is-lifted" : "") + (resize.live ? " is-resizing" : "")}
+      style={
+        {
+          ["--fc" as string]: folder.color,
+          width: shownW,
+          ...(shownH !== undefined ? { height: shownH } : {}),
+        } as React.CSSProperties
+      }
       aria-label={`${folder.name}, open folder`}
+      data-folder-id={folder.id}
     >
       <header
         className={"dk-column-head" + (isDrop ? " is-drop" : "")}
@@ -93,6 +127,19 @@ export function FolderColumn({
         {children}
       </div>
       {empty && <p className="dk-column-empty">Carry things here to file them in {folder.name}.</p>}
+      {onResize && (
+        <button
+          type="button"
+          className="dk-column-resize"
+          aria-label={`Resize ${folder.name}`}
+          title="Drag to change the size of this folder"
+          {...resize.handle}
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
     </section>
   );
 }

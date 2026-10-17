@@ -78,7 +78,8 @@ import {
   hasPendingCloudWork,
   type ProjectStatus,
 } from "@/lib/storage/projects";
-import { modKeyLabel } from "@/lib/platform";
+import { isMac, modKeyLabel } from "@/lib/platform";
+import { inDualPair } from "@/lib/editor/dualLayout";
 import { isCloudConfigured } from "@/lib/cloud/client";
 import { signOut } from "@/lib/cloud/auth";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
@@ -685,7 +686,7 @@ function ScreenplayEditor({
       editorRef.current = editor;
       setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
-      setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
+      setDualActive(inDualPair(editor.state));
       measure(editor);
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __lessEditor?: Editor }).__lessEditor = editor;
@@ -711,12 +712,12 @@ function ScreenplayEditor({
       // selection updates.
       setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
-      setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
+      setDualActive(inDualPair(editor.state));
     },
     onSelectionUpdate: ({ editor }) => {
       setCurrentElement(currentElementType(editor.state));
       setCaretLine(editor.state.selection.$from.index(0));
-      setDualActive(editor.state.selection.$from.parent.attrs?.dual === true);
+      setDualActive(inDualPair(editor.state));
     },
   });
 
@@ -1304,9 +1305,41 @@ function ScreenplayEditor({
     [editor]
   );
 
+  // Dual dialogue: the same rules from the key, the status bar and the
+  // palette. When there is nothing here to pair, say how, rather than
+  // silently doing nothing.
+  const dualHelp = useCallback(() => {
+    showToast(
+      "To put two speeches side by side, put the cursor in either one (or select both) and press Dual again."
+    );
+  }, []);
   const toggleDual = useCallback(() => {
-    editor?.chain().focus().toggleDual().run();
-  }, [editor]);
+    if (!editor) return;
+    if (!editor.chain().focus().toggleDual().run()) dualHelp();
+  }, [editor, dualHelp]);
+
+  // The editor tells us when Mod+D found nothing to pair (lib/editor/keymap.ts).
+  useEffect(() => {
+    const dom = editor?.view.dom;
+    if (!dom) return;
+    dom.addEventListener("less:dual-help", dualHelp);
+    return () => dom.removeEventListener("less:dual-help", dualHelp);
+  }, [editor, dualHelp]);
+
+  // Ctrl+D (Cmd+D on a Mac) belongs to the script even when focus is outside
+  // the page text (after clicking the status bar, say): never a bookmark here.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = isMac() ? e.metaKey : e.ctrlKey;
+      if (!mod || e.shiftKey || e.altKey || e.key.toLowerCase() !== "d" || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      toggleDual();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleDual]);
 
   const addNoteToCurrent = useCallback(
     (text: string) => {

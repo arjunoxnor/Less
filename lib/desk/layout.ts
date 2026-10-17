@@ -20,10 +20,13 @@ export interface DeskSpot {
   k: string;
   x: number;
   y: number;
-  /** Width, when the writer resized it. */
+  /** Width, when the writer resized it (a cover, or a folder while shut). */
   w?: number;
   /** A folder shown open, as a column of what it holds. */
   open?: boolean;
+  /** An open folder's own size, kept apart from its size while shut. */
+  ow?: number;
+  oh?: number;
 }
 
 export interface DeskLayout {
@@ -36,6 +39,11 @@ export const DESK_MAX_SPOTS = 600;
 export const DESK_MAX_COORD = 40_000;
 export const DESK_MIN_W = 96;
 export const DESK_MAX_W = 520;
+/** An open folder (a column) can be narrow or wide, short (it scrolls) or tall. */
+export const COLUMN_MIN_W = 220;
+export const COLUMN_MAX_W = 720;
+export const COLUMN_MIN_H = 150;
+export const COLUMN_MAX_H = 2400;
 /** Room around the edge of the desk, and between things placed for you. */
 export const DESK_PAD = 28;
 export const DESK_GAP = 30;
@@ -73,6 +81,10 @@ export function sanitizeDesk(value: unknown): DeskLayout | null {
     const w = num(r.w);
     if (w !== null) spot.w = clamp(Math.round(w), DESK_MIN_W, DESK_MAX_W);
     if (r.open === true) spot.open = true;
+    const ow = num(r.ow);
+    if (ow !== null) spot.ow = clamp(Math.round(ow), COLUMN_MIN_W, COLUMN_MAX_W);
+    const oh = num(r.oh);
+    if (oh !== null) spot.oh = clamp(Math.round(oh), COLUMN_MIN_H, COLUMN_MAX_H);
     // A repeated key: the later one wins, and moves to the top.
     byKey.delete(r.k);
     byKey.set(r.k, spot);
@@ -197,8 +209,7 @@ export function freezeDesk(
       if (!p) return null;
       const prior = p.spot ?? [t.key, ...(t.aliases ?? [])].map((k) => old.get(k)).find(Boolean);
       const spot: DeskSpot = { k: t.key, x: Math.round(p.x), y: Math.round(p.y) };
-      if (prior?.w !== undefined) spot.w = prior.w;
-      if (prior?.open) spot.open = true;
+      keepSizes(spot, prior);
       return { spot, z: p.z };
     })
     .filter((r): r is { spot: DeskSpot; z: number } => !!r)
@@ -206,12 +217,19 @@ export function freezeDesk(
   return { v: 1, spots: rows.map((r) => r.spot) };
 }
 
+/** Carry a spot's sizes and open state over to its replacement. */
+function keepSizes(spot: DeskSpot, prior: DeskSpot | undefined) {
+  if (prior?.w !== undefined) spot.w = prior.w;
+  if (prior?.open) spot.open = true;
+  if (prior?.ow !== undefined) spot.ow = prior.ow;
+  if (prior?.oh !== undefined) spot.oh = prior.oh;
+}
+
 /** Put a thing at a new spot (or change its size or open state), on top of the rest. */
 export function placeOnDesk(layout: DeskLayout, key: string, patch: Partial<Omit<DeskSpot, "k">>): DeskLayout {
   const prior = layout.spots.find((s) => s.k === key);
   const next: DeskSpot = { k: key, x: prior?.x ?? DESK_PAD, y: prior?.y ?? DESK_PAD };
-  if (prior?.w !== undefined) next.w = prior.w;
-  if (prior?.open) next.open = true;
+  keepSizes(next, prior);
   if (patch.x !== undefined) next.x = clamp(Math.round(patch.x), 0, DESK_MAX_COORD);
   if (patch.y !== undefined) next.y = clamp(Math.round(patch.y), 0, DESK_MAX_COORD);
   if ("w" in patch) {
@@ -221,6 +239,14 @@ export function placeOnDesk(layout: DeskLayout, key: string, patch: Partial<Omit
   if ("open" in patch) {
     if (patch.open) next.open = true;
     else delete next.open;
+  }
+  if ("ow" in patch) {
+    if (patch.ow === undefined) delete next.ow;
+    else next.ow = clamp(Math.round(patch.ow), COLUMN_MIN_W, COLUMN_MAX_W);
+  }
+  if ("oh" in patch) {
+    if (patch.oh === undefined) delete next.oh;
+    else next.oh = clamp(Math.round(patch.oh), COLUMN_MIN_H, COLUMN_MAX_H);
   }
   return { v: 1, spots: [...layout.spots.filter((s) => s.k !== key), next] };
 }
@@ -241,8 +267,7 @@ export function tidyDesk(things: readonly DeskThing[], layout: DeskLayout | null
       const p = fresh.get(t.key)!;
       const prior = [t.key, ...(t.aliases ?? [])].map((k) => old.get(k)).find(Boolean);
       const spot: DeskSpot = { k: t.key, x: p.x, y: p.y };
-      if (prior?.w !== undefined) spot.w = prior.w;
-      if (prior?.open) spot.open = true;
+      keepSizes(spot, prior);
       return spot;
     }),
   };
@@ -282,9 +307,13 @@ export const KIND_WIDTH: Record<string, number> = {
 /** A cover (3:4) and the label under it. */
 export const tileHeight = (w: number) => Math.round((w * 4) / 3) + 80;
 
-/** A folder, shut: the folder itself and its name under it. */
+/** A folder, shut: the folder itself and its name under it. It keeps its
+ *  shape at any width (the folder is drawn in proportion to it). */
 export const FOLDER_W = 214;
 export const FOLDER_H = 262;
+export const FOLDER_MIN_W = 140;
+export const FOLDER_MAX_W = 460;
+export const folderHeight = (w: number) => Math.round((w * 196) / 214) + 66;
 /** A folder, open: a column of what it holds. */
 export const COLUMN_W = 292;
 export const columnHeight = (rows: number) => 98 + Math.max(1, rows) * 64 + 18;

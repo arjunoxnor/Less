@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { DocKind } from "@/lib/cover/kinds";
 import { KIND_LABEL } from "@/lib/cover/kinds";
 import { paletteFor, stickyFor } from "@/lib/cover/palette";
@@ -9,6 +8,7 @@ import { DotsIcon } from "../chrome/icons";
 import { NameInput, relativeTime, STATUS_LABEL } from "../home/homeParts";
 import { Cover } from "./Cover";
 import { StackGlyph } from "./glyphs";
+import { useCornerResize } from "./useCornerResize";
 
 /**
  * One thing on the desk: its cover, and under it what it is, its name, and
@@ -16,9 +16,10 @@ import { StackGlyph } from "./glyphs";
  * carried (to a folder, to a new place, or onto another cover to stack it as a
  * version of that one); its actions sit behind the dots.
  *
- * A stack shows the other versions as sheets behind the cover, and a pill on
- * the cover fans them out. On a desk, a tile has its own width, and a handle
- * at the cover's corner to make it bigger or smaller.
+ * A stack shows the other versions as sheets behind the cover, and a button
+ * in its label fans them out. On a desk, a tile has its own width, and a
+ * handle just outside the cover's corner to make it bigger or smaller. Nothing
+ * is ever drawn on top of a cover: covers are the work, controls sit around it.
  */
 export function DeskTile({
   doc,
@@ -87,28 +88,14 @@ export function DeskTile({
   const label = KIND_LABEL[kind];
   // While the corner is being dragged, the tile follows the pointer; the desk
   // only hears about the size once it is let go.
-  const [liveWidth, setLiveWidth] = useState<number | null>(null);
+  const resize = useCornerResize({
+    width: width ?? 180,
+    minW: 96,
+    maxW: 520,
+    onCommit: onResize ? (size) => onResize(size.w) : undefined,
+  });
+  const liveWidth = resize.live?.w ?? null;
   const shownWidth = liveWidth ?? width;
-  const resizeBy = (from: number, dx: number) => Math.min(520, Math.max(96, Math.round(from + dx)));
-  const startResize = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (!onResize || e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const from = width ?? e.currentTarget.closest(".dk-tile")?.getBoundingClientRect().width ?? 180;
-    const move = (ev: PointerEvent) => setLiveWidth(resizeBy(from, ev.clientX - startX));
-    const done = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", done);
-      window.removeEventListener("pointercancel", done);
-      setLiveWidth(null);
-      const next = resizeBy(from, ev.clientX - startX);
-      if (ev.type === "pointerup" && Math.abs(next - from) >= 2) onResize(next);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", done);
-    window.addEventListener("pointercancel", done);
-  };
   return (
     <div
       className={
@@ -169,37 +156,11 @@ export function DeskTile({
             className="dk-resize"
             aria-label={`Resize ${title}`}
             title="Drag to make it bigger or smaller"
-            onPointerDown={startResize}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-              e.preventDefault();
-              const from = width ?? 180;
-              onResize(resizeBy(from, e.key === "ArrowRight" ? 24 : -24));
-            }}
+            {...resize.handle}
           >
             <svg viewBox="0 0 12 12" aria-hidden="true">
               <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
-          </button>
-        )}
-        {versions > 1 && onToggleTray && (
-          <button
-            type="button"
-            className="dk-versions"
-            aria-expanded={!!trayOpen}
-            aria-controls={trayOpen ? trayId : undefined}
-            aria-label={trayOpen ? `Fold the versions of ${title}` : `Fan out ${versions} versions of ${title}`}
-            title={trayOpen ? "Fold the versions" : "Fan out the versions"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleTray();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <StackGlyph />
-            {versions}
           </button>
         )}
       </div>
@@ -219,6 +180,24 @@ export function DeskTile({
           <span className="dk-title">{title}</span>
         )}
         <span className="dk-meta">
+          {versions > 1 && onToggleTray && (
+            <button
+              type="button"
+              className="dk-versions"
+              aria-expanded={!!trayOpen}
+              aria-controls={trayOpen ? trayId : undefined}
+              aria-label={trayOpen ? `Fold the versions of ${title}` : `Fan out ${versions} versions of ${title}`}
+              title={trayOpen ? "Fold the versions" : "Fan out the versions"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleTray();
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <StackGlyph />
+              {versions} versions
+            </button>
+          )}
           {current && <span className="dk-current">Current</span>}
           {where && (
             <span className="dk-where">

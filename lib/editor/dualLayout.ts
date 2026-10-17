@@ -97,3 +97,22 @@ export const DualLayout = Extension.create({
     ];
   },
 });
+
+/**
+ * Whether the speech the caret is in is half of a dual pair: the right column
+ * itself, or the left column whose next speech is the right one. Drives the
+ * status bar's Dual chip, so it reads "on" from either half of a pair.
+ */
+export function inDualPair(state: { doc: import("@tiptap/pm/model").Node; selection: { $from: { index: (depth: number) => number } } }): boolean {
+  const { doc } = state;
+  const at = (i: number) => (i >= 0 && i < doc.childCount ? doc.child(i) : null);
+  const element = (i: number) => at(i)?.attrs.element as string | undefined;
+  const isBody = (i: number) => element(i) === "dialogue" || element(i) === "parenthetical";
+  let cue = state.selection.$from.index(0);
+  while (cue >= 0 && isBody(cue)) cue--;
+  if (element(cue) !== "character") return false;
+  if (at(cue)!.attrs.dual === true) return true;
+  let end = cue + 1;
+  while (isBody(end)) end++;
+  return element(end) === "character" && at(end)!.attrs.dual === true;
+}

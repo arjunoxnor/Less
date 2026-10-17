@@ -6,6 +6,7 @@ import type { Folder } from "@/lib/storage/folders";
 import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
 import { Cover } from "./Cover";
+import { useCornerResize } from "./useCornerResize";
 
 /**
  * A folder sitting on a desk, shut: a real-looking folder with its papers
@@ -16,7 +17,9 @@ import { Cover } from "./Cover";
  * something onto the folder to file it inside (data-drop-into).
  *
  * Keyboard: Left and Right rifle, Enter opens what came up (or the folder),
- * Space opens the folder.
+ * Space opens the folder. The handle at its corner makes it bigger or
+ * smaller; the folder is drawn in proportion to its width, so it keeps its
+ * shape at any size.
  */
 export function FolderObject({
   folder,
@@ -32,6 +35,8 @@ export function FolderObject({
   onMenu,
   onPointerDown,
   onPullStart,
+  width,
+  onResize,
 }: {
   folder: Folder;
   /** What is inside, one per stack, in the writer's order. */
@@ -50,8 +55,19 @@ export function FolderObject({
   onPointerDown: (e: React.PointerEvent, el: HTMLElement) => void;
   /** Pull the paper that came up out of the folder. */
   onPullStart: (e: React.PointerEvent, el: HTMLElement, doc: ProjectMeta) => void;
+  /** Its width on the desk. */
+  width: number;
+  /** Offer the corner handle; called with the new width when it is let go. */
+  onResize?: (width: number) => void;
 }) {
   const [pulled, setPulled] = useState<number | null>(null);
+  const resize = useCornerResize({
+    width,
+    minW: 140,
+    maxW: 460,
+    onCommit: onResize ? (size) => onResize(size.w) : undefined,
+  });
+  const shownWidth = resize.live?.w ?? width;
   const n = docs.length;
   const shown = docs.slice(0, 5);
   const up = pulled !== null && pulled < n ? docs[pulled] : null;
@@ -68,9 +84,13 @@ export function FolderObject({
   return (
     <div
       className={
-        "dk-folder" + (isDrop ? " is-drop" : "") + (lifted ? " is-lifted" : "") + (up ? " is-rifling" : "")
+        "dk-folder" +
+        (isDrop ? " is-drop" : "") +
+        (lifted ? " is-lifted" : "") +
+        (up ? " is-rifling" : "") +
+        (resize.live ? " is-resizing" : "")
       }
-      style={{ ["--fc" as string]: folder.color } as React.CSSProperties}
+      style={{ ["--fc" as string]: folder.color, width: shownWidth } as React.CSSProperties}
       data-drop-into={folder.id}
       role="group"
       tabIndex={0}
@@ -159,6 +179,19 @@ export function FolderObject({
           <span className="dk-folder-front-line" aria-hidden="true" />
           {n === 0 && <span className="dk-folder-empty">Empty</span>}
         </div>
+        {onResize && (
+          <button
+            type="button"
+            className="dk-resize dk-folder-resize"
+            aria-label={`Resize ${folder.name}`}
+            title="Drag to make the folder bigger or smaller"
+            {...resize.handle}
+          >
+            <svg viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </div>
       <div className="dk-folder-label">
         <span className="dk-folder-name">{folder.name}</span>

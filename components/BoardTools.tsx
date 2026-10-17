@@ -4,9 +4,11 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import {
   currentBoard,
+  currentFigure,
   currentPalette,
   likeTally,
   putPalette,
+  removeFigureAt,
   setBoardColumns,
   swatchesFromText,
   swatchesToText,
@@ -55,6 +57,7 @@ export function BoardTools({
 
   if (!editor) return null;
   const board = currentBoard(editor);
+  const figure = currentFigure(editor);
   const palette = currentPalette(editor);
   const tally = likeTally(editor);
   const draftColors = paletteDraft === null ? [] : swatchesFromText(paletteDraft);
@@ -76,34 +79,49 @@ export function BoardTools({
       <button
         type="button"
         className="tb-btn"
-        title="Add images (or drop them on the page)"
+        title="Add images (or drop or paste them on the page)"
         onClick={() => fileRef.current?.click()}
       >
-        Images
+        Add images
       </button>
-      <button
-        type="button"
-        className="tb-btn"
-        title="Fewer columns in this grid"
-        aria-label="Fewer columns in this grid"
-        disabled={!board || board.columns <= 2}
-        onClick={() => board && setBoardColumns(editor, board.columns - 1)}
-      >
-        −
-      </button>
-      <span className="brd-cols" aria-live="polite">
-        {board ? `${board.columns} across` : "Grid"}
-      </span>
-      <button
-        type="button"
-        className="tb-btn"
-        title="More columns in this grid"
-        aria-label="More columns in this grid"
-        disabled={!board || board.columns >= 6}
-        onClick={() => board && setBoardColumns(editor, board.columns + 1)}
-      >
-        +
-      </button>
+      {figure && (
+        <button
+          type="button"
+          className="tb-btn"
+          title="Take this picture off the board (Ctrl+Z puts it back)"
+          onClick={() => removeFigureAt(editor.view, figure.pos)}
+        >
+          Remove picture
+        </button>
+      )}
+      {/* The grid's own controls, only while working in a grid. */}
+      {board && (
+        <>
+          <button
+            type="button"
+            className="tb-btn"
+            title="Fewer columns in this grid"
+            aria-label="Fewer columns in this grid"
+            disabled={board.columns <= 2}
+            onClick={() => setBoardColumns(editor, board.columns - 1)}
+          >
+            −
+          </button>
+          <span className="brd-cols" aria-live="polite">
+            {board.columns} across
+          </span>
+          <button
+            type="button"
+            className="tb-btn"
+            title="More columns in this grid"
+            aria-label="More columns in this grid"
+            disabled={board.columns >= 6}
+            onClick={() => setBoardColumns(editor, board.columns + 1)}
+          >
+            +
+          </button>
+        </>
+      )}
       <button
         type="button"
         className="tb-btn"

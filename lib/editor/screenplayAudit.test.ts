@@ -12,6 +12,7 @@ import { previewRenameLocation, renameLocationEverywhere } from "./renameLocatio
 import { docToLines } from "@/lib/export/flatten";
 import { paginate } from "@/lib/export/paginate";
 import { computeContinuations } from "./contd";
+import { inDualPair } from "./dualLayout";
 import { docOf, line, linesOf, makeEditor, setCaretAtLineEnd, typeText } from "./testKit";
 
 let editor: Editor | null = null;
@@ -106,6 +107,72 @@ describe("dual-dialogue cluster boundaries", () => {
     expect(ed.commands.toggleDual()).toBe(false);
     expect(linesOf(ed)[4].dual).toBe(false);
     expect(linesOf(ed)[5].dual).toBe(false);
+  });
+
+  const pair = () =>
+    docOf(
+      line("action", "They face each other."),
+      line("character", "AVA"),
+      line("dialogue", "Left."),
+      line("character", "BEN"),
+      line("parenthetical", "(quiet)"),
+      line("dialogue", "Right."),
+      line("action", "After.")
+    );
+  const duals = (ed: Editor) => linesOf(ed).map((item) => item.dual);
+
+  it("pairs two speeches from a selection that starts in the first one", () => {
+    const ed = (editor = makeEditor(pair()));
+    // From inside AVA's line to inside BEN's: the way a writer highlights both.
+    const from = ed.state.doc.child(0).nodeSize + 2;
+    let to = 0;
+    for (let i = 0; i < 5; i++) to += ed.state.doc.child(i).nodeSize;
+    ed.commands.setTextSelection({ from, to: to + 2 });
+    expect(ed.commands.toggleDual()).toBe(true);
+    expect(duals(ed)).toEqual([false, false, false, true, true, true, false]);
+  });
+
+  it("pairs from the caret in either speech, and takes the pair apart from either half", () => {
+    const ed = (editor = makeEditor(pair()));
+    setCaretAtLineEnd(ed, 2); // AVA's dialogue: the next speech joins it
+    expect(ed.commands.toggleDual()).toBe(true);
+    expect(duals(ed)).toEqual([false, false, false, true, true, true, false]);
+    setCaretAtLineEnd(ed, 1); // the left half: the pair comes apart
+    expect(ed.commands.toggleDual()).toBe(true);
+    expect(duals(ed)).toEqual([false, false, false, false, false, false, false]);
+    setCaretAtLineEnd(ed, 5); // BEN's dialogue: it joins the speech before
+    expect(ed.commands.toggleDual()).toBe(true);
+    expect(duals(ed)).toEqual([false, false, false, true, true, true, false]);
+    setCaretAtLineEnd(ed, 4); // the right half: apart again
+    expect(ed.commands.toggleDual()).toBe(true);
+    expect(duals(ed)).toEqual([false, false, false, false, false, false, false]);
+  });
+
+  it("does nothing outside a speech, and says so instead of letting the browser bookmark", () => {
+    const ed = (editor = makeEditor(pair()));
+    setCaretAtLineEnd(ed, 0); // an action line
+    expect(ed.commands.toggleDual()).toBe(false);
+    let told = 0;
+    ed.view.dom.addEventListener("less:dual-help", () => told++);
+    const key = new KeyboardEvent("keydown", { key: "d", ctrlKey: true, bubbles: true, cancelable: true });
+    ed.view.dom.dispatchEvent(key);
+    expect(key.defaultPrevented).toBe(true);
+    expect(told).toBe(1);
+    expect(duals(ed).every((d) => !d)).toBe(true);
+  });
+
+  it("reads a pair as on from either half, for the Dual chip", () => {
+    const ed = (editor = makeEditor(pair()));
+    setCaretAtLineEnd(ed, 2);
+    ed.commands.toggleDual();
+    for (const i of [1, 2, 3, 4, 5]) {
+      setCaretAtLineEnd(ed, i);
+      expect(inDualPair(ed.state)).toBe(true);
+    }
+    for (const i of [0, 6]) {
+      setCaretAtLineEnd(ed, i);
+      expect(inDualPair(ed.state)).toBe(false);
+    }
   });
 
   it("clears an orphaned right column after its left cluster is deleted", () => {

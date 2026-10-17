@@ -414,6 +414,22 @@ body {
   gap: 1.2cqw;
   background: var(--cv-bg);
 }
+.cv-photo {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-3);
+}
+.cv-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-user-drag: none;
+}
+.cv-prose.is-lead {
+  margin-top: 20cqw;
+  font-size: 5cqw;
+}
 .cv-collage img {
   width: 100%;
   height: 100%;
@@ -565,33 +581,27 @@ body {
 .dk-tile.is-stack-target .dk-sheet-1 { transform: translate(17px, -11px) rotate(8deg); }
 .dk-tile.is-stack-target .dk-sheet-2 { transform: translate(30px, -16px) rotate(13deg); }
 .dk-versions {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  z-index: 4;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px 5px 8px;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
   border: 0;
   border-radius: 999px;
-  background: rgba(14, 14, 17, 0.84);
-  color: #fff;
+  background: var(--surface-3);
+  color: var(--ink);
   font: 700 11px/1 var(--font-ui);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  backdrop-filter: blur(4px);
-  transition: transform 0.2s var(--dk-ease), background 0.2s;
+  transition: background 0.15s, color 0.15s;
 }
 .dk-versions:hover,
 .dk-versions[aria-expanded="true"] {
-  transform: scale(1.06);
-  background: #fff;
-  color: #111;
+  background: var(--ink);
+  color: var(--surface);
 }
 .dk-versions svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 /* the label under a cover */
@@ -1455,7 +1465,7 @@ body {
 /* Whatever is being worked with comes to the front: a folder being rifled
    through, a cover being resized. */
 .dk-spot:has(.dk-folder.is-rifling),
-.dk-spot:has(.dk-tile.is-resizing) {
+.dk-spot:has(.is-resizing) {
   z-index: 8000 !important;
 }
 .dk-spot.is-dim {
@@ -1494,28 +1504,32 @@ body {
 }
 
 /* the corner handle that resizes a cover */
+/* The hit area starts right at the cover's edge (so the pointer can reach it
+   without leaving the tile) and the visible grip sits in the gap beside it. */
 .dk-resize {
   position: absolute;
-  right: -7px;
-  bottom: -7px;
+  left: 100%;
+  bottom: -4px;
   z-index: 6;
   display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
+  place-items: center end;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: var(--paper);
+  background: none;
   color: var(--ink);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
   cursor: nwse-resize;
   opacity: 0;
   transition: opacity 0.15s;
 }
 .dk-resize svg {
-  width: 11px;
-  height: 11px;
+  width: 22px;
+  height: 22px;
+  padding: 5px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
 }
 .dk-tile:hover .dk-resize,
 .dk-tile.is-resizing .dk-resize,
@@ -1579,9 +1593,13 @@ body {
 }
 
 /* ---- a folder, shut: rifle through it ---- */
+/* Drawn in proportion to its width (--u is one pixel of a 214px folder), so
+   a folder resized from its corner keeps its shape at any size. */
 .dk-folder {
+  --u: calc(100cqw / 214);
   position: relative;
   width: 214px;
+  container-type: inline-size;
   outline: none;
   cursor: grab;
   user-select: none;
@@ -1595,50 +1613,56 @@ body {
 }
 .dk-folder-body {
   position: relative;
-  height: 196px;
+  height: calc(196 * var(--u));
   touch-action: pan-y;
 }
 .dk-folder-back {
   position: absolute;
   left: 0;
   right: 0;
-  top: 22px;
+  top: calc(22 * var(--u));
   bottom: 0;
-  border-radius: 4px 14px 14px 14px;
+  border-radius: calc(4 * var(--u)) calc(14 * var(--u)) calc(14 * var(--u)) calc(14 * var(--u));
   background: color-mix(in srgb, var(--fc) 70%, #000);
   box-shadow: var(--dk-shadow);
 }
 .dk-folder-tab {
   position: absolute;
   left: 0;
-  top: -15px;
+  top: calc(-15 * var(--u));
   width: 42%;
-  height: 22px;
-  border-radius: 10px 14px 0 0;
+  height: calc(22 * var(--u));
+  border-radius: calc(10 * var(--u)) calc(14 * var(--u)) 0 0;
   background: inherit;
 }
 .dk-folder-papers {
   position: absolute;
-  left: 20px;
-  right: 20px;
-  top: 6px;
-  height: 150px;
+  left: calc(20 * var(--u));
+  right: calc(20 * var(--u));
+  top: calc(6 * var(--u));
+  height: calc(150 * var(--u));
 }
 .dk-folder-paper {
   position: absolute;
   bottom: 0;
-  width: 84px;
-  left: calc(var(--i) * (100% - 84px) / max(1, var(--n) - 1));
-  transform: translateY(calc(var(--i) * 3px)) rotate(calc((var(--i) - (var(--n) - 1) / 2) * 3.5deg));
+  width: calc(84 * var(--u));
+  left: calc(var(--i) * (100% - 84 * var(--u)) / max(1, var(--n) - 1));
+  transform: translateY(calc(var(--i) * 3 * var(--u))) rotate(calc((var(--i) - (var(--n) - 1) / 2) * 3.5deg));
   transform-origin: 50% 100%;
   transition: transform 0.3s var(--dk-ease);
 }
 .dk-folder:hover .dk-folder-paper,
 .dk-folder.is-drop .dk-folder-paper {
-  transform: translateY(calc(var(--i) * 3px - 12px)) rotate(calc((var(--i) - (var(--n) - 1) / 2) * 5deg));
+  transform: translateY(calc(var(--i) * 3 * var(--u) - 12 * var(--u)))
+    rotate(calc((var(--i) - (var(--n) - 1) / 2) * 5deg));
 }
 .dk-folder.is-rifling .dk-folder-paper {
-  transform: translateY(calc(var(--i) * 3px + 8px)) rotate(calc((var(--i) - (var(--n) - 1) / 2) * 3.5deg));
+  transform: translateY(calc(var(--i) * 3 * var(--u) + 8 * var(--u)))
+    rotate(calc((var(--i) - (var(--n) - 1) / 2) * 3.5deg));
+}
+.dk-folder.is-resizing .dk-folder-paper,
+.dk-folder.is-resizing .dk-folder-front {
+  transition: none;
 }
 .dk-folder-paper .cv,
 .dk-folder-pulled .cv {
@@ -1646,12 +1670,12 @@ body {
 }
 .dk-folder-front {
   position: absolute;
-  left: -3px;
-  right: -3px;
+  left: calc(-3 * var(--u));
+  right: calc(-3 * var(--u));
   bottom: 0;
   z-index: 2;
-  height: 104px;
-  border-radius: 10px 10px 15px 15px;
+  height: calc(104 * var(--u));
+  border-radius: calc(10 * var(--u)) calc(10 * var(--u)) calc(15 * var(--u)) calc(15 * var(--u));
   background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 86%, #fff) 0%, var(--fc) 70%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 10px 22px -12px rgba(0, 0, 0, 0.55);
   transform-origin: 50% 100%;
@@ -1667,9 +1691,9 @@ body {
 }
 .dk-folder-front-line {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  top: 12px;
+  left: calc(14 * var(--u));
+  right: calc(14 * var(--u));
+  top: calc(12 * var(--u));
   height: 2px;
   border-radius: 1px;
   background: rgba(255, 255, 255, 0.35);
@@ -1680,15 +1704,15 @@ body {
   display: grid;
   place-items: center;
   color: rgba(255, 255, 255, 0.85);
-  font: 650 13px/1 var(--font-ui);
+  font: 650 clamp(11px, calc(13 * var(--u)), 18px) / 1 var(--font-ui);
 }
 .dk-folder-pulled {
   position: absolute;
   z-index: 5;
-  bottom: 70px;
-  left: calc(12px + var(--at) * (100% - 24px - 96px));
-  width: 96px;
-  transform: translateY(-34px) rotate(-2deg);
+  bottom: calc(70 * var(--u));
+  left: calc(12 * var(--u) + var(--at) * (100% - 24 * var(--u) - 96 * var(--u)));
+  width: calc(96 * var(--u));
+  transform: translateY(calc(-34 * var(--u))) rotate(-2deg);
   animation: dk-pull 0.16s var(--dk-ease);
   cursor: pointer;
   outline: none;
@@ -1722,13 +1746,13 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 4px;
-  padding: 10px 2px 0;
+  padding: calc(10 * var(--u)) 2px 0;
 }
 .dk-folder-name {
   grid-column: 1;
   color: var(--ink);
   font-family: var(--font-display-stack);
-  font-size: 18px;
+  font-size: clamp(15px, calc(18 * var(--u)), 30px);
   font-weight: 650;
   line-height: 1.15;
   overflow-wrap: anywhere;
@@ -1736,7 +1760,7 @@ body {
 .dk-folder-count {
   grid-column: 1;
   color: var(--muted);
-  font-size: 12px;
+  font-size: clamp(11px, calc(12 * var(--u)), 15px);
   font-variant-numeric: tabular-nums;
 }
 .dk-folder-label .lib-kebab {
@@ -1750,14 +1774,65 @@ body {
 .dk-folder .lib-kebab[aria-expanded="true"] {
   opacity: 1;
 }
+.dk-folder:hover .dk-folder-resize,
+.dk-folder.is-resizing .dk-folder-resize,
+.dk-folder-resize:focus-visible {
+  opacity: 1;
+}
 
 /* ---- a folder, open: a column of what it holds ---- */
 .dk-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   width: 292px;
   overflow: hidden;
   border-radius: 14px;
   background: var(--paper);
   box-shadow: var(--dk-shadow);
+}
+/* A column the writer sized: shorter than what it holds, it scrolls. */
+.dk-column > .dk-column-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.dk-column-resize {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.dk-column-resize svg {
+  width: 12px;
+  height: 12px;
+}
+.dk-column:hover .dk-column-resize,
+.dk-column.is-resizing .dk-column-resize,
+.dk-column-resize:focus-visible {
+  opacity: 1;
+}
+.dk-column-resize:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+@media (hover: none) {
+  .dk-column-resize,
+  .dk-folder-resize {
+    opacity: 0.85;
+  }
 }
 .dk-column.is-lifted {
   opacity: 0.3;

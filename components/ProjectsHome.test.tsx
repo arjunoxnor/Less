@@ -683,4 +683,57 @@ describe("ProjectsHome desk inside a project", () => {
     // A treatment starts 188 wide; dragged 60 to the right.
     expect(spotsOf(setDesk).find((x) => x.k === "d:t")).toMatchObject({ w: 248 });
   });
+
+  it("resizes a shut folder from its corner, and an open one in both directions", () => {
+    const setDesk = vi.fn();
+    const drag = (el: Element, dx: number, dy: number) =>
+      act(() => {
+        el.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100, bubbles: true }));
+        window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 100 + dx, clientY: 100 + dy }));
+        window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 100 + dx, clientY: 100 + dy }));
+      });
+    const props = renderHome([stage, card, old], { projects: [plain("p", "Old draft", { folderId: "old" })], onSetDesk: setDesk });
+    openProject("Card");
+    drag(host!.querySelector(".dk-folder-resize")!, 60, 0);
+    // A folder starts 214 wide; dragged 60 to the right.
+    expect(spotsOf(setDesk).find((x) => x.k === "f:old")).toMatchObject({ w: 274 });
+    const opened = { ...card, desk: { v: 1 as const, spots: [{ k: "f:old", x: 40, y: 40, w: 274, open: true }] } };
+    act(() => root?.render(<ProjectsHome {...props} folders={[stage, opened, old]} />));
+    drag(host!.querySelector(".dk-column-resize")!, 40, 80);
+    // Open, it has its own size (292 wide to start), and keeps the shut size apart.
+    expect(spotsOf(setDesk).find((x) => x.k === "f:old")).toMatchObject({ w: 274, ow: 332, oh: 400, open: true });
+  });
+
+  it("opens LESS's own menu on a right-click: make something right there, or a thing's own actions", () => {
+    const setDesk = vi.fn();
+    const create = vi.fn(() => plain("fresh", "Untitled one-pager", { folderId: "card" }));
+    renderHome([stage, card, old], {
+      projects: [plain("a", "Pitch A")],
+      onCreate: create,
+      onSetDesk: setDesk,
+      onSetOrg: vi.fn(),
+    });
+    openProject("Card");
+    const desk = host!.querySelector("[data-desk]")!;
+    box(desk, 0, 0, 1200, 900);
+    const rightClick = (el: Element, x: number, y: number) => {
+      const ev = new MouseEvent("contextmenu", { clientX: x, clientY: y, bubbles: true, cancelable: true });
+      act(() => {
+        el.dispatchEvent(ev);
+      });
+      return ev;
+    };
+    // Empty desk: what can be made, and it lands where the click was.
+    expect(rightClick(desk, 300, 200).defaultPrevented).toBe(true);
+    clickMenuItem("New one-pager");
+    expect(create).toHaveBeenCalledWith("plain", "Untitled one-pager", expect.objectContaining({ kind: "onepager" }));
+    expect(spotsOf(setDesk).find((x) => x.k === "d:fresh")).toMatchObject({ x: 300, y: 200 });
+    // A document: its own actions.
+    rightClick(tileTitled("Pitch A").querySelector(".dk-title")!, 50, 50);
+    expect(document.querySelector('[aria-label="Document actions"]')?.textContent).toContain("Rename");
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    // A folder: the folder's actions.
+    rightClick(host!.querySelector(".dk-folder-front")!, 60, 60);
+    expect(document.querySelector('[aria-label="Folder actions"]')?.textContent).toContain("Rename");
+  });
 });

@@ -286,63 +286,82 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
       toggleDual:
         () =>
         ({ state, dispatch }) => {
-          // Flatten the doc's top-level lines with their positions.
+          // Dual dialogue pairs two speeches that follow each other: the first
+          // stays the left column, the second (its cue and the lines under it)
+          // becomes the right one. Works from wherever the writer is:
+          //   - a selection touching two speeches: those two become a pair
+          //   - the caret in the second speech: it joins the one before it
+          //   - the caret in the first speech: the next one joins it
+          //   - in either half of an existing pair: the pair comes apart
           const lines: { pos: number; node: PMNode }[] = [];
           state.doc.forEach((node, offset) => lines.push({ pos: offset, node }));
           const elementOf = (i: number) => lines[i].node.attrs.element as string;
+          const isCue = (i: number) => i >= 0 && i < lines.length && elementOf(i) === "character";
           const isCueBody = (i: number) =>
-            elementOf(i) === "parenthetical" || elementOf(i) === "dialogue";
+            i >= 0 && i < lines.length && (elementOf(i) === "parenthetical" || elementOf(i) === "dialogue");
+          const dualAt = (i: number) => lines[i].node.attrs.dual === true;
 
-          // Which line is the cursor in?
-          const caret = state.selection.from;
-          let cur = -1;
-          for (let i = 0; i < lines.length; i++) {
-            const start = lines[i].pos;
-            const end = start + lines[i].node.nodeSize;
-            if (caret >= start && caret <= end) {
-              cur = i;
-              break;
-            }
+          /** The speech (a cue and the lines under it) that line i belongs to. */
+          const speechAt = (i: number): { cue: number; end: number } | null => {
+            let cue = i;
+            while (isCueBody(cue)) cue--;
+            if (!isCue(cue)) return null;
+            let end = cue + 1;
+            while (isCueBody(end)) end++;
+            return { cue, end };
+          };
+          const lineAt = (pos: number) =>
+            lines.findIndex((l) => pos >= l.pos && pos <= l.pos + l.node.nodeSize);
+
+          const { from, to, empty } = state.selection;
+          const first = lineAt(from);
+          const last = empty ? first : lineAt(to);
+          if (first < 0 || last < 0) return false;
+          const touched: { cue: number; end: number }[] = [];
+          for (let i = first; i <= last; i++) {
+            const speech = speechAt(i);
+            if (speech && !touched.some((t) => t.cue === speech.cue)) touched.push(speech);
           }
-          if (cur === -1) return false;
+          if (touched.length === 0) return false;
 
-          // Walk back to the character cue that owns this cluster.
-          let cueIdx = -1;
-          for (let i = cur; i >= 0; i--) {
-            if (elementOf(i) === "character") {
-              cueIdx = i;
-              break;
-            }
-            if (isCueBody(i)) continue;
-            break; // a scene heading / action / transition: no cue here
-          }
-          if (cueIdx === -1) return false;
-
-          const newDual = !lines[cueIdx].node.attrs.dual;
-
-          // Turning dual ON needs a preceding cue as the left-column partner.
-          if (newDual) {
-            let hasLeft = false;
-            for (let i = cueIdx - 1; i >= 0; i--) {
-              if (isCueBody(i)) continue;
-              hasLeft =
-                elementOf(i) === "character" && lines[i].node.attrs.dual !== true;
-              break;
-            }
-            if (!hasLeft) return false;
-          }
-
-          if (dispatch) {
+          const set = (speech: { cue: number; end: number }, dual: boolean) => {
+            if (!dispatch) return;
             const tr = state.tr;
-            const apply = (i: number) => {
-              const { pos, node } = lines[i];
-              tr.setNodeMarkup(pos, undefined, { ...node.attrs, dual: newDual });
-            };
-            apply(cueIdx);
-            for (let i = cueIdx + 1; i < lines.length && isCueBody(i); i++) apply(i);
+            for (let i = speech.cue; i < speech.end; i++) {
+              tr.setNodeMarkup(lines[i].pos, undefined, { ...lines[i].node.attrs, dual });
+            }
             dispatch(tr);
+          };
+
+          const here = touched[0];
+          const next = isCue(here.end) ? speechAt(here.end) : null;
+          // Already a pair: take it apart, from either half.
+          if (dualAt(here.cue)) {
+            set(here, false);
+            return true;
           }
-          return true;
+          if (next && dualAt(next.cue)) {
+            set(next, false);
+            return true;
+          }
+          // Two speeches selected: the second joins the first.
+          if (touched.length >= 2) {
+            if (!next || next.cue !== touched[1].cue) return false;
+            set(next, true);
+            return true;
+          }
+          // The caret in a speech: it joins the one before it, if that one is
+          // free to be a left column; otherwise the next one joins it.
+          const prev = here.cue > 0 ? speechAt(here.cue - 1) : null;
+          if (prev && prev.end === here.cue && !dualAt(prev.cue)) {
+            set(here, true);
+            return true;
+          }
+          if (next) {
+            set(next, true);
+            return true;
+          }
+          return false;
         },
 
       setNote:

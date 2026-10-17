@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { Editor, type JSONContent } from "@tiptap/core";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { buildPlainExtensions } from "./buildPlainExtensions";
 import {
   cleanSwatches,
@@ -9,6 +10,7 @@ import {
   insertImages,
   likeTally,
   putPalette,
+  removeFigureAt,
   safeHex,
   safeImageSrc,
   setBoardColumns,
@@ -271,5 +273,68 @@ describe("exporting a board", () => {
     expect(text).toContain("Clean lines");
     expect(text).toContain("[image: https://example.com/b.png]");
     expect(text).toContain("#e8b04a Steppe gold");
+  });
+});
+
+describe("taking a picture off a board", () => {
+  const wall = (): JSONContent[] => [
+    para("Refs"),
+    { type: "board", attrs: { columns: 3 }, content: [figure(A, "One"), figure(B, "Two"), figure("", "Empty frame")] },
+  ];
+  const captions = (editor: Editor) =>
+    (blocks(editor).find((b) => b.type === "board")?.content ?? []).map((f) => f.content?.[0]?.text ?? "");
+  const figurePos = (editor: Editor, index: number) => {
+    const found: number[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "figure") found.push(pos);
+    });
+    return found[index];
+  };
+
+  it("removes a picture with its button, and undo puts it back", () => {
+    const editor = boardEditor(wall());
+    const buttons = editor.view.dom.querySelectorAll<HTMLElement>(".brd-remove");
+    expect(buttons).toHaveLength(3); // an empty frame can be removed too
+    buttons[0].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(captions(editor)).toEqual(["Two", "Empty frame"]);
+    editor.commands.undo();
+    expect(captions(editor)).toEqual(["One", "Two", "Empty frame"]);
+    editor.destroy();
+  });
+
+  it("removes a selected picture with Backspace or Delete", () => {
+    const editor = boardEditor(wall());
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, figurePos(editor, 1))));
+    editor.commands.keyboardShortcut("Delete");
+    expect(captions(editor)).toEqual(["One", "Empty frame"]);
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, figurePos(editor, 0))));
+    editor.commands.keyboardShortcut("Backspace");
+    expect(captions(editor)).toEqual(["Empty frame"]);
+    editor.destroy();
+  });
+
+  it("selects a picture from the start of its caption, and a second Backspace removes it", () => {
+    const editor = boardEditor(wall());
+    const caption = figurePos(editor, 1) + 1;
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, caption)));
+    // A real key press (the command helper replays only document changes, so
+    // it would drop a selection-only step).
+    const press = () =>
+      editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+    press();
+    expect(editor.state.selection instanceof NodeSelection).toBe(true);
+    expect(captions(editor)).toEqual(["One", "Two", "Empty frame"]); // nothing gone yet
+    press();
+    expect(captions(editor)).toEqual(["One", "Empty frame"]);
+    editor.destroy();
+  });
+
+  it("takes the grid with its last picture, and never leaves the board with nothing in it", () => {
+    const editor = boardEditor([{ type: "board", attrs: { columns: 2 }, content: [figure(A, "Only")] }]);
+    expect(removeFigureAt(editor.view, figurePos(editor, 0) + 1)).toBe(true);
+    const json = editor.getJSON() as JSONContent;
+    expect(json.content?.some((b) => b.type === "board" || b.type === "figure")).toBe(false);
+    expect(json.content?.length).toBeGreaterThan(0);
+    editor.destroy();
   });
 });
