@@ -114,7 +114,7 @@ export function EditorHost({
   // Voice notes use the plain editor, but must keep their own type so every
   // save re-asserts it to the cloud.
   return usesPlainSchema(type) ? (
-    <PlainBody {...rest} type={type} />
+    <PlainBody {...rest} type={type} onSaveDraft={onSaveDraft} />
   ) : (
     <ScreenplayBody
       {...rest}

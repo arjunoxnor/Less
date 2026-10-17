@@ -42,6 +42,22 @@ export const KIND_LABEL: Record<DocKind, string> = {
   voice: "Voice note",
 };
 
+/** Singular labels for counts ("1 one-pager", "1 note"). */
+export const KIND_ONE: Record<DocKind, string> = {
+  script: "script",
+  treatment: "treatment",
+  onepager: "one-pager",
+  outline: "outline",
+  characters: "character doc",
+  notes: "note",
+  document: "document",
+  board: "board",
+  voice: "voice note",
+};
+
+/** "1 note", "3 one-pagers". */
+export const kindCount = (kind: DocKind, n: number) => `${n} ${n === 1 ? KIND_ONE[kind] : KIND_PLURAL[kind]}`;
+
 /** Plural labels for counts ("3 one-pagers"). */
 export const KIND_PLURAL: Record<DocKind, string> = {
   script: "scripts",

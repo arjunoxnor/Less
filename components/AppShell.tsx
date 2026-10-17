@@ -32,6 +32,7 @@ import { getFolder, type Stage } from "@/lib/storage/folders";
 import { getProjectShare } from "@/lib/collab/duet";
 import type { DuetCopyInput } from "@/lib/collab/duetCopy";
 import { showToast } from "./ui/Toast";
+import { planDraftStack } from "@/lib/cover/desk";
 import { flushUploads, startUploadLoop } from "@/lib/voicenote/upload";
 
 /**
@@ -102,6 +103,7 @@ export function AppShell() {
     rename,
     setStatus,
     setFolder,
+    setOrg,
     reorder,
     createFolder,
     reorderFolders,
@@ -290,9 +292,39 @@ export function AppShell() {
         titlePage?: import("@/lib/export/titlePage").TitlePage | null;
         folderId?: string | null;
         status?: ProjectStatus;
+        kind?: string;
+        stackId?: string;
+        stackTop?: string;
       }
     ) => create(type, title || undefined, opts),
     [create]
+  );
+
+  // Save a draft from the editor: a frozen copy filed beside the original, in
+  // the original's version stack (starting one), with the original kept on top
+  // because the writer keeps writing in it.
+  const saveDraftOf = useCallback(
+    (
+      original: (typeof projects)[number],
+      input: {
+        title: string;
+        content: import("@tiptap/core").JSONContent;
+        titlePage: import("@/lib/export/titlePage").TitlePage | null;
+      }
+    ) => {
+      const plan = planDraftStack(original, projects, new Date().toISOString(), () => crypto.randomUUID());
+      const copy = create(original.type, input.title, {
+        content: input.content,
+        titlePage: input.titlePage,
+        folderId: original.folderId ?? undefined,
+        status: original.status,
+        ...(original.kind ? { kind: original.kind } : {}),
+        stackId: plan.stackId,
+      });
+      if (plan.originalPatch) setOrg(plan.originalPatch.id, plan.originalPatch.fields);
+      return copy;
+    },
+    [create, projects, setOrg]
   );
 
   // Bulk-import screenplays (Final Draft .fdx / Fountain) into the account,
@@ -415,7 +447,7 @@ export function AppShell() {
     // outlives its moment (or a reopened old project) never steals focus.
     const autoFocusTitle =
       view.focusTitle === true &&
-      (current.title === "Untitled screenplay" || current.title === "Untitled") &&
+      /^Untitled( |$)/.test(current.title) &&
       Date.now() - new Date(current.createdAt).getTime() < 10_000;
     const duetShare = getProjectShare(current.id);
     return (
@@ -435,13 +467,7 @@ export function AppShell() {
           sessionExpired={sessionExpired}
           onImportAsNew={(file) => importScreenplays([file])}
           onOpenProject={openProject}
-          onSaveDraft={({ title, content, titlePage }) =>
-            create("screenplay", title, {
-              content,
-              titlePage,
-              folderId: current.folderId ?? undefined,
-            })
-          }
+          onSaveDraft={(input) => saveDraftOf(current, input)}
           autoFocusTitle={autoFocusTitle}
           duet={
             duetShare
@@ -479,6 +505,7 @@ export function AppShell() {
         onSyncNow={syncNow}
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOutSafely()}
+        onSetOrg={setOrg}
       />
       {sessionExpired && (
         <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />

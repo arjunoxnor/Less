@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { Montserrat, Jost } from "next/font/google";
+import { Montserrat, Jost, Fraunces } from "next/font/google";
 import "./tokens.css";
 import "./globals.css";
+import "./desk.css";
 import { StorageBanner } from "@/components/StorageBanner";
 import { ToastHost } from "@/components/ui/Toast";
 
@@ -52,6 +53,16 @@ const jost = Jost({
   display: "swap",
 });
 
+// The desk's display serif: titles on covers, project and section names. Not
+// preloaded, so the editor never waits on it; it arrives with the home page.
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  variable: "--font-display",
+  display: "swap",
+  preload: false,
+});
+
 export const metadata: Metadata = {
   title: "LESS: Last Ever Screenwriting Software",
   description:
@@ -73,7 +84,7 @@ export default function RootLayout({
   // differs between the server render and the first client render.
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${courierPrime.variable} ${montserrat.variable} ${jost.variable}`}>
+      <body className={`${courierPrime.variable} ${montserrat.variable} ${jost.variable} ${fraunces.variable}`}>
         <StorageBanner />
         <ToastHost />
         {children}

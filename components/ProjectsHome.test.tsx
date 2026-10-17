@@ -102,6 +102,8 @@ beforeEach(() => {
   // jsdom has no layout: the drag hit-test asks the page what is under the
   // pointer, so each test says what that is.
   document.elementFromPoint = () => null;
+  // These tests drive the list layout; the desk (covers) has its own below.
+  storage.set("less:home:layout:v1", "list");
 });
 
 afterEach(async () => {
@@ -398,5 +400,167 @@ describe("HoldDelete", () => {
       vi.advanceTimersByTime(2_000);
     });
     expect(confirm).toHaveBeenCalledOnce();
+  });
+});
+
+/* ---- The desk: covers, kinds and version stacks ---- */
+
+const plain = (id: string, title: string, extra: Partial<ProjectMeta> = {}): ProjectMeta => ({
+  ...draft,
+  id,
+  title,
+  type: "plain",
+  status: "not_started",
+  ...extra,
+});
+
+/** Give an element a box, so the desk's hit-tests can measure it in jsdom. */
+function box(el: Element, left: number, top: number, width: number, height: number) {
+  (el as HTMLElement).getBoundingClientRect = () =>
+    ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} }) as DOMRect;
+}
+
+const tileTitled = (title: string) =>
+  [...host!.querySelectorAll<HTMLElement>(".lib-main .dk-tile")].find(
+    (el) => el.querySelector(".dk-title")?.textContent === title
+  )!;
+
+describe("ProjectsHome desk", () => {
+  beforeEach(() => {
+    storage.delete("less:home:layout:v1");
+  });
+
+  it("shows covers by default, each labeled with what it is", () => {
+    const pitch = plain("pitch", "Pitch one-pager");
+    renderHome([stage, card], { projects: [draft, pitch] });
+    openProject("Card");
+    expect(tileTitled("Draft").querySelector(".dk-kind")?.textContent).toBe("Script");
+    expect(tileTitled("Pitch one-pager").querySelector(".dk-kind")?.textContent).toBe("One-pager");
+    expect(tileTitled("Draft").querySelector(".cv-script")).not.toBeNull();
+  });
+
+  it("reads a document's kind from the folder it is filed in", () => {
+    const shelf = { ...stage, id: "pagers", name: "One Pagers", parentId: "card" };
+    storage.set("less:home:folds:v1", JSON.stringify({ pagers: true }));
+    renderHome([stage, card, shelf], { projects: [plain("p", "Gods of our ancestors", { folderId: "pagers" })] });
+    openProject("Card");
+    expect(tileTitled("Gods of our ancestors").querySelector(".dk-kind")?.textContent).toBe("One-pager");
+  });
+
+  it("shows a stack as one cover and fans its versions out, current first", () => {
+    const v1 = plain("v1", "Pitch, Oct 1", { stackId: "s", createdAt: "2026-07-01T00:00:00.000Z" });
+    const v2 = plain("v2", "Pitch, Oct 9", {
+      stackId: "s",
+      stackTop: "2026-10-09T00:00:00.000Z",
+      createdAt: "2026-07-05T00:00:00.000Z",
+    });
+    renderHome([stage, card], { projects: [v1, v2], onSetOrg: vi.fn() });
+    openProject("Card");
+    expect(host!.querySelectorAll(".lib-main .dk-grid > .dk-tile")).toHaveLength(1);
+    const pill = host!.querySelector<HTMLButtonElement>(".dk-versions")!;
+    expect(pill.textContent).toContain("2");
+    act(() => pill.click());
+    const fanned = [...host!.querySelectorAll(".dk-tray .dk-tile")];
+    expect(fanned.map((el) => el.querySelector(".dk-title")?.textContent)).toEqual(["Pitch, Oct 9", "Pitch, Oct 1"]);
+    expect(fanned[0].querySelector(".dk-current")).not.toBeNull();
+  });
+
+  it("offers to stack drafts that sit side by side, newest on top", () => {
+    const setOrg = vi.fn();
+    const older = plain("old", "Pitch one-pager v1", { updatedAt: "2026-07-02T00:00:00.000Z" });
+    const newer = plain("new", "Pitch one-pager v2", { updatedAt: "2026-07-09T00:00:00.000Z" });
+    renderHome([stage, card], { projects: [older, newer], onSetOrg: setOrg });
+    openProject("Card");
+    const banner = host!.querySelector(".dk-suggest")!;
+    expect(banner.textContent).toContain("2 drafts of");
+    act(() =>
+      [...banner.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Stack them")!.click()
+    );
+    expect(setOrg).toHaveBeenCalledWith("new", { stackId: "new", stackTop: expect.any(String) });
+    expect(setOrg).toHaveBeenCalledWith("old", { stackId: "new", stackTop: null });
+  });
+
+  it("stacks a cover dropped onto the middle of another", () => {
+    const setOrg = vi.fn();
+    const setFolder = vi.fn();
+    const a = plain("a", "Treatment A");
+    const b = plain("b", "Treatment B");
+    renderHome([stage, card], { projects: [a, b], onSetOrg: setOrg, onSetFolder: setFolder });
+    openProject("Card");
+    const target = tileTitled("Treatment B");
+    box(target.querySelector(".dk-art")!, 0, 0, 100, 140);
+    carry(tileTitled("Treatment A").querySelector(".dk-title") as HTMLElement, () =>
+      target.querySelector(".cv")
+    );
+    expect(setOrg).toHaveBeenCalledWith("b", { stackId: "b", stackTop: expect.any(String) });
+    expect(setOrg).toHaveBeenCalledWith("a", { stackId: "b", stackTop: null });
+    expect(setFolder).not.toHaveBeenCalled();
+  });
+
+  it("takes a version out of its stack when it is carried out of the fan onto the desk", () => {
+    const setOrg = vi.fn();
+    const reorder = vi.fn();
+    const v1 = plain("v1", "Outline one", { stackId: "s" });
+    const v2 = plain("v2", "Outline two", { stackId: "s", stackTop: "2026-10-09T00:00:00.000Z" });
+    renderHome([stage, card], { projects: [v1, v2], onSetOrg: setOrg, onReorder: reorder });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".dk-versions")!.click());
+    const older = [...host!.querySelectorAll<HTMLElement>(".dk-tray .dk-tile")][1];
+    const grid = host!.querySelector(".lib-main .dk-grid")!;
+    carry(older.querySelector(".dk-title") as HTMLElement, () => grid);
+    // A stack of two left with one is no stack: both become documents again.
+    expect(setOrg).toHaveBeenCalledWith("v1", { stackId: null, stackTop: null });
+    expect(setOrg).toHaveBeenCalledWith("v2", { stackId: null, stackTop: null });
+    expect(reorder).toHaveBeenCalled();
+  });
+
+  it("lets the writer say what a document is", () => {
+    const setOrg = vi.fn();
+    renderHome([stage, card], { projects: [plain("d", "Some pages")], onSetOrg: setOrg });
+    openProject("Card");
+    act(() => tileTitled("Some pages").querySelector<HTMLButtonElement>(".lib-kebab")!.click());
+    clickMenuItem("What is this?");
+    act(() => {
+      [...document.querySelectorAll<HTMLButtonElement>(".dk-kind-option")]
+        .find((b) => b.textContent?.includes("Treatment"))!
+        .click();
+    });
+    expect(setOrg).toHaveBeenCalledWith("d", { kind: "treatment" });
+  });
+
+  it("saves a draft into the original's stack and keeps the original on top", async () => {
+    const doc = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Hi" }] }] };
+    storage.set("less:project:one:doc", JSON.stringify(doc));
+    const setOrg = vi.fn();
+    const create = vi.fn(() => plain("copy", "One, Oct 17"));
+    renderHome([stage, card], { projects: [plain("one", "One")], onSetOrg: setOrg, onCreate: create });
+    openProject("Card");
+    act(() => tileTitled("One").querySelector<HTMLButtonElement>(".lib-kebab")!.click());
+    clickMenuItem("Save a draft");
+    await act(async () => {});
+    expect(create).toHaveBeenCalledWith(
+      "plain",
+      expect.stringMatching(/^One, /),
+      expect.objectContaining({ content: doc, folderId: "card", stackId: "one" })
+    );
+    expect(setOrg).toHaveBeenCalledWith("one", { stackId: "one", stackTop: expect.any(String) });
+  });
+
+  it("shows a stage's projects as fanned hands of covers, with what is in them", () => {
+    renderHome([stage, card], { projects: [draft, plain("p", "Pitch one-pager")] });
+    act(() => host!.querySelector<HTMLElement>(".lib-stage-name")!.click());
+    const tile = host!.querySelector(".lib-main .dk-project")!;
+    expect(tile.querySelector(".dk-project-name")?.textContent).toBe("Card");
+    expect(tile.querySelectorAll(".dk-fan-card")).toHaveLength(2);
+    expect(tile.textContent).toContain("1 script");
+    expect(tile.textContent).toContain("1 one-pager");
+  });
+
+  it("switches to the list and remembers it", () => {
+    renderHome([stage, card], { projects: [draft] });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".dk-layout-toggle")!.click());
+    expect(host!.querySelector(".lib-main .lib-row-title")?.textContent).toBe("Draft");
+    expect(storage.get("less:home:layout:v1")).toBe("list");
   });
 });

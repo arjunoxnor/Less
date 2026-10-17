@@ -28,10 +28,40 @@ import {
 import { planFolderCardDrop } from "@/lib/storage/libraryInteraction";
 import type { TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
+import {
+  isProseKind,
+  KIND_LABEL,
+  KIND_ONE,
+  KIND_PLURAL,
+  kindOf,
+  type DocKind,
+} from "@/lib/cover/kinds";
+import { groupStacks, headOf, suggestStacks, versionRoot, type StackGroup, type StackSuggestion } from "@/lib/cover/stacks";
+import {
+  groupKeyOf,
+  insertAtGroupSlot,
+  paletteSeedOf,
+  planDraftStack,
+  planMakeCurrent,
+  planStack,
+  planStackAll,
+  planUnstack,
+  reorderGroups,
+  type OrgFields,
+  type OrgPatch,
+} from "@/lib/cover/desk";
+import { KIND_COLOR, paletteFor, stickyFor } from "@/lib/cover/palette";
+import { NEW_TITLE, starterFor } from "@/lib/cover/starters";
 import { Menu, type MenuItem } from "./ui/Menu";
 import { showToast } from "./ui/Toast";
 import { DotsIcon, PersonIcon } from "./chrome/icons";
 import { ThemeToggle } from "./chrome/ThemeToggle";
+import { Cover } from "./desk/Cover";
+import { DeskTile } from "./desk/DeskTile";
+import { DeskGrid, DeskTray } from "./desk/DeskGrid";
+import { ProjectTile } from "./desk/ProjectTile";
+import { KindPickerModal, StackWithModal } from "./desk/DeskModals";
+import { CoversGlyph, ListGlyph } from "./desk/glyphs";
 import {
   ChevronDown,
   CodeImportModal,
@@ -72,7 +102,37 @@ export { HoldDelete, NameInput, relativeTime, StatusWord } from "./home/homePart
 const FOLDS_KEY = "less:home:folds:v1";
 /** What the home was showing, so it comes back to the same place. */
 const VIEW_KEY = "less:home:view:v1";
+/** Covers (the desk) or the plain list. Local only. */
+const LAYOUT_KEY = "less:home:layout:v1";
+/** Stack suggestions the writer said "Not now" to. Local only. */
+const DISMISSED_KEY = "less:desk:dismissed:v1";
 const RECENT_COUNT = 8;
+
+type Layout = "covers" | "list";
+
+const nowIso = () => new Date().toISOString();
+const freshId = () => crypto.randomUUID();
+const capitalize = (s: string) => s.slice(0, 1).toUpperCase() + s.slice(1);
+
+function readDismissed(): string[] {
+  try {
+    const raw = JSON.parse(lsGet(DISMISSED_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === "string").slice(-200) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** "Pitch, Oct 17", or "Pitch, Oct 17 (2)" when that name is taken. */
+function draftTitle(title: string, taken: string[]): string {
+  const day = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const base = `${title.trim() || "Untitled"}, ${day}`;
+  const names = new Set(taken.map((t) => t.trim().toLowerCase()));
+  if (!names.has(base.toLowerCase())) return base;
+  let n = 2;
+  while (names.has(`${base} (${n})`.toLowerCase())) n++;
+  return `${base} (${n})`;
+}
 
 function readView(): HomeView {
   const raw = lsGet(VIEW_KEY) ?? "";
@@ -130,6 +190,7 @@ export function ProjectsHome({
   onSyncNow,
   onSignIn,
   onSignOut,
+  onSetOrg,
 }: {
   projects: ProjectMeta[];
   folders: Folder[];
@@ -147,6 +208,9 @@ export function ProjectsHome({
       titlePage?: TitlePage | null;
       folderId?: string | null;
       status?: ProjectMeta["status"];
+      kind?: string;
+      stackId?: string;
+      stackTop?: string;
     }
   ) => ProjectMeta;
   onDelete: (id: string) => void;
@@ -166,6 +230,8 @@ export function ProjectsHome({
   onSyncNow: () => Promise<boolean>;
   onSignIn: () => void;
   onSignOut: () => void;
+  /** Change what a document is, or which stack it is a version in. */
+  onSetOrg?: (id: string, fields: OrgFields) => void;
 }) {
   /* ---- View state ---- */
   const [query, setQuery] = useState("");
@@ -174,9 +240,28 @@ export function ProjectsHome({
   // left is restored once the page is live (reading storage during the first
   // render would disagree with the prebuilt page).
   const [view, setViewState] = useState<HomeView>({ kind: "recent" });
+  // Covers unless the writer chose the list; restored with the view, after
+  // the first render, for the same reason.
+  const [layout, setLayoutState] = useState<Layout>("covers");
   useEffect(() => {
     setViewState(readView());
+    if (lsGet(LAYOUT_KEY) === "list") setLayoutState("list");
   }, []);
+  const setLayout = (next: Layout) => {
+    setLayoutState(next);
+    lsSet(LAYOUT_KEY, next);
+    setTrayKey(null);
+  };
+  const desk = layout === "covers";
+  /** The stack fanned out on the desk, as "<where>|<group key>". */
+  const [trayKey, setTrayKey] = useState<string | null>(null);
+  /** Show only one kind of thing (a project's own filter). */
+  const [kindFilter, setKindFilter] = useState<DocKind | null>(null);
+  /** The document whose kind is being picked, or which is being stacked. */
+  const [kindTarget, setKindTarget] = useState<string | null>(null);
+  const [stackTarget, setStackTarget] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  useEffect(() => setDismissed(readDismissed()), []);
   const [sideOpen, setSideOpen] = useState(false);
   const [menu, setMenu] = useState<HomeMenu>(null);
   const [colorTarget, setColorTarget] = useState<string | null>(null);
@@ -195,6 +280,8 @@ export function ProjectsHome({
     writeView(next);
     setSideOpen(false);
     setQuery("");
+    setTrayKey(null);
+    setKindFilter(null);
     mainRef.current?.scrollTo?.({ top: 0 });
   };
 
@@ -317,6 +404,46 @@ export function ProjectsHome({
   }, [sections, unfiled]);
   const { projectById, folderById, sectionById, cardById, shelfById, stageOfCard, place } = lookups;
 
+  /* ---- The desk: what each thing is, and the stacks it is in ---- */
+
+  /**
+   * Folder names from a document's own folder outward, for reading its kind
+   * from where it is filed (a document in "One Pagers" is a one-pager). The
+   * top level is left out: a stage called "Ideas" is a stage, and does not
+   * make everything in it a note.
+   */
+  const folderTrail = useMemo(() => {
+    const cache = new Map<string, string[]>();
+    return (id: string | undefined): string[] => {
+      if (!id) return [];
+      const hit = cache.get(id);
+      if (hit) return hit;
+      const names: string[] = [];
+      const seen = new Set<string>();
+      let cursor = folderById.get(id);
+      while (cursor && !seen.has(cursor.id) && cursor.parentId && folderById.has(cursor.parentId)) {
+        seen.add(cursor.id);
+        names.push(cursor.name);
+        cursor = folderById.get(cursor.parentId);
+      }
+      cache.set(id, names);
+      return names;
+    };
+  }, [folderById]);
+  const kindFor = (p: ProjectMeta): DocKind => kindOf(p.type, p.title, p.kind, folderTrail(p.folderId));
+  const seedFor = (p: ProjectMeta) => paletteSeedOf(p);
+  const allDocs = useMemo(() => [...projectById.values()], [projectById]);
+  /** Every version in a document's stack, wherever each is filed, current first. */
+  const stackOf = (p: ProjectMeta): ProjectMeta[] => {
+    if (!p.stackId) return [p];
+    const members = allDocs.filter((d) => d.stackId === p.stackId);
+    if (members.length < 2) return [p];
+    const head = headOf(members);
+    return [head, ...members.filter((m) => m !== head).sort((a, b) => b.createdAt.localeCompare(a.createdAt))];
+  };
+  const coverColor = (p: ProjectMeta) =>
+    kindFor(p) === "notes" ? stickyFor(seedFor(p)) : paletteFor(seedFor(p)).bg;
+
   /** The projects in one container, in the writer's order. */
   const itemsIn = (container: string): ProjectMeta[] =>
     container === "unfiled"
@@ -375,6 +502,8 @@ export function ProjectsHome({
       (confirmDeleteFolder !== null && !folderById.has(confirmDeleteFolder.id)) ||
       (renamingFolder !== null && !folderById.has(renamingFolder)) ||
       (renamingItem !== null && !projectById.has(renamingItem)) ||
+      (kindTarget !== null && !projectById.has(kindTarget)) ||
+      (stackTarget !== null && !projectById.has(stackTarget)) ||
       (moveTarget?.kind === "item" && !projectById.has(moveTarget.meta.id)) ||
       (moveTarget?.kind === "folder" && !folderById.has(moveTarget.folder.id));
     if (!stale) return;
@@ -386,6 +515,8 @@ export function ProjectsHome({
     }
     if (renamingFolder !== null && !folderById.has(renamingFolder)) setRenamingFolder(null);
     if (renamingItem !== null && !projectById.has(renamingItem)) setRenamingItem(null);
+    if (kindTarget !== null && !projectById.has(kindTarget)) setKindTarget(null);
+    if (stackTarget !== null && !projectById.has(stackTarget)) setStackTarget(null);
     if (
       (moveTarget?.kind === "item" && !projectById.has(moveTarget.meta.id)) ||
       (moveTarget?.kind === "folder" && !folderById.has(moveTarget.folder.id))
@@ -406,6 +537,8 @@ export function ProjectsHome({
     projectById,
     renamingFolder,
     renamingItem,
+    kindTarget,
+    stackTarget,
   ]);
 
   /* ---- Continue, and what was touched lately ---- */
@@ -434,6 +567,17 @@ export function ProjectsHome({
     [projectById, lead]
   );
 
+  // Escape folds a fanned-out stack (menus and dialogs take Escape first).
+  useEffect(() => {
+    if (!trayKey) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      setTrayKey(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [trayKey]);
+
   /* ---- Making things ---- */
 
   const mounted = useRef(true);
@@ -445,22 +589,39 @@ export function ProjectsHome({
   }, []);
 
   /** Make something (inside a folder, or loose) and open it. */
-  const createAndOpen = (type: ProjectType, title: string, folderId?: string) => {
+  const createAndOpen = (
+    type: ProjectType,
+    title: string,
+    folderId?: string,
+    extra?: { kind?: DocKind; content?: JSONContent }
+  ) => {
     try {
-      const meta = onCreate(type, title, folderId ? { folderId } : undefined);
+      const meta = onCreate(type, title, {
+        ...(folderId ? { folderId } : {}),
+        ...(extra?.kind ? { kind: extra.kind } : {}),
+        ...(extra?.content ? { content: extra.content } : {}),
+      });
       onOpen(meta.id, { focusTitle: true });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not create that.", { variant: "danger" });
     }
   };
 
-  // The jot: Enter turns the line into a loose document (title only) and
-  // stays right here. The new line appearing in the list is the feedback.
+  /** A new thing of a kind: a script, a board, or a document born as a one-pager, an outline... */
+  const createKind = (kind: DocKind, folderId?: string) => {
+    if (kind === "script") return createAndOpen("screenplay", "Untitled screenplay", folderId);
+    if (kind === "board") return createAndOpen("board", "", folderId);
+    if (kind === "document" || !onSetOrg) return createAndOpen("plain", "", folderId);
+    createAndOpen("plain", NEW_TITLE[kind] ?? "", folderId, { kind, content: starterFor(kind) });
+  };
+
+  // The jot: Enter turns the line into a loose note (title only) and stays
+  // right here. The new note landing on the desk is the feedback.
   const jotIdea = () => {
     const title = jot.trim();
     if (!title) return;
     try {
-      onCreate("plain", title);
+      onCreate("plain", title, onSetOrg ? { kind: "notes" } : undefined);
       setJot("");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not save the idea.", { variant: "danger" });
@@ -553,11 +714,60 @@ export function ProjectsHome({
       const project = projectById.get(source.id);
       if (!project) return;
       const current = project.folderId ?? null;
+      // A whole stack travels together; a version picked out of a fanned-out
+      // stack travels alone.
+      const carried = (source.members ?? [source.id]).filter((id) => projectById.has(id));
+      if (drop.kind === "stack") {
+        stackOnto(carried, drop.targetId);
+        return;
+      }
+      if (drop.kind === "into" && carried.length > 1) {
+        const movers = carried.filter(
+          (id) =>
+            (projectById.get(id)?.folderId ?? null) !== drop.folderId &&
+            canMoveProjectTo(id, drop.folderId, projects, folders)
+        );
+        if (movers.length === 0) return;
+        movers.forEach((id) => onSetFolder(id, drop.folderId));
+        showToast(`Moved ${movers.length} versions of "${project.title}" to ${folderName(drop.folderId)}.`);
+        return;
+      }
       if (drop.kind === "into") {
         if (current === drop.folderId) return;
         if (!canMoveProjectTo(source.id, drop.folderId, projects, folders)) return;
         onSetFolder(source.id, drop.folderId);
         showToast(`Moved "${project.title}" to ${folderName(drop.folderId)}.`);
+        return;
+      }
+      if (drop.kind === "grid") {
+        const target = drop.container === "unfiled" ? null : drop.container;
+        if (!carried.every((id) => canMoveProjectTo(id, target, projects, folders))) return;
+        const order = itemsIn(drop.container).map((p) => p.id);
+        const keyOf = (id: string) => groupKeyOf(projectById.get(id) ?? { id });
+        if (source.fromTray) {
+          // Drawn out of a fanned-out stack onto the desk: it becomes a
+          // document on its own, right where it was let go.
+          applyPlan(planUnstack(source.id, allDocs));
+          if (current !== target) onSetFolder(source.id, target);
+          onReorder(insertAtGroupSlot(order, keyOf, [source.id], drop.slot));
+          setTrayKey(null);
+          showToast(`Took "${project.title}" out of its stack.`);
+          return;
+        }
+        const home = carried.every((id) => (projectById.get(id)?.folderId ?? null) === target);
+        if (home) {
+          const next = reorderGroups(order, keyOf, groupKeyOf(project), drop.slot);
+          if (next) onReorder(next);
+          return;
+        }
+        // Arriving from another folder: file it (or the whole stack) here, then place it.
+        carried.forEach((id) => onSetFolder(id, target));
+        onReorder(insertAtGroupSlot(order, keyOf, carried, drop.slot));
+        showToast(
+          carried.length > 1
+            ? `Moved ${carried.length} versions of "${project.title}" to ${folderName(target)}.`
+            : `Moved "${project.title}" to ${folderName(target)}.`
+        );
         return;
       }
       if (drop.kind === "list") {
@@ -616,6 +826,8 @@ export function ProjectsHome({
     confirmDelete !== null ||
     confirmDeleteFolder !== null ||
     moveTarget !== null ||
+    kindTarget !== null ||
+    stackTarget !== null ||
     showCodeImport;
 
   const drag = useHomeDrag({
@@ -634,6 +846,7 @@ export function ProjectsHome({
   };
 
   const overflowItems: MenuItem[] = [
+    { label: desk ? "Show as a list" : "Show as covers", onSelect: () => setLayout(desk ? "list" : "covers") },
     { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },
     {
       label: importing ? "Importing" : "Import files",
@@ -659,38 +872,41 @@ export function ProjectsHome({
       onSelect: () => importInputRef.current?.click(),
       disabled: importing,
     };
+    // One row per kind, each with its own color, so the menu reads like the desk.
+    const kindRows = (folderId?: string): MenuItem[] =>
+      (
+        [
+          ["script", "New script"],
+          ["onepager", "New one-pager"],
+          ["treatment", "New treatment"],
+          ["outline", "New outline"],
+          ["characters", "New characters doc"],
+          ["document", "New document"],
+          ["board", "New board"],
+        ] as [DocKind, string][]
+      )
+        .filter(([kind]) => onSetOrg || kind === "script" || kind === "document" || kind === "board")
+        .map(([kind, label]) => ({
+          label,
+          swatch: KIND_COLOR[kind],
+          onSelect: () => createKind(kind, folderId),
+        }));
     if (view.kind === "project" && cardById.has(view.id)) {
       const id = view.id;
-      return [
-        { label: "New script", onSelect: () => createAndOpen("screenplay", "Untitled screenplay", id) },
-        { label: "New document", onSelect: () => createAndOpen("plain", "", id) },
-        { label: "New board", onSelect: () => createAndOpen("board", "", id) },
-        { kind: "divider" },
-        { label: "New folder here", onSelect: () => newFolderIn(id) },
-        importRow,
-      ];
+      return [...kindRows(id), { kind: "divider" }, { label: "New folder here", onSelect: () => newFolderIn(id) }, importRow];
     }
     if (view.kind === "stage" && sectionById.has(view.id)) {
       const id = view.id;
       return [
         { label: "New project", onSelect: () => newProjectIn(id) },
         { kind: "divider" },
-        { label: "New script", onSelect: () => createAndOpen("screenplay", "Untitled screenplay", id) },
-        { label: "New document", onSelect: () => createAndOpen("plain", "", id) },
-        { label: "New board", onSelect: () => createAndOpen("board", "", id) },
+        ...kindRows(id),
         { kind: "divider" },
         { label: "New folder", onSelect: newStage },
         importRow,
       ];
     }
-    return [
-      { label: "New script", onSelect: () => createAndOpen("screenplay", "Untitled screenplay") },
-      { label: "New document", onSelect: () => createAndOpen("plain", "") },
-      { label: "New board", onSelect: () => createAndOpen("board", "") },
-      { kind: "divider" },
-      { label: "New folder", onSelect: newStage },
-      importRow,
-    ];
+    return [...kindRows(), { kind: "divider" }, { label: "New folder", onSelect: newStage }, importRow];
   };
 
   /** Everything you can do to a folder, by the level it sits at. */
@@ -740,14 +956,157 @@ export function ProjectsHome({
     }
   };
 
-  const itemItems = (p: ProjectMeta): MenuItem[] => [
-    { label: "Open", onSelect: () => onOpen(p.id) },
-    { label: "Rename", onSelect: () => setRenamingItem(p.id) },
-    { label: "Duplicate", onSelect: () => void duplicate(p) },
-    { label: "Move to", onSelect: () => setMoveTarget({ kind: "item", meta: p }) },
-    { kind: "divider" },
-    { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
-  ];
+  /* ---- The desk: kinds and version stacks ---- */
+
+  const applyPlan = (plan: OrgPatch[]) => {
+    if (!onSetOrg) return;
+    for (const step of plan) onSetOrg(step.id, step.fields);
+  };
+
+  /** Stack documents as versions of `targetId`: they move in beside it and join its stack. */
+  const stackOnto = (ids: string[], targetId: string) => {
+    const target = projectById.get(targetId);
+    if (!target || !onSetOrg) return;
+    const plan = planStack(ids, targetId, allDocs, nowIso(), freshId);
+    if (plan.length === 0) return;
+    const home = target.folderId ?? null;
+    const moving = ids.filter((id) => id !== targetId && projectById.has(id));
+    for (const id of moving) {
+      const doc = projectById.get(id)!;
+      if ((doc.folderId ?? null) !== home && canMoveProjectTo(id, home, projects, folders)) {
+        onSetFolder(id, home);
+      }
+    }
+    applyPlan(plan);
+    // The stack stays where the cover it was dropped on sat: the arrivals go
+    // in right behind the target, so the stack's first member does not move.
+    const order = itemsIn(home ?? "unfiled")
+      .map((p) => p.id)
+      .filter((id) => !moving.includes(id));
+    const at = order.indexOf(targetId);
+    if (at >= 0) {
+      order.splice(at + 1, 0, ...moving);
+      onReorder(order);
+    }
+    const first = projectById.get(moving[0]);
+    showToast(
+      moving.length > 1
+        ? `Stacked ${moving.length} versions with "${target.title}".`
+        : `"${first?.title ?? "That"}" is now a version of "${target.title}".`
+    );
+  };
+
+  const unstack = (p: ProjectMeta) => {
+    const plan = planUnstack(p.id, allDocs);
+    if (plan.length === 0) return;
+    applyPlan(plan);
+    showToast(`Took "${p.title}" out of its stack.`);
+  };
+
+  const makeCurrent = (p: ProjectMeta) => {
+    const plan = planMakeCurrent(p.id, allDocs, nowIso());
+    if (plan.length === 0) return;
+    applyPlan(plan);
+    showToast(`"${p.title}" is now the current version.`);
+  };
+
+  /** Save a draft: a frozen copy of it as it is now, kept in its stack, behind it. */
+  const saveDraft = async (p: ProjectMeta) => {
+    try {
+      const body = await loadBodyForCopy(p);
+      if (!body) {
+        throw new Error("Could not load that document to save a draft of it. Check your connection and try again.");
+      }
+      const plan = onSetOrg ? planDraftStack(p, allDocs, nowIso(), freshId) : null;
+      const copy = onCreate(p.type, draftTitle(p.title, projects.map((x) => x.title)), {
+        content: body.content,
+        titlePage: body.titlePage,
+        folderId: p.folderId ?? null,
+        status: p.status,
+        ...(p.kind ? { kind: p.kind } : {}),
+        ...(plan ? { stackId: plan.stackId } : {}),
+      });
+      if (plan?.originalPatch) onSetOrg?.(plan.originalPatch.id, plan.originalPatch.fields);
+      const tags = loadBreakdown(p.id);
+      if (tags.length) saveBreakdown(copy.id, tags);
+      showToast(
+        plan ? `Saved a draft: ${copy.title}. It is in the stack, behind "${p.title}".` : `Saved a draft: ${copy.title}.`
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not save a draft of that.", { variant: "danger" });
+    }
+  };
+
+  /* Suggestions: drafts sitting side by side that look like versions of one thing. */
+  const suggestionsIn = (lists: ProjectMeta[][]): StackSuggestion[] =>
+    onSetOrg
+      ? lists.flatMap((items) => suggestStacks(items, kindFor)).filter((s) => !dismissed.includes(s.key))
+      : [];
+  const dismissSuggestions = (keys: string[]) => {
+    setDismissed((prev) => {
+      const next = [...new Set([...prev, ...keys])].slice(-200);
+      lsSet(DISMISSED_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+  const acceptSuggestions = (list: StackSuggestion[]) => {
+    for (const s of list) applyPlan(planStackAll(s.ids, allDocs, nowIso(), freshId));
+    const n = list.reduce((sum, s) => sum + s.ids.length, 0);
+    showToast(
+      list.length > 1
+        ? `Stacked ${n} drafts into ${list.length} stacks.`
+        : `Stacked ${n} drafts of "${list[0].label}".`
+    );
+  };
+
+  /** Others to stack a document with: one per stack, its own folder and kind first. */
+  const stackCandidates = (doc: ProjectMeta): ProjectMeta[] => {
+    const own = groupKeyOf(doc);
+    const seen = new Set<string>([own]);
+    const heads: ProjectMeta[] = [];
+    for (const d of allDocs) {
+      const key = groupKeyOf(d);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      heads.push(d.stackId ? stackOf(d)[0] : d);
+    }
+    const kind = kindFor(doc);
+    const root = versionRoot(doc.title);
+    const rank = (d: ProjectMeta) =>
+      (versionRoot(d.title) === root && root ? 0 : 4) +
+      ((d.folderId ?? null) === (doc.folderId ?? null) ? 0 : 2) +
+      (kindFor(d) === kind ? 0 : 1);
+    return heads.sort((a, b) => rank(a) - rank(b) || b.updatedAt.localeCompare(a.updatedAt));
+  };
+
+  const itemItems = (p: ProjectMeta): MenuItem[] => {
+    const versions = stackOf(p);
+    const inStack = versions.length > 1;
+    const org: MenuItem[] = !onSetOrg
+      ? []
+      : inStack
+        ? [
+            ...(versions[0].id !== p.id
+              ? [{ label: "Make this the current version", onSelect: () => makeCurrent(p) } as MenuItem]
+              : []),
+            { label: "Take out of its stack", onSelect: () => unstack(p) },
+          ]
+        : [{ label: "Stack as a version of…", onSelect: () => setStackTarget(p.id) }];
+    return [
+      { label: "Open", onSelect: () => onOpen(p.id) },
+      { label: "Rename", onSelect: () => setRenamingItem(p.id) },
+      ...(p.type === "plain" && onSetOrg
+        ? [{ label: "What is this?", hint: KIND_LABEL[kindFor(p)], onSelect: () => setKindTarget(p.id) } as MenuItem]
+        : []),
+      { kind: "divider" },
+      { label: "Save a draft", onSelect: () => void saveDraft(p) },
+      { label: "Duplicate", onSelect: () => void duplicate(p) },
+      ...org,
+      { label: "Move to", onSelect: () => setMoveTarget({ kind: "item", meta: p }) },
+      { kind: "divider" },
+      { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
+    ];
+  };
 
   /* ---- Search: one flat list across everything ---- */
 
@@ -1113,6 +1472,29 @@ export function ProjectsHome({
     </>
   );
 
+  const folderHitRow = (hit: { key: string; folder: Folder; where: string }) => (
+    <div
+      key={hit.key}
+      className="lib-row lib-row-folder"
+      role="button"
+      tabIndex={0}
+      onClick={() => openFolderHit(hit.folder)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openFolderHit(hit.folder);
+        }
+      }}
+    >
+      <span className="lib-row-icon" aria-hidden="true" style={{ color: hit.folder.color }}>
+        <FolderGlyph />
+      </span>
+      <span className="lib-row-title">{hit.folder.name}</span>
+      {hit.where && <span className="lib-row-where">{hit.where}</span>}
+      <span className="lib-row-meta">Folder</span>
+    </div>
+  );
+
   const renderSearch = () =>
     hits.length > 0 ? (
       <section className="lib-section">
@@ -1120,54 +1502,578 @@ export function ProjectsHome({
           {hits.length} {hits.length === 1 ? "match" : "matches"}
         </h2>
         <div className="lib-panel">
-          {hits.map((hit) =>
-            "meta" in hit ? (
-              row(hit.meta, true)
-            ) : (
-              <div
-                key={hit.key}
-                className="lib-row lib-row-folder"
-                role="button"
-                tabIndex={0}
-                onClick={() => openFolderHit(hit.folder)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    openFolderHit(hit.folder);
-                  }
-                }}
-              >
-                <span className="lib-row-icon" aria-hidden="true" style={{ color: hit.folder.color }}>
-                  <FolderGlyph />
-                </span>
-                <span className="lib-row-title">{hit.folder.name}</span>
-                {hit.where && <span className="lib-row-where">{hit.where}</span>}
-                <span className="lib-row-meta">Folder</span>
-              </div>
-            )
-          )}
+          {hits.map((hit) => ("meta" in hit ? row(hit.meta, true) : folderHitRow(hit)))}
         </div>
       </section>
     ) : (
       <p className="lib-empty">Nothing matches that search.</p>
     );
 
+  /* ---- The desk: the same views, as covers ---- */
+
+  const trayDomId = (key: string) => "dk-tray-" + key.replace(/[^A-Za-z0-9_-]/g, "_");
+  const isLifted = (id: string) =>
+    drag.source?.kind === "item" && (drag.source.id === id || !!drag.source.members?.includes(id));
+
+  /**
+   * One cover on the desk. `members` is its stack as this view shows it,
+   * current first; `scope` names the view, so a stack fans out in one place.
+   */
+  const tile = (doc: ProjectMeta, members: ProjectMeta[], scope: string, opts: { where?: boolean } = {}) => {
+    const group = groupKeyOf(doc);
+    const key = `${scope}|${group}`;
+    const where = opts.where ? place.get(doc.id) : undefined;
+    const stacked = members.length > 1;
+    return (
+      <DeskTile
+        key={doc.id}
+        doc={doc}
+        kind={kindFor(doc)}
+        seed={seedFor(doc)}
+        group={group}
+        versions={members.length}
+        where={opts.where ? { label: where?.label ?? "Not in a folder", color: where?.color } : undefined}
+        spine={where?.color}
+        lifted={isLifted(doc.id)}
+        stackTarget={drag.dropKey === "stack:" + doc.id}
+        stackable={!!onSetOrg}
+        renaming={renamingItem === doc.id}
+        menuOpen={menu?.kind === "item" && menu.id === doc.id}
+        trayOpen={trayKey === key}
+        trayId={trayDomId(key)}
+        onOpen={() => onOpen(doc.id)}
+        onMenu={(anchor) => setMenu({ kind: "item", id: doc.id, anchor })}
+        onPointerDown={(e, el) =>
+          drag.start(
+            e,
+            stacked
+              ? { kind: "item", id: doc.id, members: members.map((m) => m.id), group }
+              : { kind: "item", id: doc.id, group },
+            el
+          )
+        }
+        onToggleTray={stacked ? () => setTrayKey((k) => (k === key ? null : key)) : undefined}
+        onRenameCommit={(title) => onRename(doc.id, title)}
+        onRenameDone={() => setRenamingItem(null)}
+      />
+    );
+  };
+
+  /** A stack, fanned out: every version, current first, each one its own cover. */
+  const trayFor = (members: ProjectMeta[], key: string) => {
+    const head = members[0];
+    return (
+      <DeskTray
+        key={"tray:" + key}
+        id={trayDomId(key)}
+        title={head.title || "Untitled"}
+        color={coverColor(head)}
+        count={members.length}
+        onClose={() => setTrayKey(null)}
+      >
+        {members.map((m, i) => {
+          const elsewhere = (m.folderId ?? null) !== (head.folderId ?? null);
+          const where = elsewhere ? place.get(m.id) : undefined;
+          return (
+            <DeskTile
+              key={m.id}
+              doc={m}
+              kind={kindFor(m)}
+              seed={seedFor(m)}
+              group={groupKeyOf(m)}
+              current={i === 0}
+              index={i}
+              where={elsewhere ? { label: where?.label ?? "Not in a folder", color: where?.color } : undefined}
+              lifted={isLifted(m.id)}
+              stackTarget={false}
+              stackable={false}
+              renaming={renamingItem === m.id}
+              menuOpen={menu?.kind === "item" && menu.id === m.id}
+              onOpen={() => onOpen(m.id)}
+              onMenu={(anchor) => setMenu({ kind: "item", id: m.id, anchor })}
+              onPointerDown={(e, el) =>
+                drag.start(e, { kind: "item", id: m.id, group: groupKeyOf(m), fromTray: true }, el)
+              }
+              onRenameCommit={(title) => onRename(m.id, title)}
+              onRenameDone={() => setRenamingItem(null)}
+            />
+          );
+        })}
+      </DeskTray>
+    );
+  };
+
+  /** One folder's covers, stacks grouped, in the writer's own order. */
+  const deskGrid = (container: string, items: ProjectMeta[]) => {
+    let groups: StackGroup<ProjectMeta>[] = groupStacks(items);
+    if (kindFilter) groups = groups.filter((g) => kindFor(g.head) === kindFilter);
+    if (groups.length === 0) return null;
+    const keys = groups.map((g) => `${container}|${g.key}`);
+    const openIndex = trayKey ? keys.indexOf(trayKey) : -1;
+    return (
+      <DeskGrid
+        // Arranging is off while a filter hides some covers: a slot between
+        // the visible ones does not say where it goes among the hidden ones.
+        container={kindFilter ? undefined : container}
+        openIndex={openIndex}
+        tray={openIndex >= 0 ? trayFor(groups[openIndex].members, keys[openIndex]) : undefined}
+      >
+        {groups.map((g) => tile(g.head, g.members, container))}
+      </DeskGrid>
+    );
+  };
+
+  /** How many of each kind, most first ("4 one-pagers, 2 scripts"). */
+  const kindCounts = (docs: ProjectMeta[]): [DocKind, number][] => {
+    const counts = new Map<DocKind, number>();
+    for (const d of docs) {
+      const k = kindFor(d);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  };
+
+  /** A project's hand of covers: the one to continue first, then the latest, one per stack. */
+  const projectCovers = (card: Card): ProjectMeta[] => {
+    const all = [...card.items, ...card.shelves.flatMap((s) => s.items)].sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt)
+    );
+    const groups = groupStacks(all);
+    const lead = card.current
+      ? groups.find((g) => g.members.some((m) => m.id === card.current!.id))?.head
+      : undefined;
+    const heads = groups.map((g) => g.head).filter((h) => h !== lead);
+    return (lead ? [lead, ...heads] : heads).slice(0, 4);
+  };
+
+  /** Every list of documents that sits together somewhere, for suggestions. */
+  const everyContainer = (): ProjectMeta[][] => [
+    unfiled,
+    ...sections.flatMap((s) => [
+      s.loose,
+      ...s.cards.flatMap((c) => [c.items, ...c.shelves.map((sh) => sh.items)]),
+    ]),
+  ];
+
+  const suggestionBanner = (list: StackSuggestion[]) => {
+    if (list.length === 0) return null;
+    const first = list[0];
+    const docs = first.ids.map((id) => projectById.get(id)).filter((d): d is ProjectMeta => !!d);
+    if (docs.length < 2) return null;
+    return (
+      <div className="dk-suggest" role="status">
+        <span className="dk-suggest-fan" aria-hidden="true">
+          {docs.slice(0, 3).map((d, i) => (
+            <span key={d.id} className="dk-suggest-card" style={{ ["--i" as string]: i } as React.CSSProperties}>
+              <Cover id={d.id} seed={seedFor(d)} title={d.title} kind={kindFor(d)} digest={d.digest} mini />
+            </span>
+          ))}
+        </span>
+        <span className="dk-suggest-text">
+          <strong>
+            {docs.length} drafts of &ldquo;{first.label}&rdquo;
+          </strong>{" "}
+          are sitting side by side. Stack them as versions, with the latest on top?
+          {list.length > 1 && (
+            <span className="dk-suggest-more">
+              {" "}
+              {list.length - 1} more {list.length === 2 ? "set looks" : "sets look"} like that.
+            </span>
+          )}
+        </span>
+        <span className="dk-suggest-actions">
+          <button type="button" className="ui-btn ui-btn-solid" onClick={() => acceptSuggestions([first])}>
+            Stack them
+          </button>
+          {list.length > 1 && (
+            <button type="button" className="ui-btn" onClick={() => acceptSuggestions(list)}>
+              Stack all {list.length}
+            </button>
+          )}
+          <button type="button" className="ui-btn ui-btn-text" onClick={() => dismissSuggestions([first.key])}>
+            Not now
+          </button>
+        </span>
+      </div>
+    );
+  };
+
+  /** What was touched lately, one cover per stack, the lead's own stack left out. */
+  const recentPicks = (): ProjectMeta[] => {
+    const seen = new Set<string>(lead ? [groupKeyOf(lead)] : []);
+    const picks: ProjectMeta[] = [];
+    for (const p of [...projectById.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) {
+      const key = groupKeyOf(p);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      picks.push(p);
+      if (picks.length >= RECENT_COUNT) break;
+    }
+    return picks;
+  };
+
+  const hero = (p: ProjectMeta) => {
+    const where = place.get(p.id);
+    const kind = kindFor(p);
+    const versions = stackOf(p).length;
+    const meta = [
+      KIND_LABEL[kind],
+      p.type === "screenplay" && p.pageCount != null
+        ? `${p.pageCount} ${p.pageCount === 1 ? "page" : "pages"}`
+        : null,
+      p.type === "screenplay" && p.status !== "not_started" ? STATUS_LABEL[p.status] : null,
+      versions > 1 ? `${versions} versions` : null,
+      `edited ${relativeTime(p.updatedAt)}`,
+    ].filter(Boolean);
+    return (
+      <section
+        className="dk-hero"
+        aria-label="Continue"
+        style={{ ["--hero" as string]: coverColor(p) } as React.CSSProperties}
+      >
+        <button
+          type="button"
+          className="dk-hero-cover"
+          onClick={() => onOpen(p.id)}
+          aria-label={`Open ${p.title || "Untitled"}`}
+        >
+          <Cover
+            id={p.id}
+            seed={seedFor(p)}
+            title={p.title}
+            kind={kind}
+            digest={p.digest}
+            author={p.coverAuthor}
+            pageCount={p.pageCount}
+          />
+        </button>
+        <div className="dk-hero-text">
+          <div className="lib-eyebrow">
+            {where && (
+              <>
+                <span className="lib-dot" style={{ background: where.color }} aria-hidden="true" />
+                <span>{where.label}</span>
+                <span className="lib-eyebrow-sep" aria-hidden="true">
+                  ·
+                </span>
+              </>
+            )}
+            <span>Now writing</span>
+          </div>
+          <h2 className="dk-hero-title">{p.title || "Untitled"}</h2>
+          <div className="dk-hero-meta">{meta.join(" · ")}</div>
+          {leadLine && <div className={"dk-hero-line" + (kind === "script" ? "" : " is-prose")}>{leadLine}</div>}
+          <button type="button" className="ui-btn ui-btn-solid dk-hero-go" onClick={() => onOpen(p.id)}>
+            {p.type === "screenplay" ? "Continue writing" : "Open"}
+          </button>
+        </div>
+      </section>
+    );
+  };
+
+  const renderRecentDesk = () => {
+    const picks = recentPicks();
+    const keys = picks.map((p) => `recent|${groupKeyOf(p)}`);
+    const openIndex = trayKey ? keys.indexOf(trayKey) : -1;
+    return (
+      <>
+        {suggestionBanner(suggestionsIn(everyContainer()))}
+        {lead && hero(lead)}
+        <section className="lib-section">
+          <h2 className="dk-h2">Recently edited</h2>
+          {picks.length > 0 ? (
+            <DeskGrid
+              openIndex={openIndex}
+              tray={openIndex >= 0 ? trayFor(stackOf(picks[openIndex]), keys[openIndex]) : undefined}
+            >
+              {picks.map((p) => tile(p, stackOf(p), "recent", { where: true }))}
+            </DeskGrid>
+          ) : (
+            <p className="lib-empty">Everything you write shows up here.</p>
+          )}
+        </section>
+        {jotLine}
+      </>
+    );
+  };
+
+  const renderStageDesk = (section: Section) => {
+    const f = section.folder;
+    const held = section.cards.reduce((n, c) => n + c.total, 0) + section.loose.length;
+    return (
+      <>
+        <header className="dk-head" style={{ ["--fc" as string]: f.color } as React.CSSProperties}>
+          <div className="lib-title-row">
+            {titleOf(f, "lib-title")}
+            <div className="lib-head-actions">
+              <button type="button" className="ui-btn" onClick={() => newProjectIn(f.id)}>
+                New project
+              </button>
+              {folderKebab(f)}
+            </div>
+          </div>
+          <div className="lib-meta">
+            {section.cards.length} {section.cards.length === 1 ? "project" : "projects"} · {held}{" "}
+            {held === 1 ? "item" : "items"}
+          </div>
+        </header>
+        <div className="dk-projects">
+          {section.cards.map((card) => (
+            <ProjectTile
+              key={card.folder.id}
+              card={card}
+              covers={projectCovers(card)}
+              counts={kindCounts([...card.items, ...card.shelves.flatMap((s) => s.items)])}
+              isDrop={drag.dropKey === card.folder.id}
+              kindFor={kindFor}
+              seedFor={seedFor}
+              onOpen={() => select({ kind: "project", id: card.folder.id })}
+            />
+          ))}
+          <button type="button" className="dk-project dk-project-new" onClick={() => newProjectIn(f.id)}>
+            <span className="dk-project-plus" aria-hidden="true">
+              +
+            </span>
+            New project
+          </button>
+        </div>
+        {section.loose.length > 0 && (
+          <section className="dk-section">
+            <h2 className="dk-h2">In {f.name} itself</h2>
+            {suggestionBanner(suggestionsIn([section.loose]))}
+            {deskGrid(f.id, section.loose)}
+          </section>
+        )}
+      </>
+    );
+  };
+
+  const renderProjectDesk = (card: Card) => {
+    const f = card.folder;
+    const stage = stageOfCard.get(f.id);
+    const openBranches: boolean[] = [];
+    const shelfRows = card.shelves
+      .map((shelf, index) => {
+        const visible = shelf.depth === 1 ? true : (openBranches[shelf.depth - 1] ?? false);
+        const open = isOpenFolder(shelf.folder.id, false);
+        openBranches[shelf.depth] = visible && open;
+        const hasChildren =
+          index + 1 < card.shelves.length && card.shelves[index + 1].depth > shelf.depth;
+        return { shelf, visible, open, hasChildren };
+      })
+      .filter((r) => r.visible);
+    const everything = [...card.items, ...card.shelves.flatMap((s) => s.items)];
+    const counts = kindCounts(everything);
+    const empty = card.items.length === 0 && card.shelves.length === 0;
+    return (
+      <>
+        <header className="dk-head" style={{ ["--fc" as string]: f.color } as React.CSSProperties}>
+          {stage && (
+            <button
+              type="button"
+              className="lib-crumb"
+              onClick={() => select({ kind: "stage", id: stage.folder.id })}
+            >
+              {stage.folder.name}
+            </button>
+          )}
+          <div className="lib-title-row">
+            {titleOf(f, "lib-title")}
+            <div className="lib-head-actions">
+              <button
+                type="button"
+                className="ui-btn lib-head-new"
+                aria-haspopup="menu"
+                aria-expanded={menu?.kind === "new"}
+                onClick={(e) => openMenu(e, { kind: "new" })}
+              >
+                New
+                <ChevronDown />
+              </button>
+              {folderKebab(f)}
+            </div>
+          </div>
+          <div className="lib-meta">
+            {card.total} {card.total === 1 ? "item" : "items"} · edited {relativeTime(card.lastTouched)}
+          </div>
+          {counts.length > 1 && (
+            <div className="dk-filters" role="group" aria-label="Show only">
+              <button
+                type="button"
+                className="dk-chip"
+                aria-pressed={kindFilter === null}
+                onClick={() => setKindFilter(null)}
+              >
+                All <span className="dk-chip-count">{everything.length}</span>
+              </button>
+              {counts.map(([k, n]) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="dk-chip"
+                  data-kind={k}
+                  aria-pressed={kindFilter === k}
+                  onClick={() => {
+                    setKindFilter(kindFilter === k ? null : k);
+                    setTrayKey(null);
+                  }}
+                >
+                  {capitalize(n === 1 ? KIND_ONE[k] : KIND_PLURAL[k])}{" "}
+                  <span className="dk-chip-count">{n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </header>
+        {suggestionBanner(suggestionsIn([card.items, ...card.shelves.map((s) => s.items)]))}
+        {deskGrid(f.id, card.items)}
+        {empty && (
+          <div className="dk-empty" data-drop-into={f.id}>
+            <p>Nothing in {f.name} yet. Start something, or carry it in from the side.</p>
+            <div className="lib-empty-actions">
+              {(["script", "onepager", "treatment", "board"] as DocKind[])
+                .filter((k) => onSetOrg || k === "script" || k === "board")
+                .map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className="ui-btn dk-start"
+                    data-kind={k}
+                    onClick={() => createKind(k, f.id)}
+                  >
+                    New {KIND_LABEL[k].toLowerCase()}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+        {shelfRows.map(({ shelf, open, hasChildren }) => {
+          const s = shelf.folder;
+          if (kindFilter && !hasChildren && !shelf.items.some((p) => kindFor(p) === kindFilter)) return null;
+          const peek = open ? [] : groupStacks(shelf.items).slice(0, 3).map((g) => g.head);
+          return (
+            <section
+              key={s.id}
+              className="dk-shelf"
+              style={{ ["--depth" as string]: shelf.depth - 1 } as React.CSSProperties}
+            >
+              <div
+                className={"dk-section-head" + (drag.dropKey === s.id ? " is-drop" : "")}
+                data-drop-into={s.id}
+                data-spring={open ? undefined : s.id}
+              >
+                <button
+                  type="button"
+                  className={"lib-caret" + (open ? " is-open" : "")}
+                  aria-expanded={open}
+                  aria-label={open ? `Hide what is inside ${s.name}` : `Show what is inside ${s.name}`}
+                  onClick={() => toggleFold(s.id, false)}
+                  disabled={!hasChildren && shelf.items.length === 0}
+                >
+                  <ChevronDown />
+                </button>
+                <span className="lib-group-icon" aria-hidden="true" style={{ color: s.color }}>
+                  <FolderGlyph />
+                </span>
+                {renamingFolder === s.id ? (
+                  <NameInput
+                    initial={s.name}
+                    className="lib-rename"
+                    ariaLabel="Folder name"
+                    onCommit={(name) => {
+                      if (name) onUpdateFolder(s.id, { name });
+                    }}
+                    onDone={() => setRenamingFolder(null)}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="dk-section-name shelf-name"
+                    onClick={() => toggleFold(s.id, false)}
+                  >
+                    {s.name}
+                  </button>
+                )}
+                <span className="dk-section-count">{shelf.items.length || ""}</span>
+                {peek.length > 0 && (
+                  <span className="dk-peek" aria-hidden="true">
+                    {peek.map((d) => (
+                      <span key={d.id} className="dk-peek-card">
+                        <Cover id={d.id} seed={seedFor(d)} title={d.title} kind={kindFor(d)} digest={d.digest} mini />
+                      </span>
+                    ))}
+                  </span>
+                )}
+                {folderKebab(s)}
+              </div>
+              {open &&
+                (shelf.items.length > 0
+                  ? deskGrid(s.id, shelf.items)
+                  : !hasChildren && <p className="dk-shelf-empty">Empty. Carry something here to file it.</p>)}
+            </section>
+          );
+        })}
+      </>
+    );
+  };
+
+  const renderUnfiledDesk = () => (
+    <>
+      <header className="dk-head" style={{ ["--fc" as string]: "#8E8E93" } as React.CSSProperties}>
+        <div className="lib-title-row">
+          <h1 className="lib-title">Not in a folder</h1>
+        </div>
+        <div className="lib-meta">
+          {unfiled.length} {unfiled.length === 1 ? "item" : "items"}
+        </div>
+      </header>
+      {suggestionBanner(suggestionsIn([unfiled]))}
+      {deskGrid("unfiled", unfiled) ?? (
+        <p className="lib-empty">Everything is filed. Jot an idea below to start a loose one.</p>
+      )}
+      {jotLine}
+    </>
+  );
+
+  const renderSearchDesk = () => {
+    if (hits.length === 0) return <p className="lib-empty">Nothing matches that search.</p>;
+    const folderHits = hits.filter((h): h is { key: string; folder: Folder; where: string } => "folder" in h);
+    const docHits = hits.flatMap((h) => ("meta" in h ? [h.meta] : []));
+    return (
+      <section className="lib-section">
+        <h2 className="dk-h2">
+          {hits.length} {hits.length === 1 ? "match" : "matches"}
+        </h2>
+        {folderHits.length > 0 && <div className="lib-panel dk-search-folders">{folderHits.map(folderHitRow)}</div>}
+        {docHits.length > 0 && <DeskGrid>{docHits.map((p) => tile(p, [p], "search", { where: true }))}</DeskGrid>}
+      </section>
+    );
+  };
+
   const content = q
-    ? renderSearch()
+    ? desk
+      ? renderSearchDesk()
+      : renderSearch()
     : view.kind === "stage" && sectionById.has(view.id)
-      ? renderStage(sectionById.get(view.id)!)
+      ? (desk ? renderStageDesk : renderStage)(sectionById.get(view.id)!)
       : view.kind === "project" && cardById.has(view.id)
-        ? renderProject(cardById.get(view.id)!)
+        ? (desk ? renderProjectDesk : renderProject)(cardById.get(view.id)!)
         : view.kind === "unfiled"
-          ? renderUnfiled()
-          : renderRecent();
+          ? desk
+            ? renderUnfiledDesk()
+            : renderUnfiled()
+          : desk
+            ? renderRecentDesk()
+            : renderRecent();
 
   const menuFolder = menu?.kind === "folder" ? folderById.get(menu.id) ?? null : null;
   const menuItem = menu?.kind === "item" ? projectById.get(menu.id) ?? null : null;
   const colorFolder = colorTarget ? folderById.get(colorTarget) ?? null : null;
+  const kindDoc = kindTarget ? projectById.get(kindTarget) ?? null : null;
+  const stackDoc = stackTarget ? projectById.get(stackTarget) ?? null : null;
 
   return (
-    <div className={"lib" + (drag.source ? " is-carrying" : "")}>
+    <div className={"lib" + (desk ? " is-desk" : "") + (drag.source ? " is-carrying" : "")}>
       <header className="lib-top">
         <button
           type="button"
@@ -1205,6 +2111,15 @@ export function ProjectsHome({
           )}
         </label>
         <div className="toolbar-spacer" />
+        <button
+          type="button"
+          className="tb-icon dk-layout-toggle"
+          aria-label={desk ? "Show as a list" : "Show as covers"}
+          title={desk ? "Show as a list" : "Show as covers"}
+          onClick={() => setLayout(desk ? "list" : "covers")}
+        >
+          {desk ? <ListGlyph /> : <CoversGlyph />}
+        </button>
         <ThemeToggle theme={prefs.theme} onChange={(theme) => onPrefsChange({ theme })} />
         <button
           type="button"
@@ -1287,8 +2202,13 @@ export function ProjectsHome({
 
       {drag.line && (
         <div
-          className="lib-drop-line"
-          style={{ left: drag.line.left, top: drag.line.top, width: drag.line.width }}
+          className={"lib-drop-line" + (drag.line.height ? " is-upright" : "")}
+          style={{
+            left: drag.line.left,
+            top: drag.line.top,
+            width: drag.line.width,
+            ...(drag.line.height ? { height: drag.line.height } : {}),
+          }}
           aria-hidden="true"
         />
       )}
@@ -1352,6 +2272,33 @@ export function ProjectsHome({
             else onUpdateFolder(moveTarget.folder.id, { parentId: folderId });
           }}
           onClose={() => setMoveTarget(null)}
+        />
+      )}
+      {kindDoc && onSetOrg && (
+        <KindPickerModal
+          doc={kindDoc}
+          seed={seedFor(kindDoc)}
+          kind={kindFor(kindDoc)}
+          explicit={isProseKind(kindDoc.kind)}
+          onPick={(k) => {
+            onSetOrg(kindDoc.id, { kind: k });
+            setKindTarget(null);
+          }}
+          onClose={() => setKindTarget(null)}
+        />
+      )}
+      {stackDoc && onSetOrg && (
+        <StackWithModal
+          doc={stackDoc}
+          candidates={stackCandidates(stackDoc)}
+          kindFor={kindFor}
+          seedFor={seedFor}
+          whereOf={(d) => place.get(d.id)?.label ?? "Not in a folder"}
+          onPick={(targetId) => {
+            stackOnto([stackDoc.id], targetId);
+            setStackTarget(null);
+          }}
+          onClose={() => setStackTarget(null)}
         />
       )}
       {confirmDeleteFolder && (

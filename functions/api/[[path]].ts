@@ -544,17 +544,22 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
           const rows = r.results.map((row) => ({ ...row, digest: readDigest(row.digest) }));
           // Rows written before digests existed (or by a tool that cleared one)
           // get theirs here, a bounded batch per read, so a fresh device draws
-          // full covers within a list or two. Never bumps updated_at, and never
-          // lets a failure break the list itself.
+          // full covers within a few lists. Never bumps updated_at, and never
+          // lets a failure break the list itself. Bounded by size as well as
+          // count: every one is a parse of a whole document, and the list must
+          // stay well inside the function's CPU allowance.
           if (rows.some((row) => row.digest === null)) {
             try {
               const missing = await db
                 .prepare(
-                  "SELECT id,content FROM scripts WHERE user_id=? AND digest IS NULL AND content IS NOT NULL LIMIT 20"
+                  "SELECT id,content FROM scripts WHERE user_id=? AND digest IS NULL AND content IS NOT NULL LIMIT 8"
                 )
                 .bind(uid)
                 .all<{ id: string; content: string }>();
+              let parsedChars = 0;
               for (const m of missing.results) {
+                if (parsedChars > 0 && parsedChars + m.content.length > 400_000) break;
+                parsedChars += m.content.length;
                 let parsed: unknown = null;
                 try {
                   parsed = JSON.parse(m.content);

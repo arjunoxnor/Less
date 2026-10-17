@@ -949,6 +949,31 @@ export function setProjectOrgFromCloud(
   });
 }
 
+/**
+ * Draw covers for documents written before covers existed: compute the cover
+ * digest from bodies this device already holds, one bounded batch at a time
+ * (each is a parse of the whole document), in one index write. Returns how
+ * many were filled; 0 means there is nothing more this device can fill.
+ */
+export function backfillDigests(max = 12): number {
+  const list = readIndex();
+  let filled = 0;
+  for (let i = 0; i < list.length && filled < max; i++) {
+    const meta = list[i];
+    if (meta.digest) continue;
+    const localId = redirectedProjects.get(meta.id) ?? meta.id;
+    let stored: StoredDoc | null = null;
+    for (const key of [docPendingKey(localId), docKey(localId), docBackupKey(localId)]) {
+      stored = parseDoc(lsGet(key));
+      if (stored) break;
+    }
+    if (!stored) continue;
+    list[i] = { ...meta, digest: digestOf(stored.content) };
+    filled++;
+  }
+  return filled > 0 && writeIndex(list) ? filled : 0;
+}
+
 /** Whether this device holds the project's body (without parsing it). */
 export function hasProjectBody(id: string): boolean {
   return lsGet(docKey(id)) !== null || lsGet(docPendingKey(id)) !== null;

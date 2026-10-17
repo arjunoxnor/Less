@@ -55,8 +55,9 @@ import { DocsPanel } from "./DocsPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { Modal } from "./ui/Modal";
 import type { MenuItem } from "./ui/Menu";
+import type { SaveDraft } from "./ScreenplayBody";
 import { listFolders } from "@/lib/storage/folders";
-import { cardForProject } from "@/lib/storage/library";
+import { cardForProject, MAX_LIBRARY_NAME_LENGTH } from "@/lib/storage/library";
 import { PageBackdrop } from "./PageBackdrop";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
 import { MicGlyph, RecordingBar } from "./RecordingBar";
@@ -86,6 +87,7 @@ export function PlainBody({
   onOpenProject,
   autoFocusTitle,
   type = "plain",
+  onSaveDraft,
 }: {
   projectId: string;
   title: string;
@@ -105,6 +107,8 @@ export function PlainBody({
       type on every save, or the cloud row reverts to a plain document and the
       structuring worker stops recognising it. */
   type?: ProjectType;
+  /** File a frozen copy beside this one, in its version stack (host-provided). */
+  onSaveDraft?: SaveDraft;
 }) {
   const initialContent = useMemo(
     () => loadProjectDoc(projectId) ?? EMPTY_PLAIN_DOC,
@@ -409,9 +413,34 @@ export function PlainBody({
     pulledSaveOk,
     getVersions,
     restoreVersion,
+    markVersion,
     flush,
     flushBeacon,
   } = useCloudSync(editor, user, syncOpts);
+
+  // Save a draft: a frozen copy of the document as it is now, kept in its
+  // version stack on the desk, and the moment marked in History. The writer
+  // stays in this one.
+  const [draftName, setDraftName] = useState<string | null>(null);
+  const openSaveDraft = useCallback(() => {
+    const day = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    setDraftName(`${title || "Untitled"}, ${day}`);
+  }, [title]);
+  const saveDraft = (name: string) => {
+    const clean = name.trim();
+    const ed = editorRef.current;
+    if (!ed || !onSaveDraft || !clean) return;
+    try {
+      onSaveDraft({ title: clean, content: ed.getJSON(), titlePage: null });
+      markVersion(clean);
+      setDraftName(null);
+      showToast(`Saved a draft: ${clean}. It sits in this document's stack; you keep writing here.`);
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : "The draft could not be saved.", {
+        variant: "danger",
+      });
+    }
+  };
 
   const flushRef = useRef(flush);
   flushRef.current = flush;
@@ -525,6 +554,9 @@ export function PlainBody({
       })
     ),
     { kind: "divider" },
+    ...(onSaveDraft
+      ? ([{ label: "Save a draft…", onSelect: openSaveDraft }, { kind: "divider" }] as MenuItem[])
+      : []),
     ...(isCloudConfigured
       ? user
         ? [
@@ -562,6 +594,7 @@ export function PlainBody({
         onRestore={(content) => {
           setConfirmRestore({ content });
         }}
+        onSaveDraft={onSaveDraft ? openSaveDraft : undefined}
         onClose={() => setActivePanel(null)}
       />
     ) : null;
@@ -713,6 +746,41 @@ export function PlainBody({
       </EditorShell>
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+
+      {draftName !== null && (
+        <Modal
+          title="Save a draft"
+          onClose={() => setDraftName(null)}
+          actions={[
+            { label: "Cancel", onClick: () => setDraftName(null) },
+            {
+              label: "Save draft",
+              variant: "solid",
+              disabled: !draftName.trim(),
+              onClick: () => saveDraft(draftName),
+            },
+          ]}
+        >
+          <p className="modal-sub">
+            Keeps a copy of this document as it is now, stacked behind it on your desk, and marks
+            this moment in History. You keep writing in this one.
+          </p>
+          <label className="field">
+            <span>Name</span>
+            <input
+              value={draftName}
+              maxLength={MAX_LIBRARY_NAME_LENGTH}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveDraft(draftName);
+                }
+              }}
+            />
+          </label>
+        </Modal>
+      )}
 
       {confirmRestore && (
         <Modal

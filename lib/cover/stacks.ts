@@ -109,6 +109,29 @@ export function versionRoot(title: string): string {
   return words.join(" ");
 }
 
+/**
+ * The shared name of a set of versions, as the writer spells it, for showing:
+ * "Gods one-pager v3" and "Pitch, Oct 17" read as "Gods one-pager" and
+ * "Pitch". Falls back to the title when nothing is left.
+ */
+export function versionName(title: string): string {
+  let t = ` ${title} `;
+  t = t.replace(/\((?:copy|draft|version|v|rev)[^)]*\)/gi, " ");
+  t = t.replace(/\b(?:draft|version|rev(?:ision)?|take|pass)\s*#?\s*\d+(?:\.\d+)*\b/gi, " ");
+  t = t.replace(/\bv\s?\d+(?:\.\d+)*\b/gi, " ");
+  t = t.replace(new RegExp(`\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{2,4})?\\b`, "gi"), " ");
+  t = t.replace(/\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, " ");
+  const words = t.trim().split(/\s+/).filter(Boolean);
+  const marker = (w: string) => MARKER_WORDS.has(w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""));
+  const before = words.length;
+  while (words.length && marker(words[0])) words.shift();
+  // "Final draft of The Lighthouse": the "of" went with the marker.
+  if (words.length < before && words.length > 1 && words[0].toLowerCase() === "of") words.shift();
+  while (words.length && marker(words[words.length - 1])) words.pop();
+  const name = words.join(" ").replace(/[\s,;:.\-–—]+$/u, "").trim();
+  return name || title.trim();
+}
+
 export interface StackSuggestion {
   /** Stable key for remembering a dismissal. */
   key: string;
@@ -130,7 +153,8 @@ export function suggestStacks<T extends Stackable>(
   const byRoot = new Map<string, T[]>();
   for (const item of items) {
     const root = versionRoot(item.title);
-    if (root.length < 3) continue;
+    // "Untitled" is not a name: three blank pages are not drafts of one thing.
+    if (root.length < 3 || /^untitled\b/.test(root)) continue;
     const key = `${kindOf(item)}|${root}`;
     const list = byRoot.get(key) ?? [];
     list.push(item);
@@ -144,7 +168,7 @@ export function suggestStacks<T extends Stackable>(
     const head = headOf(list);
     out.push({
       key,
-      label: head.title,
+      label: versionName(head.title),
       ids: [head.id, ...list.filter((m) => m !== head).map((m) => m.id)],
     });
   }

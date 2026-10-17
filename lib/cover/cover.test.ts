@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { digestOf, readDigest } from "./digest";
 import { kindFromWords, kindOf } from "./kinds";
-import { groupStacks, headOf, suggestStacks, versionRoot, type Stackable } from "./stacks";
+import { groupStacks, headOf, suggestStacks, versionName, versionRoot, type Stackable } from "./stacks";
 
 const line = (element: string, text: string) => ({
   type: "screenplayLine",
@@ -157,5 +157,20 @@ describe("stacks", () => {
     expect(
       suggestStacks([doc("a", { title: "X draft", stackId: "s" }), doc("b", { title: "X", stackId: "s" })], () => "k")
     ).toEqual([]);
+  });
+});
+
+describe("versionName", () => {
+  it("names a set of versions the way the writer spells it", () => {
+    expect(versionName("Gods one-pager v3")).toBe("Gods one-pager");
+    expect(versionName("Pitch, Oct 17")).toBe("Pitch");
+    expect(versionName("Final draft of The Lighthouse (copy 2)")).toBe("The Lighthouse");
+    expect(versionName("Episode 2")).toBe("Episode 2");
+    expect(versionName("v2")).toBe("v2");
+  });
+
+  it("never suggests stacking untitled pages", () => {
+    const blank = (id: string) => ({ id, title: "Untitled screenplay", createdAt: "a", updatedAt: "a" });
+    expect(suggestStacks([blank("a"), blank("b")], () => "script")).toEqual([]);
   });
 });

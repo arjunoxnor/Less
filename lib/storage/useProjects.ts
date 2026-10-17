@@ -32,6 +32,7 @@ import {
   setProjectOrg,
   setProjectOrgFromCloud,
   hasProjectBody,
+  backfillDigests,
   isDirty as isProjectDirty,
   upsertCloudMeta,
   type ProjectMeta,
@@ -102,6 +103,26 @@ export function useProjects(user: User | null) {
     refresh();
     refreshFolders();
   }, [refresh, refreshFolders]);
+
+  // Covers for documents saved before covers existed, drawn from the bodies
+  // this device already has: a small batch at a time, so the home stays
+  // responsive while it fills in.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    const step = () => {
+      if (cancelled) return;
+      if (backfillDigests(12) > 0) {
+        refresh();
+        timer = setTimeout(step, 60);
+      }
+    };
+    timer = setTimeout(step, 300);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [refresh]);
 
   // Cross-tab: when another tab creates/renames/deletes a project or edits
   // folders, refresh so this tab's dashboard reflects it instead of drifting.
