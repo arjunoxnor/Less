@@ -1038,10 +1038,25 @@ export function ProjectsHome({
   };
 
   /* Suggestions: drafts sitting side by side that look like versions of one thing. */
-  const suggestionsIn = (lists: ProjectMeta[][]): StackSuggestion[] =>
-    onSetOrg
-      ? lists.flatMap((items) => suggestStacks(items, kindFor)).filter((s) => !dismissed.includes(s.key))
-      : [];
+  // Cached per list: the lists come from the library memo, so a list is the
+  // same object until something in it changes, and a drag (which re-renders
+  // on every move) never re-scans the titles.
+  const suggestionCache = useMemo(
+    () => new WeakMap<ProjectMeta[], StackSuggestion[]>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dismissed, folderTrail]
+  );
+  const suggestionsIn = (lists: ProjectMeta[][]): StackSuggestion[] => {
+    if (!onSetOrg) return [];
+    return lists.flatMap((items) => {
+      let found = suggestionCache.get(items);
+      if (!found) {
+        found = suggestStacks(items, kindFor).filter((s) => !dismissed.includes(s.key));
+        suggestionCache.set(items, found);
+      }
+      return found;
+    });
+  };
   const dismissSuggestions = (keys: string[]) => {
     setDismissed((prev) => {
       const next = [...new Set([...prev, ...keys])].slice(-200);
