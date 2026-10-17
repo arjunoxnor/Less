@@ -18,6 +18,17 @@ import {
   judgeUpload,
   newAssetId,
 } from "../../lib/server/assets";
+import { digestOf, readDigest } from "../../lib/cover/digest";
+
+/* ---------- the desk: kinds and version stacks ---------- */
+// The prose kinds a plain document can be set to. Anything else stores NULL,
+// which the app reads as "infer it from the title and folders".
+const DESK_KINDS = new Set(["treatment", "onepager", "outline", "characters", "notes", "document"]);
+const cleanKind = (v: unknown): string | null => (typeof v === "string" && DESK_KINDS.has(v) ? v : null);
+const cleanStackId = (v: unknown): string | null =>
+  typeof v === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(v) ? v : null;
+const cleanIso = (v: unknown): string | null =>
+  typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(v) ? v : null;
 
 interface Env {
   DB: D1Database;
@@ -523,24 +534,63 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         if (method === "GET") {
           const r = await db
             .prepare(
-              "SELECT id,title,type,status,updated_at,created_at,placed_at,title_at,status_at,folder_id,position FROM scripts WHERE user_id=? ORDER BY updated_at DESC"
+              `SELECT id,title,type,status,updated_at,created_at,placed_at,title_at,status_at,folder_id,position,
+                      kind,stack_id,stack_top,org_at,digest,
+                      CASE WHEN json_valid(title_page) THEN json_extract(title_page,'$.author') END AS tp_author
+               FROM scripts WHERE user_id=? ORDER BY updated_at DESC`
             )
             .bind(uid)
-            .all();
-          return json(r.results);
+            .all<Record<string, unknown>>();
+          const rows = r.results.map((row) => ({ ...row, digest: readDigest(row.digest) }));
+          // Rows written before digests existed (or by a tool that cleared one)
+          // get theirs here, a bounded batch per read, so a fresh device draws
+          // full covers within a list or two. Never bumps updated_at, and never
+          // lets a failure break the list itself.
+          if (rows.some((row) => row.digest === null)) {
+            try {
+              const missing = await db
+                .prepare(
+                  "SELECT id,content FROM scripts WHERE user_id=? AND digest IS NULL AND content IS NOT NULL LIMIT 20"
+                )
+                .bind(uid)
+                .all<{ id: string; content: string }>();
+              for (const m of missing.results) {
+                let parsed: unknown = null;
+                try {
+                  parsed = JSON.parse(m.content);
+                } catch {
+                  continue;
+                }
+                const d = digestOf(parsed);
+                await db
+                  .prepare("UPDATE scripts SET digest=? WHERE user_id=? AND id=? AND digest IS NULL")
+                  .bind(JSON.stringify(d), uid, m.id)
+                  .run();
+                const row = rows.find((x) => x.id === m.id);
+                if (row) row.digest = d;
+              }
+            } catch (e) {
+              console.error("digest backfill failed", e);
+            }
+          }
+          return json(rows);
         }
         if (method === "POST") {
           const b = (await readJson(request)) as Record<string, unknown> | null;
             if (!b) return fail("Bad request body", 400);
           const id = (b.id as string) || crypto.randomUUID();
           const now = new Date().toISOString();
+          const kind = cleanKind(b.kind);
+          const stackId = cleanStackId(b.stack_id);
+          const stackTop = cleanIso(b.stack_top);
           await db
             .prepare(
-              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at,kind,stack_id,stack_top,org_at,digest)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(user_id,id) DO UPDATE SET
                  type=excluded.type, title=excluded.title, status=excluded.status,
-                 content=excluded.content, title_page=excluded.title_page, updated_at=excluded.updated_at`
+                 content=excluded.content, title_page=excluded.title_page, updated_at=excluded.updated_at,
+                 digest=excluded.digest`
             )
             .bind(
               uid,
@@ -556,7 +606,12 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               now,
               b.placed_at ?? now,
               now,
-              now
+              now,
+              kind,
+              stackId,
+              stackTop,
+              kind || stackId || stackTop ? now : null,
+              b.content != null ? JSON.stringify(digestOf(b.content)) : null
             )
             .run();
           return json({
@@ -658,13 +713,28 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             // title_at and out-rank a real rename on another device. SQLite
             // evaluates SET expressions against the original row, so `title` /
             // `status` here are the stored values.
-            if ("title" in b) {
+            if ("title" in b && !isBodySave) {
               sets.push("title_at = CASE WHEN title IS ? THEN title_at ELSE ? END");
               vals.push(b.title, now);
             }
-            if ("status" in b) {
+            if ("status" in b && !isBodySave) {
               sets.push("status_at = CASE WHEN status IS ? THEN status_at ELSE ? END");
               vals.push(b.status, now);
+            }
+            // The cover digest is derived from the content, so it rides every
+            // content write and can never disagree with the body it describes.
+            if (isBodySave) {
+              sets.push("digest=?");
+              vals.push(b.content != null ? JSON.stringify(digestOf(b.content)) : null);
+            }
+            // Kind and stack membership: one group on its own clock (org_at),
+            // like folder + position on placed_at. Never part of a body save.
+            if (!isBodySave && ("kind" in b || "stack_id" in b || "stack_top" in b)) {
+              if ("kind" in b) (sets.push("kind=?"), vals.push(cleanKind(b.kind)));
+              if ("stack_id" in b) (sets.push("stack_id=?"), vals.push(cleanStackId(b.stack_id)));
+              if ("stack_top" in b) (sets.push("stack_top=?"), vals.push(cleanIso(b.stack_top)));
+              sets.push("org_at=?");
+              vals.push(now);
             }
             vals.push(uid, id);
             await db.prepare(`UPDATE scripts SET ${sets.join(",")} WHERE user_id=? AND id=?`).bind(...vals).run();

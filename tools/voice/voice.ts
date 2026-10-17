@@ -173,7 +173,7 @@ async function loadOne(id: string): Promise<{ row: Row; lines: string[] }> {
 async function writeLines(row: Row, lines: string[]): Promise<void> {
   const at = new Date().toISOString();
   const res = await sql(
-    `UPDATE scripts SET content = ?, updated_at = ?
+    `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?
      WHERE type = 'voice' AND user_id = ? AND id = ? AND updated_at = ?`,
     [JSON.stringify(linesToDoc(lines)), at, row.user_id, row.id, row.updated_at]
   );
@@ -283,7 +283,7 @@ async function script(args: string[]): Promise<void> {
     const blank = { type: "screenplayLine", attrs: { element: "action" }, content: [] };
     existing.content = [...existing.content, blank, ...(doc.content ?? [])];
     const res = await sql(
-      `UPDATE scripts SET content = ?, updated_at = ?
+      `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?
        WHERE type = 'screenplay' AND user_id = ? AND id = ? AND updated_at = ?`,
       [JSON.stringify(existing), at, USER, id, row.updated_at]
     );
@@ -456,7 +456,7 @@ async function deliverVoiceNote(args: string[]): Promise<void> {
   }
   const now = new Date().toISOString();
   const res = await sql(
-    `UPDATE scripts SET content = ?, updated_at = ?
+    `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?
      WHERE type IN ('plain','voice') AND user_id = ? AND id = ? AND updated_at = ?`,
     [JSON.stringify(next), now, USER, docId, row.updated_at]
   );

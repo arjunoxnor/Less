@@ -29,6 +29,10 @@ import {
   setProjectFolder as localSetFolder,
   reorderProjects as localReorder,
   setProjectPlacement,
+  setProjectOrg,
+  setProjectOrgFromCloud,
+  hasProjectBody,
+  isDirty as isProjectDirty,
   upsertCloudMeta,
   type ProjectMeta,
   type ProjectStatus,
@@ -51,13 +55,16 @@ import {
   type Folder,
 } from "./folders";
 import { onBroadcast } from "./broadcast";
-import { clockNewer, decideField, decidePlacement, mapLimit } from "./lww";
+import { clockNewer, decideField, decideOrg, decidePlacement, mapLimit } from "./lww";
+import { readDigest } from "@/lib/cover/digest";
 import { stillMatchesField } from "./syncSafety";
 import {
   createScript,
   deleteScript,
   listScripts,
   setScriptStatus,
+  setScriptOrg,
+  type OrgFields,
   setScriptTitle,
   setScriptFolder,
 } from "@/lib/cloud/scripts";
@@ -115,6 +122,9 @@ export function useProjects(user: User | null) {
         pageTarget?: number;
         folderId?: string | null;
         status?: ProjectStatus;
+        kind?: string;
+        stackId?: string;
+        stackTop?: string;
       }
     ): ProjectMeta => {
       const meta = localCreate(type, {
@@ -124,6 +134,9 @@ export function useProjects(user: User | null) {
         pageTarget: opts?.pageTarget,
         folderId: opts?.folderId,
         status: opts?.status,
+        kind: opts?.kind,
+        stackId: opts?.stackId,
+        stackTop: opts?.stackTop,
       });
       if (user && online()) {
         const doc = loadProjectDoc(meta.id);
@@ -136,6 +149,9 @@ export function useProjects(user: User | null) {
             titlePage: opts?.titlePage,
             folderId: meta.folderId ?? null,
             position: meta.order ?? null,
+            kind: meta.kind ?? null,
+            stackId: meta.stackId ?? null,
+            stackTop: meta.stackTop ?? null,
           })
             // Only mark created when a real row comes back; a 401/expired session
             // resolves to null, and marking it created would strand it local-only.
@@ -252,6 +268,27 @@ export function useProjects(user: User | null) {
         setScriptFolder(id, folderId, meta.order ?? null).catch((e) =>
           console.error("cloud folder placement failed", e)
         );
+      }
+    },
+    [user, refresh]
+  );
+
+  // Kind and version-stack changes: local first, then only those fields go to
+  // the cloud (never content), on their own clock.
+  const setOrg = useCallback(
+    (id: string, fields: OrgFields) => {
+      if (!setProjectOrg(id, fields)) return;
+      refresh();
+      const meta = getProjectMeta(id);
+      if (meta?.cloudCreated && user && online()) {
+        setScriptOrg(id, fields)
+          .then((ts) => {
+            // Align the local clock to the server's, unless a newer local change
+            // landed while this one was in flight.
+            const live = getProjectMeta(id);
+            if (ts && live && live.orgAt === meta.orgAt) patchProjectMeta(id, { orgAt: ts });
+          })
+          .catch((e) => console.error("cloud kind/stack update failed", e));
       }
     },
     [user, refresh]
@@ -381,6 +418,9 @@ export function useProjects(user: User | null) {
               titlePage: loadProjectTitlePage(m.id),
               folderId: m.folderId ?? null,
               position: m.order ?? null,
+              kind: m.kind ?? null,
+              stackId: m.stackId ?? null,
+              stackTop: m.stackTop ?? null,
             });
             if (row) {
               markCloudCreated(m.id);
@@ -497,7 +537,66 @@ export function useProjects(user: User | null) {
               placedAt: c.placed_at ?? c.updated_at,
               titleAt: c.title_at ?? c.updated_at,
               statusAt: c.status_at ?? c.updated_at,
+              kind: c.kind ?? undefined,
+              stackId: c.stack_id ?? undefined,
+              stackTop: c.stack_top ?? undefined,
+              orgAt: c.org_at ?? undefined,
+              digest: readDigest(c.digest) ?? undefined,
+              coverAuthor: c.tp_author ?? undefined,
             });
+          }
+        }
+
+        // Covers: a device without this body (never opened here, or freed to
+        // save space) draws from the cloud's digest, as does one whose copy is
+        // older and has no unsaved edits. A local body with edits keeps its own.
+        for (const c of cloud) {
+          const lm = getProjectMeta(c.id);
+          if (!lm) continue;
+          const patch: Partial<ProjectMeta> = {};
+          const cd = readDigest(c.digest);
+          if (
+            cd &&
+            JSON.stringify(cd) !== JSON.stringify(lm.digest) &&
+            (!lm.digest ||
+              !hasProjectBody(c.id) ||
+              (!isProjectDirty(c.id) && c.updated_at > lm.updatedAt))
+          ) {
+            patch.digest = cd;
+          }
+          if (c.tp_author && !lm.coverAuthor) patch.coverAuthor = c.tp_author;
+          if (Object.keys(patch).length) patchProjectMeta(c.id, patch);
+        }
+
+        // Kind + stack membership: last write wins on the org clock (see
+        // decideOrg for why a missing clock reads as "never set").
+        for (const c of cloud) {
+          const lm = getProjectMeta(c.id);
+          if (!lm) continue;
+          const decision = decideOrg(
+            { kind: lm.kind, stackId: lm.stackId, stackTop: lm.stackTop, orgAt: lm.orgAt },
+            { kind: c.kind, stackId: c.stack_id, stackTop: c.stack_top, orgAt: c.org_at }
+          );
+          if (decision === "pull") {
+            setProjectOrgFromCloud(c.id, {
+              kind: c.kind ?? null,
+              stackId: c.stack_id ?? null,
+              stackTop: c.stack_top ?? null,
+              orgAt: c.org_at ?? null,
+            });
+          } else if (decision === "push") {
+            try {
+              const ts = await setScriptOrg(c.id, {
+                kind: lm.kind ?? null,
+                stackId: lm.stackId ?? null,
+                stackTop: lm.stackTop ?? null,
+              });
+              if (ts === null) failures++;
+              else if (getProjectMeta(c.id)?.orgAt === lm.orgAt) patchProjectMeta(c.id, { orgAt: ts });
+            } catch (e) {
+              console.error("kind/stack push failed", e);
+              failures++;
+            }
           }
         }
 
@@ -730,6 +829,7 @@ export function useProjects(user: User | null) {
     rename,
     setStatus,
     setFolder,
+    setOrg,
     reorder,
     createFolder,
     updateFolder,

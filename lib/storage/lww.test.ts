@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { clockNewer, decideField, decidePlacement, mapLimit } from "./lww";
+import { clockNewer, decideField, decideOrg, decidePlacement, mapLimit } from "./lww";
 
 describe("mapLimit", () => {
   it("preserves result order and never exceeds the concurrency limit", async () => {
@@ -153,5 +153,27 @@ describe("decidePlacement", () => {
         cloudPlacedAt: "2026-06-01",
       })
     ).toBe("push");
+  });
+});
+
+describe("decideOrg (kind + stack membership)", () => {
+  it("does nothing when both sides agree", () => {
+    expect(decideOrg({ kind: "treatment", orgAt: "2026-10-01T00:00:00Z" }, { kind: "treatment" })).toBe("noop");
+  });
+  it("lets a cloud regrouping win over an older local one, and the reverse", () => {
+    expect(
+      decideOrg({ stackId: "a", orgAt: "2026-10-01T00:00:00Z" }, { stackId: "b", orgAt: "2026-10-02T00:00:00Z" })
+    ).toBe("pull");
+    expect(
+      decideOrg({ stackId: "a", orgAt: "2026-10-03T00:00:00Z" }, { stackId: "b", orgAt: "2026-10-02T00:00:00Z" })
+    ).toBe("push");
+  });
+  it("never lets a cloud row that was never regrouped erase a local stack", () => {
+    // The row's text was edited later on another device (updated_at moved), but
+    // org_at was never set: the local stack must be pushed, not cleared.
+    expect(decideOrg({ stackId: "a", orgAt: "2026-10-01T00:00:00Z" }, { orgAt: null })).toBe("push");
+  });
+  it("adopts a cloud regrouping on a device that never set one", () => {
+    expect(decideOrg({}, { kind: "onepager", orgAt: "2026-10-02T00:00:00Z" })).toBe("pull");
   });
 });

@@ -6,6 +6,7 @@ import { lsGet, lsKeys, lsSet } from "./localStore";
 import { broadcast } from "./broadcast";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
+import { digestOf, type CoverDigest } from "@/lib/cover/digest";
 
 /**
  * Multi-project, local-first storage. Replaces the single-document scheme: a
@@ -71,6 +72,19 @@ export interface ProjectMeta {
    *  debounced save so the dashboard can show "12 pp" without parsing bodies.
    *  Optional and additive (Superaudit 2, Part 5); local-only, no migration. */
   pageCount?: number;
+  /** The desk. What a plain document is (treatment, one-pager...): the
+   *  writer's explicit choice; unset means "read it from the title". */
+  kind?: string;
+  /** Version stacks: documents sharing a stackId are versions of one thing. */
+  stackId?: string;
+  /** When this version was last made the current one (top of its stack). */
+  stackTop?: string;
+  /** The clock for kind + stackId + stackTop (synced as org_at). */
+  orgAt?: string;
+  /** What the cover is drawn from, recomputed on every save. */
+  digest?: CoverDigest;
+  /** The title page's author, for the script cover's "Written by" line. */
+  coverAuthor?: string;
 }
 
 /** A full project: metadata plus its body. */
@@ -700,6 +714,10 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
   const liveMeta = getProjectMeta(localId);
   if (liveMeta) {
     const patch: Partial<ProjectMeta> = { updatedAt: nowIso() };
+    // The cover follows the text. Cheap (one walk of the document), and only
+    // written when it actually changed.
+    const digest = digestOf(content);
+    if (JSON.stringify(digest) !== JSON.stringify(liveMeta.digest)) patch.digest = digest;
     // A body exists locally again, so the guarded cloud-hydration path must not
     // run on the next open and overwrite it with an older cloud copy. (Reachable
     // when eviction freed a body a tab still had open in memory.)
@@ -743,6 +761,7 @@ export function saveProjectTitlePage(id: string, tp: TitlePage | null): boolean 
     const mainOk = lsSet(tpKey(localId), payload) && storedExactly(tpKey(localId), payload);
     if (!mainOk) {
       broadcast({ type: "titlePageSaved", id: localId });
+      syncCoverAuthor(localId, tp);
       return true; // the complete pending title page is authoritative
     }
     // Clear the "cleared" marker BEFORE dropping the mirror: loadProjectTitlePage
@@ -754,7 +773,15 @@ export function saveProjectTitlePage(id: string, tp: TitlePage | null): boolean 
     lsSet(tpPendingKey(localId), null);
   }
   broadcast({ type: "titlePageSaved", id: localId });
+  syncCoverAuthor(localId, tp);
   return true;
+}
+
+/** Keep the script cover's author line in step with the title page. */
+function syncCoverAuthor(id: string, tp: TitlePage | null): void {
+  const author = tp?.author?.trim() || undefined;
+  const meta = getProjectMeta(id);
+  if (meta && meta.coverAuthor !== author) patchMeta(id, { coverAuthor: author });
 }
 
 /* --- Page lock (local-only; production page-number freeze + A-pages) ------ */
@@ -803,6 +830,10 @@ export function createProject(
     pageTarget?: number;
     folderId?: string | null;
     status?: ProjectStatus;
+    /** Born with a kind or into a stack (a new one-pager, a saved version). */
+    kind?: string;
+    stackId?: string;
+    stackTop?: string;
   }
 ): Project {
   const id = uniqueProjectId();
@@ -822,6 +853,12 @@ export function createProject(
     // Created already filed (bulk import): carry the folder + a placement clock
     // so the very first cloud insert is filed, not loose-then-patched.
     ...(opts?.folderId ? { folderId: opts.folderId, placedAt: ts } : {}),
+    ...(opts?.kind ? { kind: opts.kind } : {}),
+    ...(opts?.stackId ? { stackId: opts.stackId } : {}),
+    ...(opts?.stackTop ? { stackTop: opts.stackTop } : {}),
+    ...(opts?.kind || opts?.stackId || opts?.stackTop ? { orgAt: ts } : {}),
+    digest: digestOf(content),
+    ...(opts?.titlePage?.author ? { coverAuthor: opts.titlePage.author } : {}),
   };
   const bodyOk = writeProjectBody(id, JSON.stringify(content)).ok;
   // A blank new document still has to survive reload. Private mode used to
@@ -882,6 +919,39 @@ export function setProjectPlacement(
     order: position ?? undefined,
     ...(placedAt ? { placedAt } : {}),
   });
+}
+
+/**
+ * Change kind and/or stack membership locally (a writer's action): stamps the
+ * org clock so reconcile pushes it. Pass null to clear a field.
+ */
+export function setProjectOrg(
+  id: string,
+  fields: { kind?: string | null; stackId?: string | null; stackTop?: string | null }
+): boolean {
+  const patch: Partial<ProjectMeta> = { orgAt: nowIso() };
+  if ("kind" in fields) patch.kind = fields.kind ?? undefined;
+  if ("stackId" in fields) patch.stackId = fields.stackId ?? undefined;
+  if ("stackTop" in fields) patch.stackTop = fields.stackTop ?? undefined;
+  return patchMeta(id, patch);
+}
+
+/** Apply kind / stack membership pulled from the cloud, with its clock. */
+export function setProjectOrgFromCloud(
+  id: string,
+  fields: { kind: string | null; stackId: string | null; stackTop: string | null; orgAt: string | null }
+): void {
+  patchMeta(id, {
+    kind: fields.kind ?? undefined,
+    stackId: fields.stackId ?? undefined,
+    stackTop: fields.stackTop ?? undefined,
+    orgAt: fields.orgAt ?? undefined,
+  });
+}
+
+/** Whether this device holds the project's body (without parsing it). */
+export function hasProjectBody(id: string): boolean {
+  return lsGet(docKey(id)) !== null || lsGet(docPendingKey(id)) !== null;
 }
 
 /** Persist a manual order (local-only) for a set of project ids in a container. */

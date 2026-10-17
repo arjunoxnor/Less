@@ -107,3 +107,36 @@ export function decidePlacement(opts: {
   );
   return cloudWins ? "pull" : "push";
 }
+
+export interface OrgState {
+  kind?: string | null;
+  stackId?: string | null;
+  stackTop?: string | null;
+  orgAt?: string | null;
+}
+
+/**
+ * Decide kind + stack membership: one group on its own org clock, last write
+ * wins. Unlike placement, a missing clock means "never set" (the oldest time),
+ * because the column is new: a cloud row that was never regrouped must not
+ * out-rank a regrouping made on this device just because its text was edited
+ * later (which moves updated_at, not org_at).
+ */
+export function decideOrg(local: OrgState, cloud: OrgState): "pull" | "push" | "noop" {
+  const same =
+    (local.kind ?? null) === (cloud.kind ?? null) &&
+    (local.stackId ?? null) === (cloud.stackId ?? null) &&
+    (local.stackTop ?? null) === (cloud.stackTop ?? null);
+  if (same) return "noop";
+  const at = (v?: string | null) => {
+    const t = v ? Date.parse(v) : NaN;
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  const lt = at(local.orgAt);
+  const ct = at(cloud.orgAt);
+  if (ct > lt) return "pull";
+  if (lt > ct) return "push";
+  // Same clock, different values (or neither ever set): keep what this device
+  // has if it has anything, otherwise take the cloud's.
+  return local.kind || local.stackId || local.stackTop ? "push" : "pull";
+}

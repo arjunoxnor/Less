@@ -193,7 +193,7 @@ async function put(id: string, readAt: string, file: string, label: string) {
   }
   const at = now();
   const out = await sql(
-    "UPDATE scripts SET content = ?, updated_at = ? WHERE user_id = ? AND id = ? AND updated_at = ?",
+    "UPDATE scripts SET content = ?, digest = NULL, updated_at = ? WHERE user_id = ? AND id = ? AND updated_at = ?",
     [next, at, USER, id, readAt]
   );
   if ((out.meta?.changes ?? 0) === 0) {

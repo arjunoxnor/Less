@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
 import type { ProjectStatus, ProjectType } from "@/lib/storage/projects";
 import { api } from "./client";
+import type { CoverDigest } from "@/lib/cover/digest";
 
 /**
  * Scripts and version snapshots, over the LESS API (Cloudflare D1). Same shapes
@@ -33,6 +34,22 @@ export interface ScriptSummary {
   status_at: string | null;
   folder_id: string | null;
   position: number | null;
+  /** The desk (migration 0006): explicit kind, stack membership, their clock. */
+  kind?: string | null;
+  stack_id?: string | null;
+  stack_top?: string | null;
+  org_at?: string | null;
+  /** What the cover is drawn from; computed by the server from the content. */
+  digest?: CoverDigest | null;
+  /** The title page's author line, for script covers on a fresh device. */
+  tp_author?: string | null;
+}
+
+/** Kind and stack membership: one group, pushed together on its own clock. */
+export interface OrgFields {
+  kind?: string | null;
+  stackId?: string | null;
+  stackTop?: string | null;
 }
 
 export interface VersionRow {
@@ -54,7 +71,7 @@ export async function createScript(
     titlePage?: TitlePage | null;
     folderId?: string | null;
     position?: number | null;
-  }
+  } & OrgFields
 ): Promise<ScriptRow | null> {
   return api<ScriptRow>("scripts", {
     method: "POST",
@@ -69,6 +86,9 @@ export async function createScript(
       // at creation, instead of only via a separate (easily-missed) call.
       folder_id: opts?.folderId ?? null,
       position: opts?.position ?? null,
+      kind: opts?.kind ?? null,
+      stack_id: opts?.stackId ?? null,
+      stack_top: opts?.stackTop ?? null,
     },
   });
 }
@@ -104,6 +124,20 @@ export async function setScriptFolder(
   position: number | null
 ): Promise<boolean> {
   return (await api(`scripts/${id}`, { method: "PATCH", body: { folder_id: folderId, position } })) !== null;
+}
+
+/**
+ * Push kind / stack membership. Only the fields given are sent; the server
+ * advances org_at. Returns the server time it was written at (to align the
+ * local clock), or null when it did not land (a 401 returns null, not a throw).
+ */
+export async function setScriptOrg(id: string, fields: OrgFields): Promise<string | null> {
+  const body: Record<string, unknown> = {};
+  if ("kind" in fields) body.kind = fields.kind ?? null;
+  if ("stackId" in fields) body.stack_id = fields.stackId ?? null;
+  if ("stackTop" in fields) body.stack_top = fields.stackTop ?? null;
+  const r = await api<{ updated_at: string }>(`scripts/${id}`, { method: "PATCH", body });
+  return r?.updated_at ?? null;
 }
 
 export async function deleteScript(id: string): Promise<boolean> {
