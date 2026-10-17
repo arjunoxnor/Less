@@ -270,6 +270,23 @@ describe("ProjectsHome layered interactions", () => {
     expect(button.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("duplicates a script beside the original from its actions menu", async () => {
+    const doc = { type: "doc", content: [{ type: "screenplayLine", attrs: { element: "action" } }] };
+    storage.set("less:project:draft:doc", JSON.stringify(doc));
+    const create = vi.fn(() => ({ ...draft, id: "copy", title: "Draft (copy)" }));
+    renderHome([stage, card], { projects: [draft], onCreate: create });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!.click());
+    clickMenuItem("Duplicate");
+    await act(async () => {});
+    expect(create).toHaveBeenCalledWith("screenplay", "Draft (copy)", {
+      content: doc,
+      titlePage: null,
+      folderId: "card",
+      status: "writing",
+    });
+  });
+
   it("closes a delete dialog when its script disappears in another tab", async () => {
     const props = renderHome([stage, card], { projects: [draft] });
     openProject("Card");

@@ -6,10 +6,13 @@ import type { CloudUser as User } from "@/lib/cloud/client";
 import { lsGet, lsSet, type Prefs } from "@/lib/storage/localStore";
 import {
   getLastOpenedId,
+  loadBreakdown,
   loadProjectDoc,
+  saveBreakdown,
   type ProjectMeta,
   type ProjectType,
 } from "@/lib/storage/projects";
+import { copyTitle, loadBodyForCopy } from "@/lib/storage/duplicate";
 import type { Folder } from "@/lib/storage/folders";
 import {
   canMoveFolderTo,
@@ -139,7 +142,12 @@ export function ProjectsHome({
   onCreate: (
     type: ProjectType,
     title: string,
-    opts?: { content?: JSONContent; titlePage?: TitlePage | null; folderId?: string | null }
+    opts?: {
+      content?: JSONContent;
+      titlePage?: TitlePage | null;
+      folderId?: string | null;
+      status?: ProjectMeta["status"];
+    }
   ) => ProjectMeta;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
@@ -710,9 +718,32 @@ export function ProjectsHome({
     ];
   };
 
+  /** File a copy beside the original, without opening it. Breakdown tags live
+   *  outside the text, so they are carried over separately. */
+  const duplicate = async (p: ProjectMeta) => {
+    try {
+      const body = await loadBodyForCopy(p);
+      if (!body) {
+        throw new Error("Could not load that document to copy it. Check your connection and try again.");
+      }
+      const copy = onCreate(p.type, copyTitle(p.title, projects.map((x) => x.title)), {
+        content: body.content,
+        titlePage: body.titlePage,
+        folderId: p.folderId ?? null,
+        status: p.status,
+      });
+      const tags = loadBreakdown(p.id);
+      if (tags.length) saveBreakdown(copy.id, tags);
+      showToast(`Made a copy: ${copy.title}`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not duplicate that.", { variant: "danger" });
+    }
+  };
+
   const itemItems = (p: ProjectMeta): MenuItem[] => [
     { label: "Open", onSelect: () => onOpen(p.id) },
     { label: "Rename", onSelect: () => setRenamingItem(p.id) },
+    { label: "Duplicate", onSelect: () => void duplicate(p) },
     { label: "Move to", onSelect: () => setMoveTarget({ kind: "item", meta: p }) },
     { kind: "divider" },
     { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },

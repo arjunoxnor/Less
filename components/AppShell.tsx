@@ -289,6 +289,7 @@ export function AppShell() {
         content?: import("@tiptap/core").JSONContent;
         titlePage?: import("@/lib/export/titlePage").TitlePage | null;
         folderId?: string | null;
+        status?: ProjectStatus;
       }
     ) => create(type, title || undefined, opts),
     [create]
