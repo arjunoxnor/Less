@@ -1452,6 +1452,12 @@ body {
 .dk-spot .dk-art {
   rotate: var(--tilt, 0deg);
 }
+/* Whatever is being worked with comes to the front: a folder being rifled
+   through, a cover being resized. */
+.dk-spot:has(.dk-folder.is-rifling),
+.dk-spot:has(.dk-tile.is-resizing) {
+  z-index: 8000 !important;
+}
 .dk-spot.is-dim {
   opacity: 0.16;
   filter: saturate(0.25);
