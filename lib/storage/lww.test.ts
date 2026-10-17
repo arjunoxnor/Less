@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { clockNewer, decideField, decideOrg, decidePlacement, mapLimit } from "./lww";
+import { clockNewer, decideDesk, decideField, decideOrg, decidePlacement, mapLimit } from "./lww";
 
 describe("mapLimit", () => {
   it("preserves result order and never exceeds the concurrency limit", async () => {
@@ -175,5 +175,21 @@ describe("decideOrg (kind + stack membership)", () => {
   });
   it("adopts a cloud regrouping on a device that never set one", () => {
     expect(decideOrg({}, { kind: "onepager", orgAt: "2026-10-02T00:00:00Z" })).toBe("pull");
+  });
+});
+
+describe("decideDesk (a project desk's layout)", () => {
+  const a = { v: 1, spots: [{ k: "d:x", x: 1, y: 1 }] };
+  const b = { v: 1, spots: [{ k: "d:x", x: 9, y: 9 }] };
+  it("does nothing when both sides already agree", () => {
+    expect(decideDesk({ desk: a, deskAt: "2026-10-01T00:00:00Z" }, { desk: a, deskAt: null })).toBe("noop");
+  });
+  it("lets the newer arrangement win either way", () => {
+    expect(decideDesk({ desk: a, deskAt: "2026-10-01T00:00:00Z" }, { desk: b, deskAt: "2026-10-02T00:00:00Z" })).toBe("pull");
+    expect(decideDesk({ desk: a, deskAt: "2026-10-03T00:00:00Z" }, { desk: b, deskAt: "2026-10-02T00:00:00Z" })).toBe("push");
+  });
+  it("never lets a desk that was never arranged in the cloud erase this device's arrangement", () => {
+    expect(decideDesk({ desk: a, deskAt: "2026-10-01T00:00:00Z" }, { desk: null, deskAt: null })).toBe("push");
+    expect(decideDesk({}, { desk: b, deskAt: "2026-10-02T00:00:00Z" })).toBe("pull");
   });
 });

@@ -135,15 +135,23 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
     const pageScroller =
       scroller === document.scrollingElement || scroller === document.documentElement;
     const rect = pageScroller
-      ? { top: 0, bottom: window.innerHeight }
+      ? { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth }
       : scroller.getBoundingClientRect();
     const step = autoScrollStep(last.y, rect.top, rect.bottom);
-    if (step === 0) return;
+    // Sideways too, for a pane wider than the window (a project's desk).
+    const wide = !pageScroller && scroller.scrollWidth > scroller.clientWidth;
+    const stepX = wide ? autoScrollStep(last.x, rect.left, rect.right) : 0;
+    if (step === 0 && stepX === 0) return;
     const before = pageScroller ? window.scrollY : scroller.scrollTop;
-    if (pageScroller) window.scrollBy(0, step);
-    else scroller.scrollTop += step;
+    const beforeX = pageScroller ? 0 : scroller.scrollLeft;
+    if (step !== 0) {
+      if (pageScroller) window.scrollBy(0, step);
+      else scroller.scrollTop += step;
+    }
+    if (stepX !== 0) scroller.scrollLeft += stepX;
     const after = pageScroller ? window.scrollY : scroller.scrollTop;
-    if (after !== before) options.onMove(last);
+    const afterX = pageScroller ? 0 : scroller.scrollLeft;
+    if (after !== before || afterX !== beforeX) options.onMove(last);
   };
 
   const start = () => {

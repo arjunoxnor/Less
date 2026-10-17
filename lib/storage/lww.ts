@@ -140,3 +140,24 @@ export function decideOrg(local: OrgState, cloud: OrgState): "pull" | "push" | "
   // has if it has anything, otherwise take the cloud's.
   return local.kind || local.stackId || local.stackTop ? "push" : "pull";
 }
+
+/**
+ * Decide a project desk's layout (where its things sit): the whole layout on
+ * its own desk clock, last write wins, a missing clock meaning "never
+ * arranged". Layouts compare as canonical JSON (both sides are sanitized).
+ */
+export function decideDesk(
+  local: { desk?: unknown; deskAt?: string | null },
+  cloud: { desk?: unknown; deskAt?: string | null }
+): "pull" | "push" | "noop" {
+  if (JSON.stringify(local.desk ?? null) === JSON.stringify(cloud.desk ?? null)) return "noop";
+  const at = (v?: string | null) => {
+    const t = v ? Date.parse(v) : NaN;
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  const lt = at(local.deskAt);
+  const ct = at(cloud.deskAt);
+  if (ct > lt) return "pull";
+  if (lt > ct) return "push";
+  return local.desk ? "push" : "pull";
+}

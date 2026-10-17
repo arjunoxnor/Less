@@ -444,7 +444,8 @@ describe("ProjectsHome desk", () => {
     storage.set("less:home:folds:v1", JSON.stringify({ pagers: true }));
     renderHome([stage, card, shelf], { projects: [plain("p", "Gods of our ancestors", { folderId: "pagers" })] });
     openProject("Card");
-    expect(tileTitled("Gods of our ancestors").querySelector(".dk-kind")?.textContent).toBe("One-pager");
+    // The folder sits on the desk, shut, and says what it holds.
+    expect(host!.querySelector(".dk-folder .dk-folder-count")?.textContent).toBe("1 one-pager");
   });
 
   it("shows a stack as one cover and fans its versions out, current first", () => {
@@ -456,7 +457,7 @@ describe("ProjectsHome desk", () => {
     });
     renderHome([stage, card], { projects: [v1, v2], onSetOrg: vi.fn() });
     openProject("Card");
-    expect(host!.querySelectorAll(".lib-main .dk-grid > .dk-tile")).toHaveLength(1);
+    expect(host!.querySelectorAll(".lib-main .dk-spot > .dk-tile")).toHaveLength(1);
     const pill = host!.querySelector<HTMLButtonElement>(".dk-versions")!;
     expect(pill.textContent).toContain("2");
     act(() => pill.click());
@@ -499,19 +500,21 @@ describe("ProjectsHome desk", () => {
 
   it("takes a version out of its stack when it is carried out of the fan onto the desk", () => {
     const setOrg = vi.fn();
-    const reorder = vi.fn();
+    const setDesk = vi.fn();
     const v1 = plain("v1", "Outline one", { stackId: "s" });
     const v2 = plain("v2", "Outline two", { stackId: "s", stackTop: "2026-10-09T00:00:00.000Z" });
-    renderHome([stage, card], { projects: [v1, v2], onSetOrg: setOrg, onReorder: reorder });
+    renderHome([stage, card], { projects: [v1, v2], onSetOrg: setOrg, onSetDesk: setDesk });
     openProject("Card");
     act(() => host!.querySelector<HTMLButtonElement>(".dk-versions")!.click());
     const older = [...host!.querySelectorAll<HTMLElement>(".dk-tray .dk-tile")][1];
-    const grid = host!.querySelector(".lib-main .dk-grid")!;
-    carry(older.querySelector(".dk-title") as HTMLElement, () => grid);
+    const desk = host!.querySelector("[data-desk]")!;
+    carry(older.querySelector(".dk-title") as HTMLElement, () => desk);
     // A stack of two left with one is no stack: both become documents again.
     expect(setOrg).toHaveBeenCalledWith("v1", { stackId: null, stackTop: null });
     expect(setOrg).toHaveBeenCalledWith("v2", { stackId: null, stackTop: null });
-    expect(reorder).toHaveBeenCalled();
+    // And it lands where it was let go, the other version keeping the stack's place.
+    const layout = setDesk.mock.calls.at(-1)![1] as { spots: { k: string }[] };
+    expect(layout.spots.map((x) => x.k)).toEqual(expect.arrayContaining(["d:v1", "d:v2"]));
   });
 
   it("lets the writer say what a document is", () => {
@@ -562,5 +565,122 @@ describe("ProjectsHome desk", () => {
     act(() => host!.querySelector<HTMLButtonElement>(".dk-layout-toggle")!.click());
     expect(host!.querySelector(".lib-main .lib-row-title")?.textContent).toBe("Draft");
     expect(storage.get("less:home:layout:v1")).toBe("list");
+  });
+});
+
+/* ---- A project as a desk: free placement, folders as objects, undo ---- */
+
+const old: Folder = { ...stage, id: "old", name: "Old", parentId: "card" };
+const spotsOf = (fn: ReturnType<typeof vi.fn>) =>
+  (fn.mock.calls.at(-1)![1] as { spots: { k: string; x: number; y: number; w?: number; open?: boolean }[] }).spots;
+const pressUndo = () =>
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }));
+  });
+
+describe("ProjectsHome desk inside a project", () => {
+  beforeEach(() => {
+    storage.delete("less:home:layout:v1");
+  });
+
+  it("puts a cover right where it is let go, without moving anything else", () => {
+    const setDesk = vi.fn();
+    renderHome([stage, card], { projects: [plain("a", "Pitch A"), plain("b", "Pitch B")], onSetDesk: setDesk });
+    openProject("Card");
+    const desk = host!.querySelector("[data-desk]")!;
+    box(desk, 0, 0, 1200, 900);
+    carry(tileTitled("Pitch A").querySelector(".dk-title") as HTMLElement, () => desk);
+    const spots = spotsOf(setDesk);
+    // Grabbed 10px in from its corner, let go at (40, 40): its corner lands at (30, 30).
+    expect(spots.find((x) => x.k === "d:a")).toMatchObject({ x: 30, y: 30 });
+    // Everything else is pinned where it already sat, and the moved one is on top.
+    expect(spots.map((x) => x.k)).toEqual(["d:b", "d:a"]);
+  });
+
+  it("files a document into a folder on the desk, and Ctrl+Z puts it back", () => {
+    const setFolder = vi.fn();
+    renderHome([stage, card, old], { projects: [plain("a", "Pitch A")], onSetFolder: setFolder, onSetDesk: vi.fn() });
+    openProject("Card");
+    const folder = host!.querySelector(".dk-folder")!;
+    carry(tileTitled("Pitch A").querySelector(".dk-title") as HTMLElement, () => folder);
+    expect(setFolder).toHaveBeenLastCalledWith("a", "old");
+    pressUndo();
+    expect(setFolder).toHaveBeenLastCalledWith("a", "card");
+  });
+
+  it("rifles through a shut folder and opens the one that comes up", () => {
+    const open = vi.fn();
+    const inside = ["One", "Two", "Three"].map((t, i) => plain("p" + i, t + " one-pager", { folderId: "old" }));
+    renderHome([stage, card, old], { projects: inside, onOpen: open });
+    openProject("Card");
+    const body = host!.querySelector(".dk-folder-body")!;
+    box(body, 0, 0, 300, 200);
+    act(() => {
+      body.dispatchEvent(new PointerEvent("pointermove", { clientX: 250, clientY: 50, bubbles: true }));
+    });
+    expect(host!.querySelector(".dk-folder-pulled-title")?.textContent).toBe("Three one-pager");
+    expect(host!.querySelector(".dk-folder-count")?.textContent).toBe("3 of 3");
+    act(() => host!.querySelector<HTMLElement>(".dk-folder-pulled")!.click());
+    expect(open).toHaveBeenCalledWith("p2");
+  });
+
+  it("opens a folder into a column on the desk, and folds it shut again", () => {
+    const setDesk = vi.fn();
+    const inside = plain("p", "Old draft", { folderId: "old" });
+    const props = renderHome([stage, card, old], { projects: [inside], onSetDesk: setDesk });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLElement>(".dk-folder-front")!.click());
+    const opened = spotsOf(setDesk).find((x) => x.k === "f:old");
+    expect(opened).toMatchObject({ open: true });
+    const withDesk = { ...card, desk: { v: 1 as const, spots: [{ k: "f:old", x: 40, y: 40, open: true }] } };
+    act(() => root?.render(<ProjectsHome {...props} folders={[stage, withDesk, old]} />));
+    expect(host!.querySelector(".dk-column .dk-row-title")?.textContent).toBe("Old draft");
+    act(() => host!.querySelector<HTMLButtonElement>(".dk-column-fold")!.click());
+    expect(spotsOf(setDesk).find((x) => x.k === "f:old")?.open).toBeUndefined();
+  });
+
+  it("makes a new one-pager from the toolbar, right where it is let go", () => {
+    const setDesk = vi.fn();
+    const create = vi.fn(() => plain("fresh", "Untitled one-pager", { folderId: "card" }));
+    renderHome([stage, card], { projects: [], onCreate: create, onSetDesk: setDesk, onSetOrg: vi.fn() });
+    openProject("Card");
+    const desk = host!.querySelector("[data-desk]")!;
+    box(desk, -100, -100, 1200, 900);
+    const tool = [...host!.querySelectorAll<HTMLElement>(".dk-tool")].find((el) => el.textContent?.includes("One-pager"))!;
+    carry(tool, () => desk);
+    expect(create).toHaveBeenCalledWith(
+      "plain",
+      "Untitled one-pager",
+      expect.objectContaining({ folderId: "card", kind: "onepager" })
+    );
+    // Hung under the pointer by (52, 66): let go at (40, 40) on a desk starting at (-100, -100).
+    expect(spotsOf(setDesk).find((x) => x.k === "d:fresh")).toMatchObject({ x: 88, y: 74 });
+  });
+
+  it("tidies up the desk, and undo puts every spot back", () => {
+    const setDesk = vi.fn();
+    const arranged = { ...card, desk: { v: 1 as const, spots: [{ k: "d:a", x: 700, y: 500 }, { k: "d:b", x: 40, y: 900 }] } };
+    renderHome([stage, arranged], { projects: [plain("a", "Pitch A"), plain("b", "Pitch B")], onSetDesk: setDesk });
+    openProject("Card");
+    act(() => [...host!.querySelectorAll<HTMLButtonElement>(".dk-tidy")][0].click());
+    expect(spotsOf(setDesk).find((x) => x.k === "d:a")).toMatchObject({ x: 28, y: 28 });
+    pressUndo();
+    expect(setDesk).toHaveBeenLastCalledWith("card", arranged.desk);
+  });
+
+  it("resizes a cover from its corner", () => {
+    const setDesk = vi.fn();
+    renderHome([stage, card], { projects: [plain("t", "Gods treatment")], onSetDesk: setDesk });
+    openProject("Card");
+    const handle = tileTitled("Gods treatment").querySelector<HTMLButtonElement>(".dk-resize")!;
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent("pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100, bubbles: true })
+      );
+      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 160, clientY: 100 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 160, clientY: 100 }));
+    });
+    // A treatment starts 188 wide; dragged 60 to the right.
+    expect(spotsOf(setDesk).find((x) => x.k === "d:t")).toMatchObject({ w: 248 });
   });
 });

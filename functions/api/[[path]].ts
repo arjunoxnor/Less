@@ -19,6 +19,7 @@ import {
   newAssetId,
 } from "../../lib/server/assets";
 import { digestOf, readDigest } from "../../lib/cover/digest";
+import { sanitizeDesk } from "../../lib/desk/layout";
 
 /* ---------- the desk: kinds and version stacks ---------- */
 // The prose kinds a plain document can be set to. Anything else stores NULL,
@@ -472,10 +473,26 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
     if (seg[0] === "folders") {
       if (method === "GET" && seg.length === 1) {
         const r = await db
-          .prepare("SELECT id,name,color,stage,parent_id,position,updated_at FROM folders WHERE user_id=?")
+          .prepare(
+            "SELECT id,name,color,stage,parent_id,position,updated_at,desk,desk_at FROM folders WHERE user_id=?"
+          )
           .bind(uid)
-          .all();
-        return json(r.results);
+          .all<Record<string, unknown>>();
+        return json(r.results.map((row) => ({ ...row, desk: sanitizeDesk(row.desk) })));
+      }
+      // A project's desk (where its things sit): only the layout and its own
+      // clock, never the folder row, so arranging can never undo a rename.
+      if (method === "PATCH" && seg.length === 3 && seg[2] === "desk") {
+        const b = (await readJson(request)) as Record<string, unknown> | null;
+        const desk = sanitizeDesk(b?.desk);
+        if (!desk) return fail("Bad request body", 400);
+        const now = new Date().toISOString();
+        const r = await db
+          .prepare("UPDATE folders SET desk=?, desk_at=? WHERE user_id=? AND id=?")
+          .bind(JSON.stringify(desk), now, uid, seg[1])
+          .run();
+        // No such folder (yet): say so, so the client keeps its clock and retries.
+        return json({ desk_at: r.meta?.changes ? now : null });
       }
       // Deletion records, so a delete on one device is not re-uploaded by another.
       if (method === "GET" && seg.length === 2 && seg[1] === "deleted") {

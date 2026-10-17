@@ -1,4 +1,5 @@
 import { lsGet, lsSet } from "./localStore";
+import { sanitizeDesk, type DeskLayout } from "@/lib/desk/layout";
 
 /**
  * Folders: the organizing layer over projects. A folder collects all the
@@ -48,6 +49,11 @@ export interface Folder {
   order: number;
   /** Device-local fold state for the expander. */
   collapsed?: boolean;
+  /** A project's desk: where its documents and folders sit (lib/desk). */
+  desk?: DeskLayout;
+  /** The desk's own clock (synced as desk_at), never the folder's updatedAt,
+   *  so arranging a desk can never out-rank a rename made elsewhere. */
+  deskAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -159,6 +165,33 @@ export function toggleFolderCollapsed(id: string): void {
   writeAll(list);
 }
 
+/** Arrange a project's desk here (a writer's action): stamps the desk clock only. */
+export function setFolderDesk(id: string, desk: DeskLayout): boolean {
+  const clean = sanitizeDesk(desk);
+  if (!clean) return false;
+  const list = readAll();
+  const i = list.findIndex((f) => f.id === id);
+  if (i < 0) return false;
+  list[i] = { ...list[i], desk: clean, deskAt: nowIso() };
+  writeAll(list);
+  return true;
+}
+
+/** Adopt a desk arranged on another device, with its clock. */
+export function setFolderDeskFromCloud(id: string, desk: unknown, deskAt: string | null): void {
+  const list = readAll();
+  const i = list.findIndex((f) => f.id === id);
+  if (i < 0) return;
+  const clean = sanitizeDesk(desk);
+  const next: Folder = { ...list[i] };
+  if (clean) next.desk = clean;
+  else delete next.desk;
+  if (deskAt) next.deskAt = deskAt;
+  else delete next.deskAt;
+  list[i] = next;
+  writeAll(list);
+}
+
 export function getFolder(id: string): Folder | null {
   return readAll().find((f) => f.id === id) ?? null;
 }
@@ -190,6 +223,9 @@ export function upsertLocalFolder(cf: CloudFolderShape): void {
     parentId: cf.parent_id && cf.parent_id !== cf.id ? cf.parent_id : undefined,
     order: cf.position,
     collapsed: i >= 0 ? list[i].collapsed : undefined,
+    // The desk converges on its own clock (see useProjects), never with the row.
+    ...(i >= 0 && list[i].desk ? { desk: list[i].desk } : {}),
+    ...(i >= 0 && list[i].deskAt ? { deskAt: list[i].deskAt } : {}),
     createdAt: i >= 0 ? list[i].createdAt : cf.updated_at,
     updatedAt: cf.updated_at,
   };

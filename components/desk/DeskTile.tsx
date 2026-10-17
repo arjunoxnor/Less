@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { DocKind } from "@/lib/cover/kinds";
 import { KIND_LABEL } from "@/lib/cover/kinds";
 import { paletteFor, stickyFor } from "@/lib/cover/palette";
@@ -16,7 +17,8 @@ import { StackGlyph } from "./glyphs";
  * version of that one); its actions sit behind the dots.
  *
  * A stack shows the other versions as sheets behind the cover, and a pill on
- * the cover fans them out.
+ * the cover fans them out. On a desk, a tile has its own width, and a handle
+ * at the cover's corner to make it bigger or smaller.
  */
 export function DeskTile({
   doc,
@@ -35,6 +37,8 @@ export function DeskTile({
   trayOpen,
   trayId,
   index,
+  width,
+  onResize,
   onOpen,
   onMenu,
   onPointerDown,
@@ -66,6 +70,10 @@ export function DeskTile({
   trayId?: string;
   /** Position in a fanned-out stack, for the fan's stagger. */
   index?: number;
+  /** Its width on a desk. */
+  width?: number;
+  /** Offer the corner handle; called with the new width when it is let go. */
+  onResize?: (width: number) => void;
   onOpen: () => void;
   onMenu: (anchor: DOMRect) => void;
   onPointerDown?: (e: React.PointerEvent, el: HTMLElement) => void;
@@ -77,9 +85,38 @@ export function DeskTile({
   const sheet = kind === "notes" ? stickyFor(seed) : paletteFor(seed).bg;
   const status = doc.type === "screenplay" && doc.status !== "not_started" ? STATUS_LABEL[doc.status] : null;
   const label = KIND_LABEL[kind];
+  // While the corner is being dragged, the tile follows the pointer; the desk
+  // only hears about the size once it is let go.
+  const [liveWidth, setLiveWidth] = useState<number | null>(null);
+  const shownWidth = liveWidth ?? width;
+  const resizeBy = (from: number, dx: number) => Math.min(520, Math.max(96, Math.round(from + dx)));
+  const startResize = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!onResize || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const from = width ?? e.currentTarget.closest(".dk-tile")?.getBoundingClientRect().width ?? 180;
+    const move = (ev: PointerEvent) => setLiveWidth(resizeBy(from, ev.clientX - startX));
+    const done = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", done);
+      window.removeEventListener("pointercancel", done);
+      setLiveWidth(null);
+      const next = resizeBy(from, ev.clientX - startX);
+      if (ev.type === "pointerup" && Math.abs(next - from) >= 2) onResize(next);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", done);
+    window.addEventListener("pointercancel", done);
+  };
   return (
     <div
-      className={"dk-tile" + (lifted ? " is-lifted" : "") + (stackTarget ? " is-stack-target" : "")}
+      className={
+        "dk-tile" +
+        (lifted ? " is-lifted" : "") +
+        (stackTarget ? " is-stack-target" : "") +
+        (liveWidth !== null ? " is-resizing" : "")
+      }
       data-row=""
       data-id={doc.id}
       data-kind={kind}
@@ -93,7 +130,14 @@ export function DeskTile({
         (current ? ", current version" : "") +
         (where ? `, in ${where.label}` : "")
       }
-      style={index !== undefined ? ({ ["--i" as string]: index } as React.CSSProperties) : undefined}
+      style={
+        index !== undefined || shownWidth !== undefined
+          ? ({
+              ...(index !== undefined ? { ["--i" as string]: index } : {}),
+              ...(shownWidth !== undefined ? { width: shownWidth } : {}),
+            } as React.CSSProperties)
+          : undefined
+      }
       onClick={() => {
         if (!renaming) onOpen();
       }}
@@ -119,6 +163,27 @@ export function DeskTile({
           pageCount={doc.pageCount}
           spine={spine}
         />
+        {onResize && (
+          <button
+            type="button"
+            className="dk-resize"
+            aria-label={`Resize ${title}`}
+            title="Drag to make it bigger or smaller"
+            onPointerDown={startResize}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+              e.preventDefault();
+              const from = width ?? 180;
+              onResize(resizeBy(from, e.key === "ArrowRight" ? 24 : -24));
+            }}
+          >
+            <svg viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
         {versions > 1 && onToggleTray && (
           <button
             type="button"

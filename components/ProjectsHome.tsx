@@ -30,6 +30,7 @@ import type { TitlePage } from "@/lib/export/titlePage";
 import { IMPORT_ACCEPT } from "@/lib/export";
 import {
   isProseKind,
+  kindCount,
   KIND_LABEL,
   KIND_ONE,
   KIND_PLURAL,
@@ -50,7 +51,7 @@ import {
   type OrgFields,
   type OrgPatch,
 } from "@/lib/cover/desk";
-import { KIND_COLOR, paletteFor, stickyFor } from "@/lib/cover/palette";
+import { hashString, KIND_COLOR, paletteFor, stickyFor } from "@/lib/cover/palette";
 import { NEW_TITLE, starterFor } from "@/lib/cover/starters";
 import { Menu, type MenuItem } from "./ui/Menu";
 import { showToast } from "./ui/Toast";
@@ -62,6 +63,28 @@ import { DeskGrid, DeskTray } from "./desk/DeskGrid";
 import { ProjectTile } from "./desk/ProjectTile";
 import { KindPickerModal, StackWithModal } from "./desk/DeskModals";
 import { CoversGlyph, ListGlyph } from "./desk/glyphs";
+import { DeskCanvas, DeskSpotView } from "./desk/DeskCanvas";
+import { FolderObject } from "./desk/FolderObject";
+import { DeskRow, FolderColumn } from "./desk/FolderColumn";
+import { DeskToolbar, type DeskTool } from "./desk/DeskToolbar";
+import {
+  arrangeDesk,
+  COLUMN_W,
+  columnHeight,
+  DESK_PAD,
+  deskExtent,
+  firstFree,
+  FOLDER_H,
+  FOLDER_W,
+  freezeDesk,
+  KIND_WIDTH,
+  placeOnDesk,
+  tidyDesk,
+  tileHeight,
+  type DeskLayout,
+  type DeskThing,
+  type Placed,
+} from "@/lib/desk/layout";
 import {
   ChevronDown,
   CodeImportModal,
@@ -191,6 +214,7 @@ export function ProjectsHome({
   onSignIn,
   onSignOut,
   onSetOrg,
+  onSetDesk,
 }: {
   projects: ProjectMeta[];
   folders: Folder[];
@@ -232,6 +256,8 @@ export function ProjectsHome({
   onSignOut: () => void;
   /** Change what a document is, or which stack it is a version in. */
   onSetOrg?: (id: string, fields: OrgFields) => void;
+  /** Arrange a project's desk: where its documents and folders sit. */
+  onSetDesk?: (folderId: string, desk: DeskLayout) => void;
 }) {
   /* ---- View state ---- */
   const [query, setQuery] = useState("");
@@ -262,6 +288,32 @@ export function ProjectsHome({
   const [stackTarget, setStackTarget] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<string[]>([]);
   useEffect(() => setDismissed(readDismissed()), []);
+  /** How wide a project's desk is, to lay things across it. */
+  const [deskWidth, setDeskWidth] = useState(1100);
+  /** Things are gliding to new places (tidy up, undo), so the move animates. */
+  const [gliding, setGliding] = useState(false);
+  const glideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const glide = () => {
+    setGliding(true);
+    if (glideTimer.current) clearTimeout(glideTimer.current);
+    glideTimer.current = setTimeout(() => setGliding(false), 650);
+  };
+  useEffect(
+    () => () => {
+      if (glideTimer.current) clearTimeout(glideTimer.current);
+    },
+    []
+  );
+  // A phone is too narrow for a desk: there, a project is a grid of covers.
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 720px)") : null;
+    if (!mq) return;
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
   const [sideOpen, setSideOpen] = useState(false);
   const [menu, setMenu] = useState<HomeMenu>(null);
   const [colorTarget, setColorTarget] = useState<string | null>(null);
@@ -709,7 +761,158 @@ export function ProjectsHome({
 
   const folderName = (id: string | null) => (id ? folderById.get(id)?.name ?? "that folder" : "Not in a folder");
 
+  /* ---- Undo: nothing done on the home is a one-way trip ---- */
+
+  const undoStack = useRef<{ id: number; label: string; run: () => void }[]>([]);
+  const undoSeq = useRef(0);
+  /** Remember how to put something back. */
+  const remember = (label: string, run: () => void): number => {
+    const id = ++undoSeq.current;
+    undoStack.current.push({ id, label, run });
+    if (undoStack.current.length > 40) undoStack.current.shift();
+    return id;
+  };
+  /** Put back the last thing done (or a particular one, from its toast). */
+  const undo = (id?: number): boolean => {
+    const list = undoStack.current;
+    const i = id === undefined ? list.length - 1 : list.findIndex((u) => u.id === id);
+    if (i < 0) return false;
+    const [entry] = list.splice(i, 1);
+    glide();
+    entry.run();
+    return true;
+  };
+  /** Say what happened, with a way to put it back. */
+  const told = (text: string, label: string, run: () => void) => {
+    const id = remember(label, run);
+    showToast(text, { action: { label: "Undo", run: () => void undo(id) } });
+  };
+  /** Where each of these documents is filed now, to put them back there. */
+  const whereNow = (ids: string[]) => ids.map((id) => [id, projectById.get(id)?.folderId ?? null] as const);
+  const putBack = (was: ReadonlyArray<readonly [string, string | null]>) =>
+    was.forEach(([id, folderId]) => onSetFolder(id, folderId));
+  /** Each document's stack fields now, to put them back. */
+  const stacksNow = (ids: string[]) =>
+    ids.map((id) => {
+      const d = projectById.get(id);
+      return [id, { stackId: d?.stackId ?? null, stackTop: d?.stackTop ?? null }] as const;
+    });
+  const restackAs = (was: ReadonlyArray<readonly [string, { stackId: string | null; stackTop: string | null }]>) =>
+    was.forEach(([id, fields]) => onSetOrg?.(id, fields));
+
+  /* ---- A project's desk: where things sit ---- */
+
+  /** What the desk on screen holds and where, as last drawn. A change to a
+   *  desk pins everything down where it is, so nothing else jumps. */
+  const deskNow = useRef<{ cardId: string; things: DeskThing[]; placed: Map<string, Placed> } | null>(null);
+  const emptyDesk = (): DeskLayout => ({ v: 1, spots: [] });
+
+  /** Change a project's desk. With a label, Undo can put it back. */
+  const commitDesk = (
+    cardId: string,
+    change: (layout: DeskLayout) => DeskLayout,
+    label: string | null = "Move"
+  ): DeskLayout | null => {
+    const before = folderById.get(cardId)?.desk ?? null;
+    if (!onSetDesk) return before;
+    const now = deskNow.current?.cardId === cardId ? deskNow.current : null;
+    const base = now ? freezeDesk(now.things, now.placed, before) : (before ?? emptyDesk());
+    onSetDesk(cardId, change(base));
+    if (label) remember(label, () => onSetDesk(cardId, before ?? emptyDesk()));
+    return before;
+  };
+  const moveOnDesk = (cardId: string, key: string, x: number, y: number) =>
+    commitDesk(cardId, (l) => placeOnDesk(l, key, { x, y }));
+
+  /** A free place on the desk on screen, near the top of what is in view. */
+  const freeSpotOnDesk = (w: number, h: number): { x: number; y: number } => {
+    const now = deskNow.current;
+    const rects = now
+      ? now.things.flatMap((t) => {
+          const at = now.placed.get(t.key);
+          return at ? [{ x: at.x, y: at.y, w: t.w, h: t.h }] : [];
+        })
+      : [];
+    const canvas = document.querySelector<HTMLElement>("[data-desk]");
+    const main = mainRef.current;
+    const fromY =
+      canvas && main
+        ? Math.max(DESK_PAD, Math.round(main.getBoundingClientRect().top - canvas.getBoundingClientRect().top) + DESK_PAD)
+        : DESK_PAD;
+    return firstFree(w, h, rects, deskWidth, fromY);
+  };
+
+  /** Something new from the toolbar: on the desk (where it was let go), or inside a folder. */
+  const createOnDesk = (card: Card, tool: DeskTool, at?: { x: number; y: number }, intoFolderId?: string) => {
+    const deskId = card.folder.id;
+    try {
+      if (tool === "folder") {
+        const made = onCreateFolder(intoFolderId ?? deskId);
+        onUpdateFolder(made.id, { name: "Untitled folder" });
+        if (!intoFolderId) {
+          const spot = at ?? freeSpotOnDesk(COLUMN_W, columnHeight(0));
+          commitDesk(deskId, (l) => placeOnDesk(l, "f:" + made.id, { ...spot, open: true }), null);
+        }
+        setRenamingFolder(made.id);
+        return;
+      }
+      const type: ProjectType = tool === "script" ? "screenplay" : tool === "board" ? "board" : "plain";
+      const title =
+        tool === "script" ? "Untitled screenplay" : tool === "board" ? "Untitled board" : (NEW_TITLE[tool] ?? "Untitled");
+      const meta = onCreate(type, title, {
+        folderId: intoFolderId ?? deskId,
+        ...(type === "plain" && tool !== "document" && onSetOrg ? { kind: tool, content: starterFor(tool) } : {}),
+      });
+      if (!intoFolderId) {
+        const w = KIND_WIDTH[tool] ?? 180;
+        const spot = at ?? freeSpotOnDesk(w, tileHeight(w));
+        commitDesk(deskId, (l) => placeOnDesk(l, "d:" + meta.id, spot), null);
+      }
+      setRenamingItem(meta.id);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not make that.", { variant: "danger" });
+    }
+  };
+
+  /** Everything placed afresh, the script first. Undo puts it all back. */
+  const tidyUp = (card: Card) => {
+    const now = deskNow.current?.cardId === card.folder.id ? deskNow.current : null;
+    if (!now || !onSetDesk) return;
+    const before = card.folder.desk ?? null;
+    glide();
+    onSetDesk(card.folder.id, tidyDesk(now.things, before, deskWidth));
+    told("Tidied up the desk.", "Tidy up", () => onSetDesk(card.folder.id, before ?? emptyDesk()));
+  };
+
+  /** Open a folder on its desk into a column, or fold it shut again. */
+  const setFolderOpen = (deskId: string, folderId: string, open: boolean) =>
+    commitDesk(deskId, (l) => placeOnDesk(l, "f:" + folderId, { open }), open ? "Open folder" : "Fold folder");
+
   const commitDrop = (source: HomeDragSource, drop: HomeDrop) => {
+    if (source.kind === "tool") {
+      const card = cardById.get(source.desk);
+      if (!card) return;
+      if (drop.kind === "desk") createOnDesk(card, source.tool as DeskTool, { x: drop.x, y: drop.y });
+      else if (drop.kind === "into" && drop.folderId) createOnDesk(card, source.tool as DeskTool, undefined, drop.folderId);
+      return;
+    }
+    if (source.kind === "deskFolder") {
+      const f = folderById.get(source.id);
+      if (!f) return;
+      if (drop.kind === "desk" && drop.container === source.desk) {
+        moveOnDesk(source.desk, "f:" + source.id, drop.x, drop.y);
+        return;
+      }
+      if (drop.kind === "into" && drop.folderId && drop.folderId !== (f.parentId ?? null)) {
+        if (!canMoveFolderTo(source.id, drop.folderId, [...folderById.values()])) return;
+        const was = f.parentId ?? null;
+        onUpdateFolder(source.id, { parentId: drop.folderId });
+        told(`Moved "${f.name}" to ${folderName(drop.folderId)}.`, "Move folder", () =>
+          onUpdateFolder(source.id, { parentId: was })
+        );
+      }
+      return;
+    }
     if (source.kind === "item") {
       const project = projectById.get(source.id);
       if (!project) return;
@@ -717,29 +920,77 @@ export function ProjectsHome({
       // A whole stack travels together; a version picked out of a fanned-out
       // stack travels alone.
       const carried = (source.members ?? [source.id]).filter((id) => projectById.has(id));
+      const movedText = (n: number, target: string | null) =>
+        n > 1
+          ? `Moved ${n} versions of "${project.title}" to ${folderName(target)}.`
+          : `Moved "${project.title}" to ${folderName(target)}.`;
       if (drop.kind === "stack") {
         stackOnto(carried, drop.targetId);
         return;
       }
-      if (drop.kind === "into" && carried.length > 1) {
+      if (drop.kind === "into") {
         const movers = carried.filter(
           (id) =>
             (projectById.get(id)?.folderId ?? null) !== drop.folderId &&
             canMoveProjectTo(id, drop.folderId, projects, folders)
         );
         if (movers.length === 0) return;
+        const was = whereNow(movers);
         movers.forEach((id) => onSetFolder(id, drop.folderId));
-        showToast(`Moved ${movers.length} versions of "${project.title}" to ${folderName(drop.folderId)}.`);
+        told(movedText(movers.length, drop.folderId), "Move", () => putBack(was));
         return;
       }
-      if (drop.kind === "into") {
-        if (current === drop.folderId) return;
-        if (!canMoveProjectTo(source.id, drop.folderId, projects, folders)) return;
-        onSetFolder(source.id, drop.folderId);
-        showToast(`Moved "${project.title}" to ${folderName(drop.folderId)}.`);
+      if (drop.kind === "desk") {
+        const deskId = drop.container;
+        const ids = source.fromTray ? [source.id] : carried;
+        const key = source.fromTray ? "d:" + source.id : groupKeyOf(project);
+        const atHome = ids.every((id) => (projectById.get(id)?.folderId ?? null) === deskId);
+        if (source.fromTray) {
+          // Drawn out of a fanned-out stack: a document on its own, right
+          // there. A stack left with one version leaves it in the stack's spot.
+          const plan = planUnstack(source.id, allDocs);
+          const wasStacked = stacksNow(plan.map((step) => step.id));
+          const left = plan.filter((step) => step.id !== source.id && step.fields.stackId === null);
+          const stackKey = project.stackId ? "s:" + project.stackId : null;
+          const beforeDesk = commitDesk(
+            deskId,
+            (l) => {
+              let next = placeOnDesk(l, key, { x: drop.x, y: drop.y });
+              const spot = stackKey ? next.spots.find((x) => x.k === stackKey) : undefined;
+              if (spot && left.length === 1) {
+                next = placeOnDesk(next, "d:" + left[0].id, { x: spot.x, y: spot.y, ...(spot.w ? { w: spot.w } : {}) });
+              }
+              return next;
+            },
+            null
+          );
+          applyPlan(plan);
+          if (!atHome) onSetFolder(source.id, deskId);
+          setTrayKey(null);
+          told(`Took "${project.title}" out of its stack.`, "Unstack", () => {
+            restackAs(wasStacked);
+            if (!atHome) onSetFolder(source.id, current);
+            onSetDesk?.(deskId, beforeDesk ?? emptyDesk());
+          });
+          return;
+        }
+        if (atHome) {
+          moveOnDesk(deskId, key, drop.x, drop.y);
+          return;
+        }
+        // From a folder on this desk, from another project, or loose: file it
+        // on this desk, right where it was let go.
+        if (!ids.every((id) => canMoveProjectTo(id, deskId, projects, folders))) return;
+        const was = whereNow(ids);
+        const beforeDesk = commitDesk(deskId, (l) => placeOnDesk(l, key, { x: drop.x, y: drop.y }), null);
+        ids.forEach((id) => onSetFolder(id, deskId));
+        told(movedText(ids.length, deskId), "Move", () => {
+          putBack(was);
+          onSetDesk?.(deskId, beforeDesk ?? emptyDesk());
+        });
         return;
       }
-      if (drop.kind === "grid") {
+      if (drop.kind === "grid" || drop.kind === "list") {
         const target = drop.container === "unfiled" ? null : drop.container;
         if (!carried.every((id) => canMoveProjectTo(id, target, projects, folders))) return;
         const order = itemsIn(drop.container).map((p) => p.id);
@@ -747,11 +998,16 @@ export function ProjectsHome({
         if (source.fromTray) {
           // Drawn out of a fanned-out stack onto the desk: it becomes a
           // document on its own, right where it was let go.
-          applyPlan(planUnstack(source.id, allDocs));
+          const plan = planUnstack(source.id, allDocs);
+          const wasStacked = stacksNow(plan.map((step) => step.id));
+          applyPlan(plan);
           if (current !== target) onSetFolder(source.id, target);
           onReorder(insertAtGroupSlot(order, keyOf, [source.id], drop.slot));
           setTrayKey(null);
-          showToast(`Took "${project.title}" out of its stack.`);
+          told(`Took "${project.title}" out of its stack.`, "Unstack", () => {
+            restackAs(wasStacked);
+            if (current !== target) onSetFolder(source.id, current);
+          });
           return;
         }
         const home = carried.every((id) => (projectById.get(id)?.folderId ?? null) === target);
@@ -761,29 +1017,10 @@ export function ProjectsHome({
           return;
         }
         // Arriving from another folder: file it (or the whole stack) here, then place it.
+        const was = whereNow(carried);
         carried.forEach((id) => onSetFolder(id, target));
         onReorder(insertAtGroupSlot(order, keyOf, carried, drop.slot));
-        showToast(
-          carried.length > 1
-            ? `Moved ${carried.length} versions of "${project.title}" to ${folderName(target)}.`
-            : `Moved "${project.title}" to ${folderName(target)}.`
-        );
-        return;
-      }
-      if (drop.kind === "list") {
-        const target = drop.container === "unfiled" ? null : drop.container;
-        if (!canMoveProjectTo(source.id, target, projects, folders)) return;
-        const ids = itemsIn(drop.container).map((p) => p.id);
-        if (current === target) {
-          const next = reorderIdsAtSlot(ids, source.id, drop.slot);
-          if (next) onReorder(next);
-        } else {
-          // Arriving from another folder: file it here, then place it.
-          onSetFolder(source.id, target);
-          ids.splice(Math.max(0, Math.min(drop.slot, ids.length)), 0, source.id);
-          onReorder(ids);
-          showToast(`Moved "${project.title}" to ${folderName(target)}.`);
-        }
+        told(movedText(carried.length, target), "Move", () => putBack(was));
       }
       return;
     }
@@ -836,6 +1073,22 @@ export function ProjectsHome({
     canStart: () => !busy(),
     onDrop: commitDrop,
     onSpring: (key) => setFold(key, true),
+  });
+
+  // Cmd/Ctrl+Z on the home puts back the last move, filing or stacking.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (busy() || drag.source) return;
+      if (undo()) {
+        e.preventDefault();
+        showToast("Put back.");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   });
 
   /* ---- Menus ---- */
@@ -920,7 +1173,21 @@ export function ProjectsHome({
         { label: "Delete folder", danger: true, onSelect: () => setConfirmDeleteFolder(f) },
       ];
     }
+    // A folder sitting on the desk on screen: open it into a column, or shut it.
+    const onDeskOf =
+      canvasView && deskNow.current?.things.some((t) => t.key === "f:" + f.id) ? deskNow.current.cardId : null;
+    const deskSpot = onDeskOf ? folderById.get(onDeskOf)?.desk?.spots.find((x) => x.k === "f:" + f.id) : undefined;
+    const openShut: MenuItem[] =
+      onDeskOf && onSetDesk
+        ? [
+            deskSpot?.open
+              ? { label: "Fold it shut", onSelect: () => setFolderOpen(onDeskOf, f.id, false) }
+              : { label: "Open it on the desk", onSelect: () => setFolderOpen(onDeskOf, f.id, true) },
+            { kind: "divider" },
+          ]
+        : [];
     return [
+      ...openShut,
       { label: "New script here", onSelect: () => createAndOpen("screenplay", "Untitled screenplay", f.id) },
       { label: "New document here", onSelect: () => createAndOpen("plain", "", f.id) },
       { label: "New board here", onSelect: () => createAndOpen("board", "", f.id) },
@@ -971,6 +1238,8 @@ export function ProjectsHome({
     if (plan.length === 0) return;
     const home = target.folderId ?? null;
     const moving = ids.filter((id) => id !== targetId && projectById.has(id));
+    const wasStacked = stacksNow(plan.map((step) => step.id));
+    const was = whereNow(moving).filter(([, folderId]) => folderId !== home);
     for (const id of moving) {
       const doc = projectById.get(id)!;
       if ((doc.folderId ?? null) !== home && canMoveProjectTo(id, home, projects, folders)) {
@@ -989,25 +1258,32 @@ export function ProjectsHome({
       onReorder(order);
     }
     const first = projectById.get(moving[0]);
-    showToast(
+    told(
       moving.length > 1
         ? `Stacked ${moving.length} versions with "${target.title}".`
-        : `"${first?.title ?? "That"}" is now a version of "${target.title}".`
+        : `"${first?.title ?? "That"}" is now a version of "${target.title}".`,
+      "Stack",
+      () => {
+        restackAs(wasStacked);
+        putBack(was);
+      }
     );
   };
 
   const unstack = (p: ProjectMeta) => {
     const plan = planUnstack(p.id, allDocs);
     if (plan.length === 0) return;
+    const wasStacked = stacksNow(plan.map((step) => step.id));
     applyPlan(plan);
-    showToast(`Took "${p.title}" out of its stack.`);
+    told(`Took "${p.title}" out of its stack.`, "Unstack", () => restackAs(wasStacked));
   };
 
   const makeCurrent = (p: ProjectMeta) => {
     const plan = planMakeCurrent(p.id, allDocs, nowIso());
     if (plan.length === 0) return;
+    const wasStacked = stacksNow([p.id]);
     applyPlan(plan);
-    showToast(`"${p.title}" is now the current version.`);
+    told(`"${p.title}" is now the current version.`, "Make current", () => restackAs(wasStacked));
   };
 
   /** Save a draft: a frozen copy of it as it is now, kept in its stack, behind it. */
@@ -1065,12 +1341,14 @@ export function ProjectsHome({
     });
   };
   const acceptSuggestions = (list: StackSuggestion[]) => {
-    for (const s of list) applyPlan(planStackAll(s.ids, allDocs, nowIso(), freshId));
-    const n = list.reduce((sum, s) => sum + s.ids.length, 0);
-    showToast(
-      list.length > 1
-        ? `Stacked ${n} drafts into ${list.length} stacks.`
-        : `Stacked ${n} drafts of "${list[0].label}".`
+    const plans = list.map((sug) => planStackAll(sug.ids, allDocs, nowIso(), freshId));
+    const wasStacked = stacksNow(plans.flatMap((plan) => plan.map((step) => step.id)));
+    for (const plan of plans) applyPlan(plan);
+    const n = list.reduce((sum, sug) => sum + sug.ids.length, 0);
+    told(
+      list.length > 1 ? `Stacked ${n} drafts into ${list.length} stacks.` : `Stacked ${n} drafts of "${list[0].label}".`,
+      "Stack",
+      () => restackAs(wasStacked)
     );
   };
 
@@ -1107,6 +1385,23 @@ export function ProjectsHome({
             { label: "Take out of its stack", onSelect: () => unstack(p) },
           ]
         : [{ label: "Stack as a version of…", onSelect: () => setStackTarget(p.id) }];
+    // On the desk on screen: make it bigger or smaller.
+    const deskCard = canvasView && deskNow.current && p.folderId === deskNow.current.cardId ? deskNow.current : null;
+    const deskThing = deskCard?.things.find((t) => t.key === groupKeyOf(p));
+    const sizes: MenuItem[] =
+      deskCard && deskThing && onSetDesk
+        ? [
+            { kind: "divider" },
+            {
+              label: "Make it bigger",
+              onSelect: () => commitDesk(deskCard.cardId, (l) => placeOnDesk(l, deskThing.key, { w: deskThing.w + 48 }), "Resize"),
+            },
+            {
+              label: "Make it smaller",
+              onSelect: () => commitDesk(deskCard.cardId, (l) => placeOnDesk(l, deskThing.key, { w: deskThing.w - 48 }), "Resize"),
+            },
+          ]
+        : [];
     return [
       { label: "Open", onSelect: () => onOpen(p.id) },
       { label: "Rename", onSelect: () => setRenamingItem(p.id) },
@@ -1118,6 +1413,7 @@ export function ProjectsHome({
       { label: "Duplicate", onSelect: () => void duplicate(p) },
       ...org,
       { label: "Move to", onSelect: () => setMoveTarget({ kind: "item", meta: p }) },
+      ...sizes,
       { kind: "divider" },
       { label: "Delete", danger: true, onSelect: () => setConfirmDelete(p) },
     ];
@@ -1126,6 +1422,8 @@ export function ProjectsHome({
   /* ---- Search: one flat list across everything ---- */
 
   const q = query.trim().toLowerCase();
+  /** The project on screen is a desk (not on a phone, not while searching). */
+  const canvasView = !q && desk && !narrow && view.kind === "project" && cardById.has(view.id);
   type Hit = { key: string; folder: Folder; where: string } | { key: string; meta: ProjectMeta };
   const hits = useMemo<Hit[]>(() => {
     if (!q) return [];
@@ -1534,11 +1832,17 @@ export function ProjectsHome({
    * One cover on the desk. `members` is its stack as this view shows it,
    * current first; `scope` names the view, so a stack fans out in one place.
    */
-  const tile = (doc: ProjectMeta, members: ProjectMeta[], scope: string, opts: { where?: boolean } = {}) => {
+  const tile = (
+    doc: ProjectMeta,
+    members: ProjectMeta[],
+    scope: string,
+    opts: { where?: boolean; onDesk?: { desk: string; width: number; onResize: (w: number) => void } } = {}
+  ) => {
     const group = groupKeyOf(doc);
     const key = `${scope}|${group}`;
     const where = opts.where ? place.get(doc.id) : undefined;
     const stacked = members.length > 1;
+    const onDesk = opts.onDesk;
     return (
       <DeskTile
         key={doc.id}
@@ -1556,14 +1860,20 @@ export function ProjectsHome({
         menuOpen={menu?.kind === "item" && menu.id === doc.id}
         trayOpen={trayKey === key}
         trayId={trayDomId(key)}
+        width={onDesk?.width}
+        onResize={onDesk && onSetDesk ? onDesk.onResize : undefined}
         onOpen={() => onOpen(doc.id)}
         onMenu={(anchor) => setMenu({ kind: "item", id: doc.id, anchor })}
         onPointerDown={(e, el) =>
           drag.start(
             e,
-            stacked
-              ? { kind: "item", id: doc.id, members: members.map((m) => m.id), group }
-              : { kind: "item", id: doc.id, group },
+            {
+              kind: "item",
+              id: doc.id,
+              group,
+              ...(stacked ? { members: members.map((m) => m.id) } : {}),
+              ...(onDesk ? { onDesk: onDesk.desk } : {}),
+            },
             el
           )
         }
@@ -1575,7 +1885,7 @@ export function ProjectsHome({
   };
 
   /** A stack, fanned out: every version, current first, each one its own cover. */
-  const trayFor = (members: ProjectMeta[], key: string) => {
+  const trayFor = (members: ProjectMeta[], key: string, desk?: string) => {
     const head = members[0];
     return (
       <DeskTray
@@ -1607,7 +1917,11 @@ export function ProjectsHome({
               onOpen={() => onOpen(m.id)}
               onMenu={(anchor) => setMenu({ kind: "item", id: m.id, anchor })}
               onPointerDown={(e, el) =>
-                drag.start(e, { kind: "item", id: m.id, group: groupKeyOf(m), fromTray: true }, el)
+                drag.start(
+                  e,
+                  { kind: "item", id: m.id, group: groupKeyOf(m), fromTray: true, ...(desk ? { onDesk: desk } : {}) },
+                  el
+                )
               }
               onRenameCommit={(title) => onRename(m.id, title)}
               onRenameDone={() => setRenamingItem(null)}
@@ -2032,6 +2346,382 @@ export function ProjectsHome({
     );
   };
 
+  /* ---- A project as a desk ---- */
+
+  /** Folders one level inside a folder, in the writer's order. */
+  const childShelves = (card: Card, shelf: Shelf): Shelf[] => {
+    const at = card.shelves.indexOf(shelf);
+    const out: Shelf[] = [];
+    for (let j = at + 1; j < card.shelves.length && card.shelves[j].depth > shelf.depth; j++) {
+      if (card.shelves[j].depth === shelf.depth + 1) out.push(card.shelves[j]);
+    }
+    return out;
+  };
+
+  /** Most important first, for placing things that have no spot yet. */
+  const KIND_RANK: Record<string, number> = {
+    script: 0,
+    onepager: 1,
+    treatment: 2,
+    outline: 3,
+    characters: 4,
+    board: 5,
+    voice: 6,
+    document: 7,
+    notes: 8,
+  };
+
+  /** What sits on a project's desk: its documents (one per stack) and its folders, at their sizes. */
+  const deskThingsOf = (card: Card) => {
+    const layout = card.folder.desk ?? null;
+    const spotOf = new Map((layout?.spots ?? []).map((spot) => [spot.k, spot]));
+    const groups = groupStacks(card.items);
+    const lead = card.current ? groups.find((g) => g.members.some((m) => m.id === card.current!.id)) : undefined;
+    const rank = (g: StackGroup<ProjectMeta>) => (g === lead ? -1 : (KIND_RANK[kindFor(g.head)] ?? 9));
+    const ordered = groups
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => rank(a.g) - rank(b.g) || a.i - b.i)
+      .map((x) => x.g);
+    const things: DeskThing[] = [];
+    const groupOf = new Map<string, StackGroup<ProjectMeta>>();
+    const shelfOf = new Map<string, { shelf: Shelf; open: boolean }>();
+    for (const g of ordered) {
+      // A stack finds the spot one of its versions had before it was a stack.
+      const aliases = g.members.length > 1 ? g.members.map((m) => "d:" + m.id) : [];
+      const stored = [g.key, ...aliases].map((k) => spotOf.get(k)).find(Boolean);
+      const w = stored?.w ?? KIND_WIDTH[kindFor(g.head)] ?? 180;
+      things.push({ key: g.key, w, h: tileHeight(w), aliases });
+      groupOf.set(g.key, g);
+    }
+    for (const shelf of card.shelves) {
+      if (shelf.depth !== 1) continue;
+      const key = "f:" + shelf.folder.id;
+      const open = !!spotOf.get(key)?.open;
+      const rows = open ? groupStacks(shelf.items).length + childShelves(card, shelf).length : 0;
+      things.push({ key, w: open ? COLUMN_W : FOLDER_W, h: open ? columnHeight(rows) : FOLDER_H });
+      shelfOf.set(key, { shelf, open });
+    }
+    return { layout, things, groupOf, shelfOf };
+  };
+
+  /** What a folder holds, said briefly ("4 one-pagers", "6 things"). */
+  const holds = (docs: ProjectMeta[]) => {
+    if (docs.length === 0) return "Empty";
+    const counts = kindCounts(docs);
+    return counts.length === 1 ? kindCount(counts[0][0], counts[0][1]) : `${docs.length} things`;
+  };
+
+  const deskRow = (g: StackGroup<ProjectMeta>, deskId: string) => (
+    <DeskRow
+      key={g.key}
+      doc={g.head}
+      kind={kindFor(g.head)}
+      seed={seedFor(g.head)}
+      versions={g.members.length}
+      lifted={isLifted(g.head.id)}
+      stackTarget={false}
+      renaming={renamingItem === g.head.id}
+      menuOpen={menu?.kind === "item" && menu.id === g.head.id}
+      onOpen={() => onOpen(g.head.id)}
+      onMenu={(anchor) => setMenu({ kind: "item", id: g.head.id, anchor })}
+      onPointerDown={(e, el) =>
+        drag.start(
+          e,
+          {
+            kind: "item",
+            id: g.head.id,
+            group: g.key,
+            onDesk: deskId,
+            ...(g.members.length > 1 ? { members: g.members.map((m) => m.id) } : {}),
+          },
+          el
+        )
+      }
+      onRenameCommit={(title) => onRename(g.head.id, title)}
+      onRenameDone={() => setRenamingItem(null)}
+    />
+  );
+
+  /** A folder inside an open folder: a row that opens in place, and takes things carried onto it. */
+  const nestedFolderRow = (card: Card, shelf: Shelf, deskId: string): React.ReactNode => {
+    const s = shelf.folder;
+    const open = isOpenFolder(s.id, false);
+    const groups = groupStacks(shelf.items);
+    return (
+      <div key={s.id} className="dk-subfolder" style={{ ["--fc" as string]: s.color } as React.CSSProperties}>
+        <div
+          className={"dk-row dk-row-folder" + (drag.dropKey === s.id ? " is-drop" : "")}
+          data-drop-into={s.id}
+          data-spring={open ? undefined : s.id}
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          onClick={() => toggleFold(s.id, false)}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleFold(s.id, false);
+            }
+          }}
+        >
+          <span className="dk-row-thumb dk-row-thumb-folder" aria-hidden="true">
+            <FolderGlyph />
+          </span>
+          <span className="dk-row-text">
+            <span className="dk-kind">Folder</span>
+            <span className="dk-row-title">{s.name}</span>
+            <span className="dk-row-when">{holds(shelf.items)}</span>
+          </span>
+          {folderKebab(s)}
+        </div>
+        {open && (
+          <div className="dk-subfolder-body" data-list={s.id}>
+            {groups.map((g) => deskRow(g, deskId))}
+            {childShelves(card, shelf).map((child) => nestedFolderRow(card, child, deskId))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /** A folder on its desk: shut (rifle through it) or open (a column of what it holds). */
+  const deskFolder = (card: Card, shelf: Shelf, open: boolean) => {
+    const s = shelf.folder;
+    const deskId = card.folder.id;
+    const groups = groupStacks(shelf.items);
+    const lifted = drag.source?.kind === "deskFolder" && drag.source.id === s.id;
+    const isDrop = drag.dropKey === s.id;
+    const menuOpen = menu?.kind === "folder" && menu.id === s.id;
+    if (!open) {
+      return (
+        <FolderObject
+          folder={s}
+          // Rifling goes through every paper in the folder, each version of a
+          // stack included, current first.
+          docs={groups.flatMap((g) => g.members)}
+          countLabel={holds(shelf.items)}
+          kindFor={kindFor}
+          seedFor={seedFor}
+          isDrop={isDrop}
+          lifted={lifted}
+          menuOpen={menuOpen}
+          onOpenDoc={(id) => onOpen(id)}
+          onOpen={() => setFolderOpen(deskId, s.id, true)}
+          onMenu={(anchor) => setMenu({ kind: "folder", id: s.id, anchor })}
+          onPointerDown={(e, el) => drag.start(e, { kind: "deskFolder", id: s.id, desk: deskId }, el)}
+          // Pulling a paper out takes that one document, on its own.
+          onPullStart={(e, el, doc) =>
+            drag.start(e, { kind: "item", id: doc.id, group: "d:" + doc.id, onDesk: deskId }, el)
+          }
+        />
+      );
+    }
+    const sub = childShelves(card, shelf);
+    return (
+      <FolderColumn
+        folder={s}
+        countLabel={holds(shelf.items)}
+        title={
+          renamingFolder === s.id ? (
+            <NameInput
+              initial={s.name}
+              className="lib-rename"
+              ariaLabel="Folder name"
+              onCommit={(name) => {
+                if (name) onUpdateFolder(s.id, { name });
+              }}
+              onDone={() => setRenamingFolder(null)}
+            />
+          ) : (
+            <h3 className="dk-column-name" onDoubleClick={() => setRenamingFolder(s.id)} title="Double-click to rename">
+              {s.name}
+            </h3>
+          )
+        }
+        isDrop={isDrop}
+        lifted={lifted}
+        menuOpen={menuOpen}
+        empty={groups.length === 0 && sub.length === 0}
+        onFold={() => setFolderOpen(deskId, s.id, false)}
+        onMenu={(anchor) => setMenu({ kind: "folder", id: s.id, anchor })}
+        onHeadPointerDown={(e, el) => drag.start(e, { kind: "deskFolder", id: s.id, desk: deskId }, el)}
+      >
+        {groups.map((g) => deskRow(g, deskId))}
+        {sub.map((child) => nestedFolderRow(card, child, deskId))}
+      </FolderColumn>
+    );
+  };
+
+  /** The desk as last laid out: redrawing during a drag never lays it out again. */
+  const arrangedRef = useRef<{ key: string; placed: Map<string, Placed> } | null>(null);
+  const arrangeOnce = (things: DeskThing[], layout: DeskLayout | null, width: number) => {
+    const key = JSON.stringify([things, layout, width]);
+    if (arrangedRef.current?.key !== key) arrangedRef.current = { key, placed: arrangeDesk(things, layout, width) };
+    return arrangedRef.current.placed;
+  };
+
+  const renderProjectCanvas = (card: Card) => {
+    const f = card.folder;
+    const stage = stageOfCard.get(f.id);
+    const { layout, things, groupOf, shelfOf } = deskThingsOf(card);
+    const placed = arrangeOnce(things, layout, deskWidth);
+    deskNow.current = { cardId: f.id, things, placed };
+    const extent = deskExtent(things, placed);
+    const everything = [...card.items, ...card.shelves.flatMap((x) => x.items)];
+    const counts = kindCounts(everything);
+    // A stack fanned out on this desk spreads just under itself.
+    const openKey = trayKey?.startsWith(f.id + "|") ? trayKey.slice(f.id.length + 1) : null;
+    const openGroup = openKey ? groupOf.get(openKey) : undefined;
+    let spread: { left: number; top: number; width: number; members: ProjectMeta[]; key: string } | null = null;
+    if (openGroup && openGroup.members.length > 1) {
+      const at = placed.get(openGroup.key)!;
+      const t = things.find((x) => x.key === openGroup.key)!;
+      const width = Math.min(
+        Math.max(340, openGroup.members.length * 174 + 48),
+        Math.max(340, deskWidth - 2 * DESK_PAD)
+      );
+      spread = {
+        left: Math.max(DESK_PAD, Math.min(at.x - 24, deskWidth - width - DESK_PAD)),
+        top: at.y + t.h + 8,
+        width,
+        members: openGroup.members,
+        key: `${f.id}|${openGroup.key}`,
+      };
+    }
+    const bottom = Math.max(extent.bottom, spread ? spread.top + 340 : 0);
+    return (
+      <>
+        <header className="dk-deskhead" style={{ ["--fc" as string]: f.color } as React.CSSProperties}>
+          {stage && (
+            <button
+              type="button"
+              className="lib-crumb"
+              onClick={() => select({ kind: "stage", id: stage.folder.id })}
+            >
+              {stage.folder.name}
+            </button>
+          )}
+          <div className="lib-title-row">
+            <span className="dk-deskhead-dot" aria-hidden="true" />
+            {titleOf(f, "lib-title")}
+            <div className="lib-head-actions">
+              {onSetDesk && things.length > 1 && (
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-text dk-tidy"
+                  onClick={() => tidyUp(card)}
+                  title="Put everything back in neat order (you can undo it)"
+                >
+                  Tidy up
+                </button>
+              )}
+              <button
+                type="button"
+                className="ui-btn lib-head-new"
+                aria-haspopup="menu"
+                aria-expanded={menu?.kind === "new"}
+                onClick={(e) => openMenu(e, { kind: "new" })}
+              >
+                New
+                <ChevronDown />
+              </button>
+              {folderKebab(f)}
+            </div>
+          </div>
+          <div className="dk-deskhead-meta">
+            <span className="lib-meta">
+              {card.total} {card.total === 1 ? "item" : "items"} · edited {relativeTime(card.lastTouched)}
+            </span>
+            {counts.length > 1 && (
+              <div className="dk-filters" role="group" aria-label="Pick out one kind">
+                {counts.map(([k, n]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className="dk-chip"
+                    data-kind={k}
+                    aria-pressed={kindFilter === k}
+                    onClick={() => setKindFilter(kindFilter === k ? null : k)}
+                  >
+                    {capitalize(n === 1 ? KIND_ONE[k] : KIND_PLURAL[k])} <span className="dk-chip-count">{n}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </header>
+        {suggestionBanner(suggestionsIn([card.items, ...card.shelves.map((x) => x.items)]))}
+        <div className="dk-desk">
+          <DeskToolbar
+            canFolder
+            onPick={(tool) => createOnDesk(card, tool)}
+            onPointerDown={(e, el, tool) => drag.start(e, { kind: "tool", tool, desk: f.id }, el)}
+          />
+          <div className="dk-desk-main">
+            <DeskCanvas
+              desk={f.id}
+              minWidth={extent.right + DESK_PAD}
+              height={Math.max(bottom + 240, 560)}
+              tidying={gliding}
+              onWidth={setDeskWidth}
+            >
+              {things.map((t) => {
+                const at = placed.get(t.key)!;
+                const g = groupOf.get(t.key);
+                const sh = shelfOf.get(t.key);
+                const dim =
+                  !!kindFilter &&
+                  (g ? kindFor(g.head) !== kindFilter : !sh?.shelf.items.some((d) => kindFor(d) === kindFilter));
+                const lifted = g
+                  ? isLifted(g.head.id)
+                  : drag.source?.kind === "deskFolder" && drag.source.id === sh?.shelf.folder.id;
+                return (
+                  <DeskSpotView
+                    key={t.key}
+                    x={at.x}
+                    y={at.y}
+                    z={at.z}
+                    width={t.w}
+                    dim={dim}
+                    lifted={lifted}
+                    tilt={g && kindFor(g.head) === "notes" ? ((hashString(t.key) % 7) - 3) * 0.8 : 0}
+                  >
+                    {g
+                      ? tile(g.head, g.members, f.id, {
+                          onDesk: {
+                            desk: f.id,
+                            width: t.w,
+                            onResize: (w) => commitDesk(f.id, (l) => placeOnDesk(l, g.key, { w }), "Resize"),
+                          },
+                        })
+                      : sh
+                        ? deskFolder(card, sh.shelf, sh.open)
+                        : null}
+                  </DeskSpotView>
+                );
+              })}
+              {spread && (
+                <div className="dk-spread" style={{ left: spread.left, top: spread.top, width: spread.width }}>
+                  {trayFor(spread.members, spread.key, f.id)}
+                </div>
+              )}
+              {things.length === 0 && (
+                <div className="dk-desk-empty">
+                  <p className="dk-desk-empty-title">An empty desk.</p>
+                  <p>
+                    Drag a script, a one-pager or a note out of the toolbar on the left and let go anywhere. Or carry
+                    something here from the side.
+                  </p>
+                </div>
+              )}
+            </DeskCanvas>
+          </div>
+        </div>
+      </>
+    );
+  };
+
   const renderUnfiledDesk = () => (
     <>
       <header className="dk-head" style={{ ["--fc" as string]: "#8E8E93" } as React.CSSProperties}>
@@ -2072,7 +2762,7 @@ export function ProjectsHome({
     : view.kind === "stage" && sectionById.has(view.id)
       ? (desk ? renderStageDesk : renderStage)(sectionById.get(view.id)!)
       : view.kind === "project" && cardById.has(view.id)
-        ? (desk ? renderProjectDesk : renderProject)(cardById.get(view.id)!)
+        ? (desk ? (narrow ? renderProjectDesk : renderProjectCanvas) : renderProject)(cardById.get(view.id)!)
         : view.kind === "unfiled"
           ? desk
             ? renderUnfiledDesk()
@@ -2210,8 +2900,8 @@ export function ProjectsHome({
         {sideOpen && (
           <div className="lib-scrim" onClick={() => setSideOpen(false)} aria-hidden="true" />
         )}
-        <main ref={mainRef} className="lib-main">
-          <div className="lib-main-inner">{content}</div>
+        <main ref={mainRef} className={"lib-main" + (canvasView ? " has-canvas" : "")}>
+          <div className={"lib-main-inner" + (canvasView ? " is-canvas" : "")}>{content}</div>
         </main>
       </div>
 

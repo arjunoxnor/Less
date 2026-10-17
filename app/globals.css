@@ -2659,6 +2659,20 @@ body {
   background: var(--danger-fill);
   color: var(--on-danger);
 }
+.ui-toast-action {
+  margin-left: 12px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.ui-toast-action:hover {
+  background: color-mix(in srgb, currentColor 26%, transparent);
+}
 
 .ui-menu {
   position: fixed;

@@ -1303,6 +1303,623 @@ body {
   height: 17px;
 }
 
+/* ============================ A project's desk ============================ */
+/* Inside a project nothing is in a grid: things sit where the writer put them
+   (lib/desk/layout.ts), at their own sizes, and can overlap like papers. */
+
+.lib-main.has-canvas {
+  overflow-x: auto;
+}
+.lib.is-desk .lib-main-inner.is-canvas {
+  max-width: none;
+  padding: 20px 26px 0 18px;
+}
+
+/* the head: slim, so the desk itself has the room */
+.dk-deskhead {
+  margin: 0 0 14px;
+  padding: 0 4px 0 2px;
+}
+.dk-deskhead .lib-title-row {
+  gap: 12px;
+}
+.dk-deskhead-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--fc);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--fc) 22%, transparent);
+}
+.dk-deskhead .lib-title,
+.dk-deskhead .lib-title-rename {
+  font-family: var(--font-display-stack);
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.dk-deskhead-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 6px;
+  padding-left: 26px;
+}
+.dk-deskhead .dk-filters {
+  margin-top: 0;
+}
+.dk-tidy {
+  font-weight: 650;
+}
+
+/* the toolbar down the left, and the desk beside it */
+.dk-desk {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.dk-desk-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dk-tools {
+  position: sticky;
+  top: 14px;
+  z-index: 20;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 72px;
+  padding: 8px 6px;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: var(--dk-shadow);
+}
+.dk-tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px 7px;
+  border-radius: 12px;
+  color: var(--ink);
+  cursor: grab;
+  user-select: none;
+  outline: none;
+  transition: background 0.15s, transform 0.2s var(--dk-ease);
+}
+.dk-tool:hover {
+  background: var(--surface-2);
+}
+.dk-tool:active {
+  cursor: grabbing;
+  transform: scale(0.96);
+}
+.dk-tool:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+.dk-tool-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--kc) 17%, transparent);
+  color: var(--kc);
+}
+.dk-tool-icon svg {
+  width: 21px;
+  height: 21px;
+}
+.dk-tool-label {
+  max-width: 100%;
+  color: var(--muted);
+  font: 650 10.5px/1.1 var(--font-ui);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.dk-tool-preview {
+  display: none;
+}
+.dk-ghost-tool {
+  pointer-events: none;
+}
+.dk-ghost-tool .dk-tool-preview {
+  display: block;
+  width: 104px;
+  transform: rotate(-4deg);
+  filter: drop-shadow(0 16px 22px rgba(0, 0, 0, 0.35));
+}
+.dk-tool-folder {
+  display: block;
+  width: 104px;
+  height: 82px;
+  border-radius: 6px 12px 12px 12px;
+  background: linear-gradient(180deg, #a6a6ae, #8a8a93);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* the surface */
+.dk-canvas {
+  position: relative;
+  min-height: 560px;
+}
+.dk-spot {
+  position: absolute;
+}
+.dk-spot .dk-art {
+  rotate: var(--tilt, 0deg);
+}
+.dk-spot.is-dim {
+  opacity: 0.16;
+  filter: saturate(0.25);
+}
+.dk-spot.is-dim:hover {
+  opacity: 0.5;
+}
+.dk-canvas.is-tidying .dk-spot {
+  transition: left 0.6s var(--dk-ease), top 0.6s var(--dk-ease), width 0.4s var(--dk-ease), opacity 0.3s;
+}
+.dk-desk-empty {
+  position: absolute;
+  left: 50%;
+  top: 110px;
+  width: min(440px, 88%);
+  transform: translateX(-50%);
+  padding: 30px 28px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: 22px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+.dk-desk-empty p {
+  margin: 0;
+}
+.dk-desk-empty-title {
+  margin-bottom: 6px !important;
+  color: var(--ink);
+  font-family: var(--font-display-stack);
+  font-size: 22px;
+  font-weight: 650;
+}
+
+/* the corner handle that resizes a cover */
+.dk-resize {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dk-resize svg {
+  width: 11px;
+  height: 11px;
+}
+.dk-tile:hover .dk-resize,
+.dk-tile.is-resizing .dk-resize,
+.dk-resize:focus-visible {
+  opacity: 1;
+}
+.dk-tile.is-resizing .dk-art {
+  transform: none;
+}
+.lib.is-carrying .dk-resize {
+  display: none;
+}
+@media (hover: none) {
+  .dk-resize {
+    opacity: 0.85;
+  }
+}
+
+/* a stack fanned out on a desk: it spreads just under itself, over the rest */
+.dk-spread {
+  position: absolute;
+  z-index: 9000;
+}
+.dk-spread .dk-tray {
+  background: color-mix(in srgb, var(--tray) 16%, var(--paper));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tray) 32%, transparent),
+    0 34px 60px -28px rgba(0, 0, 0, 0.55);
+}
+
+/* something carried off the desk: the thing itself, lifted */
+.dk-ghost-full {
+  pointer-events: none;
+}
+.dk-ghost-full.dk-tile .dk-art {
+  transform: rotate(-2.5deg) scale(1.03);
+}
+.dk-ghost-full.dk-tile .cv {
+  box-shadow: 0 34px 50px -18px rgba(0, 0, 0, 0.6);
+}
+.dk-ghost-full .dk-resize,
+.dk-ghost-full .lib-kebab,
+.dk-ghost-full .dk-versions {
+  visibility: hidden;
+}
+.dk-ghost-full.dk-folder .dk-folder-body {
+  transform: rotate(-2deg);
+  filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.38));
+}
+.dk-ghost-full.dk-column {
+  box-shadow: 0 34px 60px -22px rgba(0, 0, 0, 0.55);
+}
+.dk-ghost-full.dk-row {
+  background: var(--paper);
+  box-shadow: 0 18px 36px -14px rgba(0, 0, 0, 0.45);
+}
+.dk-ghost-full.dk-folder-pulled {
+  transform: none;
+}
+.dk-ghost-full.dk-folder-pulled .cv {
+  box-shadow: 0 26px 40px -16px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- a folder, shut: rifle through it ---- */
+.dk-folder {
+  position: relative;
+  width: 214px;
+  outline: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.dk-folder.is-lifted {
+  opacity: 0.3;
+}
+.dk-folder:focus-visible .dk-folder-front {
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.dk-folder-body {
+  position: relative;
+  height: 196px;
+  touch-action: pan-y;
+}
+.dk-folder-back {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 22px;
+  bottom: 0;
+  border-radius: 4px 14px 14px 14px;
+  background: color-mix(in srgb, var(--fc) 70%, #000);
+  box-shadow: var(--dk-shadow);
+}
+.dk-folder-tab {
+  position: absolute;
+  left: 0;
+  top: -15px;
+  width: 42%;
+  height: 22px;
+  border-radius: 10px 14px 0 0;
+  background: inherit;
+}
+.dk-folder-papers {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 6px;
+  height: 150px;
+}
+.dk-folder-paper {
+  position: absolute;
+  bottom: 0;
+  width: 84px;
+  left: calc(var(--i) * (100% - 84px) / max(1, var(--n) - 1));
+  transform: translateY(calc(var(--i) * 3px)) rotate(calc((var(--i) - (var(--n) - 1) / 2) * 3.5deg));
+  transform-origin: 50% 100%;
+  transition: transform 0.3s var(--dk-ease);
+}
+.dk-folder:hover .dk-folder-paper,
+.dk-folder.is-drop .dk-folder-paper {
+  transform: translateY(calc(var(--i) * 3px - 12px)) rotate(calc((var(--i) - (var(--n) - 1) / 2) * 5deg));
+}
+.dk-folder.is-rifling .dk-folder-paper {
+  transform: translateY(calc(var(--i) * 3px + 8px)) rotate(calc((var(--i) - (var(--n) - 1) / 2) * 3.5deg));
+}
+.dk-folder-paper .cv,
+.dk-folder-pulled .cv {
+  border-radius: 4px;
+}
+.dk-folder-front {
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  bottom: 0;
+  z-index: 2;
+  height: 104px;
+  border-radius: 10px 10px 15px 15px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 86%, #fff) 0%, var(--fc) 70%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 10px 22px -12px rgba(0, 0, 0, 0.55);
+  transform-origin: 50% 100%;
+  transform: perspective(700px) rotateX(-9deg);
+  transition: transform 0.35s var(--dk-ease);
+  cursor: pointer;
+}
+.dk-folder:hover .dk-folder-front {
+  transform: perspective(700px) rotateX(-16deg);
+}
+.dk-folder.is-drop .dk-folder-front {
+  transform: perspective(700px) rotateX(-32deg);
+}
+.dk-folder-front-line {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.dk-folder-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.85);
+  font: 650 13px/1 var(--font-ui);
+}
+.dk-folder-pulled {
+  position: absolute;
+  z-index: 5;
+  bottom: 70px;
+  left: calc(12px + var(--at) * (100% - 24px - 96px));
+  width: 96px;
+  transform: translateY(-34px) rotate(-2deg);
+  animation: dk-pull 0.16s var(--dk-ease);
+  cursor: pointer;
+  outline: none;
+}
+.dk-folder-pulled .cv {
+  box-shadow: 0 18px 30px -14px rgba(0, 0, 0, 0.6);
+}
+.dk-folder-pulled-title {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  max-width: 220px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--inverse-surface);
+  color: var(--inverse-ink);
+  font: 650 12px/1.2 var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(-50%) rotate(2deg);
+  pointer-events: none;
+}
+@keyframes dk-pull {
+  from {
+    transform: translateY(0) rotate(0);
+    opacity: 0.4;
+  }
+}
+.dk-folder-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 4px;
+  padding: 10px 2px 0;
+}
+.dk-folder-name {
+  grid-column: 1;
+  color: var(--ink);
+  font-family: var(--font-display-stack);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.dk-folder-count {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.dk-folder-label .lib-kebab {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dk-folder:hover .lib-kebab,
+.dk-folder:focus-within .lib-kebab,
+.dk-folder .lib-kebab[aria-expanded="true"] {
+  opacity: 1;
+}
+
+/* ---- a folder, open: a column of what it holds ---- */
+.dk-column {
+  width: 292px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: var(--dk-shadow);
+}
+.dk-column.is-lifted {
+  opacity: 0.3;
+}
+.dk-column-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0 8px 8px 16px;
+  cursor: grab;
+  user-select: none;
+}
+.dk-column-head.is-drop {
+  background: color-mix(in srgb, var(--fc) 16%, transparent);
+}
+.dk-column-tab {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 6px;
+  background: var(--fc);
+}
+.dk-column-head {
+  position: relative;
+  padding-top: 18px;
+}
+.dk-column-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dk-column-name {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-display-stack);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.dk-column-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+.dk-column-fold svg {
+  width: 16px;
+  height: 16px;
+}
+.dk-column-head .lib-icon-btn {
+  margin-top: -4px;
+}
+.dk-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 60px;
+  padding: 2px 8px 10px;
+}
+.dk-column-empty {
+  margin: -52px 18px 22px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.dk-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 6px 7px 8px;
+  border-radius: 10px;
+  color: var(--ink);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+.dk-row:hover {
+  background: var(--surface-2);
+}
+.dk-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+.dk-row.is-lifted {
+  opacity: 0.3;
+}
+.dk-row.is-drop {
+  background: color-mix(in srgb, var(--fc, var(--ink)) 16%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--fc, var(--ink));
+}
+.dk-row-thumb {
+  position: relative;
+  width: 40px;
+}
+.dk-row-thumb .cv {
+  border-radius: 3px;
+  box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+}
+.dk-row-sheet {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: var(--line-strong);
+  transform: translate(4px, -4px) rotate(5deg);
+}
+.dk-row-thumb-folder {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fc) 16%, transparent);
+  color: var(--fc);
+}
+.dk-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.dk-row .dk-kind {
+  font-size: 9.5px;
+}
+.dk-row .dk-kind::before {
+  width: 6px;
+  height: 6px;
+}
+.dk-row-title {
+  font-size: 13.5px;
+  font-weight: 620;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.dk-row-when {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.dk-row .lib-kebab {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dk-row:hover .lib-kebab,
+.dk-row:focus-within .lib-kebab,
+.dk-row .lib-kebab[aria-expanded="true"] {
+  opacity: 1;
+}
+@media (hover: none) {
+  .dk-row .lib-kebab,
+  .dk-folder-label .lib-kebab {
+    opacity: 1;
+  }
+}
+.dk-subfolder-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 24px;
+  margin: 0 0 4px 22px;
+  padding-left: 6px;
+  border-left: 2px solid color-mix(in srgb, var(--fc) 35%, transparent);
+}
+
 /* ============================ The dark ===================================== */
 /* In the dark the tints run deeper, so the desk stays lit up instead of
    sinking to grey; the covers themselves never change. */

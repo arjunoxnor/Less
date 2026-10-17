@@ -104,6 +104,7 @@ export function AppShell() {
     setStatus,
     setFolder,
     setOrg,
+    setDesk,
     reorder,
     createFolder,
     reorderFolders,
@@ -506,6 +507,7 @@ export function AppShell() {
         onSignIn={() => setShowAuth(true)}
         onSignOut={() => void signOutSafely()}
         onSetOrg={setOrg}
+        onSetDesk={setDesk}
       />
       {sessionExpired && (
         <SessionExpiredBanner onSignIn={() => setShowAuth(true)} />

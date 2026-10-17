@@ -15,6 +15,8 @@ import { canStartLibraryDrag } from "@/lib/storage/libraryInteraction";
  *   data-stack-onto="<document id>"      a cover: drop onto its middle to stack
  *                                        the carried document as a version of it
  *   data-tray                            a fanned-out stack (not a drop target)
+ *   data-desk="<project id>"             a project's desk: let go anywhere on it
+ *                                        to put the carried thing right there
  *   data-projects="<stage id>"           a stage's projects in the sidebar
  *   data-stage-head="<stage id>"         a stage heading
  *   data-stages                          the sidebar, for arranging stages
@@ -35,9 +37,15 @@ export type HomeDragSource =
       group?: string;
       /** Picked out of a fanned-out stack. */
       fromTray?: boolean;
+      /** Picked up off a project's desk (carried as itself, at full size). */
+      onDesk?: string;
     }
   | { kind: "project"; id: string }
-  | { kind: "stage"; id: string };
+  | { kind: "stage"; id: string }
+  /** A folder sitting on a project's desk, being moved around it. */
+  | { kind: "deskFolder"; id: string; desk: string }
+  /** Something new, dragged out of a desk's toolbar. */
+  | { kind: "tool"; tool: string; desk: string };
 
 export type HomeDrop =
   | { kind: "into"; folderId: string | null }
@@ -45,7 +53,9 @@ export type HomeDrop =
   | { kind: "grid"; container: string; slot: number }
   | { kind: "stack"; targetId: string }
   | { kind: "projects"; stageId: string; slot: number }
-  | { kind: "stages"; slot: number };
+  | { kind: "stages"; slot: number }
+  /** A spot on a project's desk: the carried thing's top-left, in desk coordinates. */
+  | { kind: "desk"; container: string; x: number; y: number };
 
 export interface DropLine {
   left: number;
@@ -113,8 +123,43 @@ function inStackZone(tile: HTMLElement, x: number, y: number): boolean {
   return x > box.left + dx && x < box.right - dx && y > box.top + dy && y < box.bottom - dy;
 }
 
-function hitTest(source: HomeDragSource, { x, y }: DragPoint, side: HTMLElement | null): Hit {
+/** Where the carried thing would land on a desk: its top-left, on the desk. */
+function deskHit(desk: HTMLElement, x: number, y: number, grab: DragPoint): Hit {
+  const box = desk.getBoundingClientRect();
+  return {
+    drop: {
+      kind: "desk",
+      container: desk.dataset.desk!,
+      x: Math.max(0, Math.round(x - grab.x - box.left)),
+      y: Math.max(0, Math.round(y - grab.y - box.top)),
+    },
+    line: null,
+    key: null,
+    spring: null,
+  };
+}
+
+function hitTest(
+  source: HomeDragSource,
+  { x, y }: DragPoint,
+  side: HTMLElement | null,
+  grab: DragPoint = { x: 0, y: 0 }
+): Hit {
   const el = document.elementFromPoint(x, y) as HTMLElement | null;
+  if (source.kind === "deskFolder" || source.kind === "tool") {
+    // A folder moves to another project in the sidebar; something new can be
+    // made straight into a folder on the desk. Otherwise: a spot on the desk.
+    const into = el?.closest<HTMLElement>("[data-drop-into]");
+    const inSide = !!into && !!side?.contains(into);
+    if (into && into.dataset.dropInto !== "none" && (source.kind === "deskFolder" ? inSide : !inSide)) {
+      const raw = into.dataset.dropInto!;
+      if (!(source.kind === "deskFolder" && raw === source.id)) {
+        return { drop: { kind: "into", folderId: raw }, line: null, key: raw, spring: into.dataset.spring ?? null };
+      }
+    }
+    const desk = el?.closest<HTMLElement>("[data-desk]");
+    return desk ? deskHit(desk, x, y, grab) : NOTHING;
+  }
   if (source.kind === "item") {
     const into = el?.closest<HTMLElement>("[data-drop-into]");
     if (into) {
@@ -160,6 +205,8 @@ function hitTest(source: HomeDragSource, { x, y }: DragPoint, side: HTMLElement 
         spring: null,
       };
     }
+    const desk = el?.closest<HTMLElement>("[data-desk]");
+    if (desk) return deskHit(desk, x, y, grab);
     return NOTHING;
   }
   if (source.kind === "project") {
@@ -215,6 +262,8 @@ export function useHomeDrag({
   const [source, setSource] = useState<HomeDragSource | null>(null);
   const [hit, setHit] = useState<Hit>(NOTHING);
   const hitRef = useRef<Hit>(NOTHING);
+  /** Where the carried thing was grabbed, from its top-left corner. */
+  const grabRef = useRef<DragPoint>({ x: 0, y: 0 });
   const spring = useRef<{ key: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const handlers = useRef({ onDrop, onSpring });
   handlers.current = { onDrop, onSpring };
@@ -234,6 +283,15 @@ export function useHomeDrag({
 
   const start = (event: React.PointerEvent, what: HomeDragSource, element: HTMLElement) => {
     if (!canStartLibraryDrag(event.target) || !canStart()) return;
+    // Off a desk, a thing travels as itself, held where it was grabbed; a new
+    // thing from the toolbar hangs under the pointer; anything else is a chip.
+    const offDesk = (what.kind === "item" && !!what.onDesk) || what.kind === "deskFolder";
+    const ghostOffset =
+      what.kind === "tool" ? { x: -52, y: -66 } : what.kind === "item" && !offDesk ? { x: 14, y: 10 } : undefined;
+    const rect = element.getBoundingClientRect();
+    grabRef.current = ghostOffset
+      ? { x: -ghostOffset.x, y: -ghostOffset.y }
+      : { x: event.clientX - rect.left, y: event.clientY - rect.top };
     beginPointerDrag(event.nativeEvent, {
       source: element,
       // Each pane scrolls under the pointer: the sidebar when over it, the
@@ -249,6 +307,21 @@ export function useHomeDrag({
       // A script travels as a small chip beside the pointer, so the folder
       // it is carried to stays in sight; a sidebar row travels as itself.
       ghost: (el) => {
+        if (offDesk) {
+          const copy = el.cloneNode(true) as HTMLElement;
+          copy.removeAttribute("id");
+          copy.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+          copy.classList.add("dk-ghost-full");
+          copy.classList.remove("is-lifted", "is-stack-target", "is-drop", "is-rifling");
+          return copy;
+        }
+        if (what.kind === "tool") {
+          const ghost = document.createElement("div");
+          ghost.className = "dk-ghost dk-ghost-tool";
+          const preview = el.querySelector(".dk-tool-preview");
+          if (preview) ghost.appendChild(preview.cloneNode(true));
+          return ghost;
+        }
         if (what.kind === "item" && el.classList.contains("dk-tile")) {
           // A cover travels as a small copy of itself, the pile behind it
           // when a whole stack is carried.
@@ -285,14 +358,20 @@ export function useHomeDrag({
         copy.classList.remove("is-on", "is-drop", "is-lifted");
         return copy;
       },
-      ghostOffset: what.kind === "item" ? { x: 14, y: 10 } : undefined,
+      ghostOffset,
       onStart: () => setSource(what),
       onMove: (point) => {
-        const next = hitTest(what, point, sideRef.current);
+        const next = hitTest(what, point, sideRef.current, grabRef.current);
         hitRef.current = next;
+        // A spot on a desk changes with every pixel; the page only needs to
+        // know which desk, so it does not redraw on every move.
+        const shown = (h: Hit) =>
+          h.drop?.kind === "desk"
+            ? JSON.stringify({ kind: "desk", container: h.drop.container })
+            : JSON.stringify(h.drop);
         setHit((prev) =>
           prev.key === next.key &&
-          JSON.stringify(prev.drop) === JSON.stringify(next.drop) &&
+          shown(prev) === shown(next) &&
           prev.line?.top === next.line?.top &&
           prev.line?.left === next.line?.left
             ? prev
@@ -312,8 +391,10 @@ export function useHomeDrag({
           }
         }
       },
-      onDrop: () => {
-        const drop = hitRef.current.drop;
+      onDrop: (point) => {
+        // Read the target once more where the pointer was let go: the pane may
+        // have scrolled under it since the last move.
+        const drop = hitTest(what, point, sideRef.current, grabRef.current).drop ?? hitRef.current.drop;
         finish();
         if (drop) handlers.current.onDrop(what, drop);
       },

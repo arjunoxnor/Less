@@ -47,6 +47,8 @@ import {
   reorderFolders as localReorderFolders,
   getFolder,
   upsertLocalFolder,
+  setFolderDesk,
+  setFolderDeskFromCloud,
   removeLocalFolder,
   clearLocalFolders,
   toggleFolderCollapsed,
@@ -56,7 +58,8 @@ import {
   type Folder,
 } from "./folders";
 import { onBroadcast } from "./broadcast";
-import { clockNewer, decideField, decideOrg, decidePlacement, mapLimit } from "./lww";
+import { clockNewer, decideDesk, decideField, decideOrg, decidePlacement, mapLimit } from "./lww";
+import { sanitizeDesk, type DeskLayout } from "@/lib/desk/layout";
 import { readDigest } from "@/lib/cover/digest";
 import { stillMatchesField } from "./syncSafety";
 import {
@@ -71,6 +74,7 @@ import {
 } from "@/lib/cloud/scripts";
 import {
   listCloudFolders,
+  setCloudFolderDesk,
   listCloudFolderTombstones,
   upsertCloudFolder,
   deleteCloudFolder,
@@ -393,6 +397,20 @@ export function useProjects(user: User | null) {
     [user, refreshFolders]
   );
 
+  // A project's desk (where its things sit): local first, then only the
+  // layout goes to the cloud, on its own clock.
+  const setDesk = useCallback(
+    (folderId: string, desk: DeskLayout) => {
+      if (!setFolderDesk(folderId, desk)) return;
+      refreshFolders();
+      const f = getFolder(folderId);
+      if (f?.desk && user && online()) {
+        setCloudFolderDesk(folderId, f.desk).catch((e) => console.error("cloud desk save failed", e));
+      }
+    },
+    [user, refreshFolders]
+  );
+
   const deleteFolder = useCallback(
     (id: string) => {
       // Tombstone first so the delete converges even if the cloud call fails or
@@ -528,6 +546,26 @@ export function useProjects(user: User | null) {
             const lf = localFolderById.get(cf.id);
             if (!lf || new Date(cf.updated_at).getTime() > new Date(lf.updatedAt).getTime()) {
               upsertLocalFolder(cf);
+            }
+          }
+          // Desks: each project's layout converges on its own desk clock. A
+          // folder not in the cloud yet takes its desk up on the next pass.
+          for (const lf of listFolders()) {
+            const cf = cloudFolderById.get(lf.id);
+            if (!cf || tombed.has(lf.id)) continue;
+            const decision = decideDesk(
+              { desk: lf.desk ?? null, deskAt: lf.deskAt ?? null },
+              { desk: sanitizeDesk(cf.desk), deskAt: cf.desk_at ?? null }
+            );
+            if (decision === "pull") {
+              setFolderDeskFromCloud(lf.id, cf.desk, cf.desk_at ?? null);
+            } else if (decision === "push" && lf.desk) {
+              try {
+                if ((await setCloudFolderDesk(lf.id, lf.desk)) === null) failures++;
+              } catch (e) {
+                console.error("desk push failed", e);
+                failures++;
+              }
             }
           }
           refreshFolders();
@@ -851,6 +889,7 @@ export function useProjects(user: User | null) {
     setStatus,
     setFolder,
     setOrg,
+    setDesk,
     reorder,
     createFolder,
     updateFolder,

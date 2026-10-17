@@ -11,25 +11,33 @@ import { useEffect, useRef, useState } from "react";
 
 export type ToastVariant = "default" | "danger";
 
+type ToastAction = { label: string; run: () => void };
+
 type ToastData = {
   id: number;
   text: string;
   variant: ToastVariant;
   createdAt: number;
+  /** One button (Undo) beside the words. */
+  action?: ToastAction;
 };
 
 const DISMISS_MS = 4000;
+/** A toast with a button stays a little longer, so there is time to reach it. */
+const ACTION_DISMISS_MS = 7000;
+const lifeOf = (t: ToastData) => (t.action ? ACTION_DISMISS_MS : DISMISS_MS);
 
 let nextId = 1;
 let current: ToastData | null = null;
 let notify: ((t: ToastData | null) => void) | null = null;
 
-export function showToast(text: string, opts?: { variant?: ToastVariant }) {
+export function showToast(text: string, opts?: { variant?: ToastVariant; action?: ToastAction }) {
   current = {
     id: nextId++,
     text,
     variant: opts?.variant ?? "default",
     createdAt: Date.now(),
+    ...(opts?.action ? { action: opts.action } : {}),
   };
   notify?.(current);
 }
@@ -43,7 +51,7 @@ export function ToastHost() {
 
   useEffect(() => {
     notify = setToast;
-    if (current && Date.now() - current.createdAt < DISMISS_MS) {
+    if (current && Date.now() - current.createdAt < lifeOf(current)) {
       setToast(current);
     } else {
       current = null;
@@ -71,7 +79,7 @@ export function ToastHost() {
     if (!toast) return;
     remaining.current = Math.max(
       0,
-      DISMISS_MS - (Date.now() - toast.createdAt)
+      lifeOf(toast) - (Date.now() - toast.createdAt)
     );
     armedAt.current = Date.now();
     const id = toast.id;
@@ -107,6 +115,19 @@ export function ToastHost() {
       onMouseLeave={resume}
     >
       {toast.text}
+      {toast.action && (
+        <button
+          type="button"
+          className="ui-toast-action"
+          onClick={() => {
+            const action = toast.action;
+            dismiss(toast.id);
+            action?.run();
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>
   );
 }
