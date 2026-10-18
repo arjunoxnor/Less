@@ -1009,6 +1009,12 @@ export function reorderProjects(orderedIds: string[]): void {
 // setProjectFolder in ProjectsHome.removeFolder, which already bumps the
 // placement clock. The standalone helper had no call sites.)
 
+/** Date a project's writing from the cloud's edited_at (a body that arrived
+ *  from elsewhere was written then, not when it reached this device). */
+export function setEditedAt(id: string, iso: string): void {
+  patchMeta(localProjectIdFor(id), { updatedAt: iso });
+}
+
 export function markCloudCreated(id: string, value = true): void {
   patchMeta(id, { cloudCreated: value });
 }

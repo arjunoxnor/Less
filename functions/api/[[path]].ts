@@ -691,7 +691,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
           if (method === "GET") {
             const row = (await db
               .prepare(
-                "SELECT id,title,content,title_page,type,status,created_at,updated_at FROM scripts WHERE user_id=? AND id=?"
+                "SELECT id,title,content,title_page,type,status,created_at,updated_at,edited_at FROM scripts WHERE user_id=? AND id=?"
               )
               .bind(uid, id)
               .first()) as Record<string, unknown> | null;

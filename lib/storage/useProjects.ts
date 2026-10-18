@@ -791,6 +791,16 @@ export function useProjects(user: User | null) {
             }
           }
         }
+        // "Edited" on a device that already has the document: writing done on
+        // another device moves it forward here too. Last on purpose: updatedAt
+        // stands in for a title or status clock this device never set, so it
+        // must not move until those decisions (above) are made. Only forward,
+        // and never over unsent local writing, whose own time is the newer one.
+        for (const c of cloud) {
+          const lm = getProjectMeta(c.id);
+          if (!lm || !c.edited_at || isProjectDirty(c.id)) continue;
+          if (c.edited_at > lm.updatedAt) patchProjectMeta(c.id, { updatedAt: c.edited_at });
+        }
         // Flush queued deletes concurrently (independent, idempotent). Only clear
         // a tombstone when the server actually deleted it; a 401 returns false, so
         // we keep it and retry next pass instead of orphaning the cloud row.

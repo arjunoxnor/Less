@@ -20,6 +20,8 @@ export interface ScriptRow {
   status: ProjectStatus;
   updated_at: string;
   created_at: string;
+  /** When the writing last changed (see ScriptSummary.edited_at). */
+  edited_at?: string | null;
 }
 
 export interface ScriptSummary {

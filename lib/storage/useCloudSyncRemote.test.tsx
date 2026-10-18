@@ -216,6 +216,21 @@ describe("opening a document the cloud has moved past", () => {
     expect(remote).not.toHaveBeenCalled(); // an ordinary open stays quiet
   });
 
+  it("dates a body that arrives from elsewhere by when it was written, not when it arrived", async () => {
+    startWith("start");
+    const writtenElsewhere = "2026-08-05T12:00:00.000Z";
+    cloud.fetchScript.mockResolvedValue({
+      ...cloudRow("written on the laptop", T1),
+      edited_at: writtenElsewhere,
+    });
+    cloud.listScripts.mockResolvedValue([{ id: projectId, updated_at: T1 }]);
+
+    await mount();
+    await vi.waitFor(() => expect(editor.json).toEqual(body("written on the laptop")));
+
+    expect(getProjectMeta(projectId)!.updatedAt).toBe(writtenElsewhere);
+  });
+
   it("never lets a blank local page replace words, even with no baseline and a dirty flag", async () => {
     startWith("", { baseline: false });
     setDirty(projectId, true);

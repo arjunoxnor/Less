@@ -147,6 +147,8 @@ describe.skipIf(!sqlite)("edited_at: when a document's writing last changed", ()
     const titlePaged = tick();
     await call("PATCH", "scripts/s1", { content: doc("one, two"), title_page: { author: "A. Writer" } });
     expect((await listed("s1")).edited_at).toBe(titlePaged);
+    // Opening it on another device fetches the one row: it carries the time too.
+    expect((await call("GET", "scripts/s1")).edited_at).toBe(titlePaged);
   });
 
   it("re-sending a whole document over an existing row counts as writing", async () => {

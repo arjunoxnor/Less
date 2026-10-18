@@ -31,6 +31,7 @@ import {
   localProjectIdFor,
   listLocalVersions,
   addLocalVersion,
+  setEditedAt,
   type ProjectStatus,
   type ProjectType,
 } from "./projects";
@@ -279,6 +280,9 @@ export function useCloudSync(
         addLocalVersion(o.projectId, live, localTp, REMOTE_UPDATE_LABEL, { force: true });
       }
       pullInto(cloud.content, cloudTp);
+      // Saving the arrived body stamped "edited" with the moment it arrived;
+      // it was written when the cloud says it was.
+      if (cloud.edited_at) setEditedAt(o.projectId, cloud.edited_at);
       o.setLastSavedAt(cloud.updated_at);
       o.setDirty(false);
       o.setTitlePageDirty(false);

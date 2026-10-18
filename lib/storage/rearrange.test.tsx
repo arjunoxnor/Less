@@ -17,6 +17,7 @@ import {
   createProject,
   getProjectMeta,
   isDirty,
+  setDirty,
   listProjects,
   loadProjectDoc,
   markCloudCreated,
@@ -412,5 +413,30 @@ describe("a document this device pulls fresh", () => {
     expect(shown("moved")).toBe("3 days ago");
     expect(getProjectMeta("plain-old")!.updatedAt).toBe(olderServer);
     expect(recentOrder()).toEqual(["plain-old", "moved"]);
+  });
+});
+
+describe("a document this device already has", () => {
+  it("moves 'edited' forward for writing done on another device, never back, never over unsent work", async () => {
+    const { drafts } = aDeskOfDrafts(); // written here 3, 2 and 1 days ago
+    const [laptopEdited, olderThanHere, unsent] = drafts;
+    setDirty(unsent, true); // typed here, not sent yet
+    const elsewhere = hoursAgo(2);
+    cloud.listScripts.mockResolvedValue(
+      drafts.map((id) => {
+        const m = getProjectMeta(id)!;
+        return {
+          ...cloudRow(id, { updated: elsewhere, placed: m.placedAt! }),
+          edited_at: id === olderThanHere ? daysAgo(9) : elsewhere,
+        };
+      })
+    );
+    await mount();
+    await settle();
+
+    expect(getProjectMeta(laptopEdited)!.updatedAt).toBe(elsewhere);
+    expect(shown(laptopEdited)).toBe("2 hours ago");
+    expect(shown(olderThanHere)).toBe("2 days ago");
+    expect(shown(unsent)).toBe("1 day ago");
   });
 });
