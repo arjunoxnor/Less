@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { settle } from "./settle";
 
 /**
  * A project's desk: an open surface where things sit wherever they were put.
@@ -55,8 +56,12 @@ export function DeskCanvas({
   );
 }
 
+/** Something just happened to a thing on the desk, so it moves into place. */
+export type DeskMotion = { kind: "land" | "unfold"; n: number };
+
 /** One thing's place on the desk. */
 export function DeskSpotView({
+  spotKey,
   x,
   y,
   z,
@@ -64,8 +69,11 @@ export function DeskSpotView({
   dim,
   lifted,
   tilt,
+  motion,
   children,
 }: {
+  /** Its key in the desk layout ("d:", "s:" or "f:" + id). */
+  spotKey: string;
   x: number;
   y: number;
   z: number;
@@ -76,10 +84,36 @@ export function DeskSpotView({
   dim?: boolean;
   /** Being carried: drawn faintly where it was, the copy follows the pointer. */
   lifted?: boolean;
+  /** A new one each time it is put down here, or opened or folded shut. */
+  motion?: DeskMotion;
   children: ReactNode;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    // Only just now: coming back to the desk later never replays it.
+    if (!motion || !el || Date.now() - motion.n > 800) return;
+    if (motion.kind === "land") {
+      // Carried, it leaned and lifted a little; let go, it settles flat
+      // where the copy was, instead of snapping.
+      settle([el], [{ transform: "rotate(-1.4deg) scale(1.025)" }, { transform: "none" }], { duration: 220 });
+    } else {
+      // A folder opening into a column (or folding shut) unfolds from its
+      // corner instead of swapping in.
+      settle(
+        [el],
+        [
+          { opacity: 0.35, transform: "scale(0.94)", transformOrigin: "0 0" },
+          { opacity: 1, transform: "none", transformOrigin: "0 0" },
+        ],
+        { duration: 240 }
+      );
+    }
+  }, [motion]);
   return (
     <div
+      ref={ref}
+      data-spot={spotKey}
       className={"dk-spot" + (dim ? " is-dim" : "") + (lifted ? " is-carried" : "")}
       style={
         {

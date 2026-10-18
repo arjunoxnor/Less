@@ -679,7 +679,7 @@ body {
   transition: opacity 0.15s;
 }
 .dk-tile:hover .dk-label .lib-kebab,
-.dk-tile:focus-within .dk-label .lib-kebab,
+.dk-tile:is(:focus-visible, :has(:focus-visible)) .dk-label .lib-kebab,
 .dk-label .lib-kebab[aria-expanded="true"] {
   opacity: 1;
 }
@@ -870,6 +870,26 @@ body {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* On a wide screen a suggestion floats in the corner instead of pushing the
+   page down, so the desk never jumps when one comes or goes. */
+@media (min-width: 721px) {
+  .dk-suggest {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: var(--z-bars);
+    width: min(440px, calc(100vw - 48px));
+    margin: 0;
+    box-shadow: 0 0 0 1px var(--line), 0 24px 48px -20px rgba(0, 0, 0, 0.45);
+    animation: dk-suggest-in 0.32s var(--dk-ease);
+  }
+}
+@keyframes dk-suggest-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
 
 .dk-section {
   margin-top: 40px;
@@ -942,6 +962,20 @@ body {
 }
 .dk-project.is-drop {
   box-shadow: inset 0 0 0 3px var(--fc);
+}
+.dk-project {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.dk-project.is-lifted {
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+/* A project's box being carried: itself, lifted off the page. */
+.drag-ghost.dk-ghost-project {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fc) 50%, transparent),
+    0 30px 50px -24px color-mix(in srgb, var(--fc) 80%, #000) !important;
+  pointer-events: none;
 }
 .dk-fan {
   position: relative;
@@ -1436,25 +1470,39 @@ body {
 .dk-ghost-tool {
   pointer-events: none;
 }
+/* The preview casts its own shadow, not a box around it. */
+.drag-ghost.dk-ghost-tool {
+  box-shadow: none !important;
+}
 .dk-ghost-tool .dk-tool-preview {
   display: block;
   width: 104px;
   transform: rotate(-4deg);
   filter: drop-shadow(0 16px 22px rgba(0, 0, 0, 0.35));
 }
+/* A new folder lands open, ready to name and fill: its preview is a small
+   open folder, a card with its colored edge and a couple of empty rows. */
 .dk-tool-folder {
   display: block;
-  width: 104px;
-  height: 82px;
-  border-radius: 6px 12px 12px 12px;
-  background: linear-gradient(180deg, #a6a6ae, #8a8a93);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  width: 112px;
+  height: 84px;
+  border-radius: 10px;
+  background:
+    linear-gradient(var(--line-strong), var(--line-strong)) 12px 30px / 62px 6px no-repeat,
+    linear-gradient(var(--line), var(--line)) 12px 46px / 86px 18px no-repeat,
+    linear-gradient(var(--line), var(--line)) 12px 70px / 86px 8px no-repeat,
+    var(--paper);
+  box-shadow: inset 0 4px 0 #8a8a93, 0 1px 0 rgba(0, 0, 0, 0.06);
 }
 
 /* the surface */
 .dk-canvas {
   position: relative;
   min-height: 560px;
+  /* Things on a desk stack among themselves only: however many there are
+     (or one brought right to the front to rifle or resize), menus, toasts
+     and the toolbar always stay above the desk. */
+  isolation: isolate;
 }
 .dk-spot {
   position: absolute;
@@ -1467,6 +1515,9 @@ body {
 .dk-spot:has(.dk-folder.is-rifling),
 .dk-spot:has(.is-resizing) {
   z-index: 8000 !important;
+}
+.dk-spot {
+  transition: opacity 0.2s, filter 0.2s;
 }
 .dk-spot.is-dim {
   opacity: 0.16;
@@ -1563,6 +1614,22 @@ body {
 .dk-ghost-full {
   pointer-events: none;
 }
+/* The thing casts its own shadow, in its own shape: never the box around it
+   (a tile is a cover and a label on nothing; a folder is a folder). */
+.drag-ghost.dk-ghost-full {
+  box-shadow: none !important;
+  opacity: 1;
+}
+/* It lifts as it is picked up, rather than appearing already tilted. */
+.dk-ghost-full.dk-tile .dk-art,
+.dk-ghost-full.dk-folder .dk-folder-body {
+  animation: dk-lift 0.16s var(--dk-ease) both;
+}
+@keyframes dk-lift {
+  from {
+    transform: none;
+  }
+}
 .dk-ghost-full.dk-tile .dk-art {
   transform: rotate(-2.5deg) scale(1.03);
 }
@@ -1578,12 +1645,65 @@ body {
   transform: rotate(-2deg);
   filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.38));
 }
-.dk-ghost-full.dk-column {
-  box-shadow: 0 34px 60px -22px rgba(0, 0, 0, 0.55);
+.drag-ghost.dk-ghost-full.dk-column {
+  box-shadow: 0 34px 60px -22px rgba(0, 0, 0, 0.55) !important;
 }
 .dk-ghost-full.dk-row {
   background: var(--paper);
-  box-shadow: 0 18px 36px -14px rgba(0, 0, 0, 0.45);
+}
+/* A cover carried out of a folder wide enough to show covers. */
+.dk-ghost-full.dk-row.is-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "thumb thumb"
+    "text kebab";
+  align-items: start;
+  gap: 8px 0;
+  padding: 6px;
+}
+.dk-ghost-full.dk-row.is-card .dk-row-thumb {
+  grid-area: thumb;
+  width: 100%;
+}
+.dk-ghost-full.dk-row.is-card .dk-row-thumb .cv {
+  border-radius: 5px;
+}
+.dk-ghost-full.dk-row.is-card .dk-row-text {
+  grid-area: text;
+}
+.dk-ghost-full.dk-row.is-card .dk-row-title {
+  font-size: 12.5px;
+}
+.dk-ghost-full.dk-row.is-card .dk-row-sheet {
+  transform: translate(6px, -6px) rotate(4deg);
+  border-radius: 5px;
+}
+.drag-ghost.dk-ghost-full.dk-row {
+  box-shadow: 0 18px 36px -14px rgba(0, 0, 0, 0.45) !important;
+}
+/* What was picked up fades as it lifts away (and is back at once when let go,
+   so nothing flickers where it lands). */
+.dk-tile.is-lifted,
+.dk-folder.is-lifted,
+.dk-column.is-lifted,
+.dk-row.is-lifted {
+  transition: opacity 0.15s;
+}
+/* Pressing and dragging never selects the words on things, nor (sweeping
+   across the empty desk) the words on everything it passes. */
+.dk-canvas,
+.dk-tile,
+.dk-row,
+.dk-column {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.dk-canvas input,
+.dk-tile input,
+.dk-row input,
+.dk-column input {
+  -webkit-user-select: text;
+  user-select: text;
 }
 .dk-ghost-full.dk-folder-pulled {
   transform: none;
@@ -1762,6 +1882,8 @@ body {
   width: calc(96 * var(--u));
   transform: translateY(calc(-34 * var(--u))) rotate(-2deg);
   animation: dk-pull 0.16s var(--dk-ease);
+  /* From paper to paper it glides along, rather than jumping. */
+  transition: left 0.14s var(--dk-ease);
   cursor: pointer;
   outline: none;
 }
@@ -1818,7 +1940,7 @@ body {
   transition: opacity 0.15s;
 }
 .dk-folder:hover .lib-kebab,
-.dk-folder:focus-within .lib-kebab,
+.dk-folder:is(:focus-visible, :has(:focus-visible)) .lib-kebab,
 .dk-folder .lib-kebab[aria-expanded="true"] {
   opacity: 1;
 }
@@ -1839,6 +1961,7 @@ body {
   background: var(--paper);
   box-shadow: var(--dk-shadow);
   container: dk-column / inline-size;
+  cursor: grab;
 }
 /* A column the writer sized: shorter than what it holds, it scrolls. */
 .dk-column > .dk-column-body {
@@ -2030,7 +2153,7 @@ body {
   transition: opacity 0.15s;
 }
 .dk-row:hover .lib-kebab,
-.dk-row:focus-within .lib-kebab,
+.dk-row:is(:focus-visible, :has(:focus-visible)) .lib-kebab,
 .dk-row .lib-kebab[aria-expanded="true"] {
   opacity: 1;
 }

@@ -13,9 +13,11 @@ import { useCornerResize } from "./useCornerResize";
 
 /**
  * A folder opened on its desk: a column of what it holds, like a column on a
- * Milanote board. Pick it up by its head to move it out of the way; fold it
- * shut again into a folder; carry things into it (onto its head to file them,
- * or between its rows to put them in a place) and out of it onto the desk.
+ * Milanote board. Pick it up from anywhere on it (its head, its edges, the
+ * space around and between its things) to move it out of the way; the things
+ * inside are carried on their own. Fold it shut again into a folder; carry
+ * things into it (onto its head to file them, or between its rows to put them
+ * in a place) and out of it onto the desk.
  * Its corner handle sets its width and height; shorter than what it holds,
  * it scrolls. Wide enough, it shows its things as a small grid of covers
  * instead of a list (desk.css), and they settle into their new places.
@@ -30,7 +32,7 @@ export function FolderColumn({
   empty,
   onFold,
   onMenu,
-  onHeadPointerDown,
+  onPointerDown,
   width,
   height,
   onResize,
@@ -46,7 +48,8 @@ export function FolderColumn({
   empty: boolean;
   onFold: () => void;
   onMenu: (anchor: DOMRect) => void;
-  onHeadPointerDown: (e: React.PointerEvent, el: HTMLElement) => void;
+  /** Pick the folder up, to move it around the desk. */
+  onPointerDown: (e: React.PointerEvent, el: HTMLElement) => void;
   /** Its width on the desk, and its height when the writer set one. */
   width: number;
   height?: number;
@@ -101,15 +104,23 @@ export function FolderColumn({
       }
       aria-label={`${folder.name}, open folder`}
       data-folder-id={folder.id}
+      onPointerDown={(e) => {
+        const target = e.target as HTMLElement;
+        // A thing inside is carried on its own; buttons, fields and the
+        // corner handle keep their own press (useHomeDrag checks those).
+        if (target.closest("[data-row]")) return;
+        // A press on the list's scrollbar scrolls it. A classic scrollbar
+        // takes room at the side; an overlay one (Firefox on Windows 11) takes
+        // none, so a list that scrolls keeps its last strip either way.
+        const body = bodyRef.current;
+        if (body && body.contains(target) && body.scrollHeight > body.clientHeight) {
+          const strip = Math.max(body.offsetWidth - body.clientWidth, 16);
+          if (e.clientX > body.getBoundingClientRect().right - strip) return;
+        }
+        onPointerDown(e, e.currentTarget);
+      }}
     >
-      <header
-        className={"dk-column-head" + (isDrop ? " is-drop" : "")}
-        data-drop-into={folder.id}
-        onPointerDown={(e) => {
-          const column = e.currentTarget.parentElement;
-          if (column) onHeadPointerDown(e, column);
-        }}
-      >
+      <header className={"dk-column-head" + (isDrop ? " is-drop" : "")} data-drop-into={folder.id}>
         <span className="dk-column-tab" aria-hidden="true" />
         <div className="dk-column-titles">
           {title}

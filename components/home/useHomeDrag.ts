@@ -18,6 +18,8 @@ import { canStartLibraryDrag } from "@/lib/storage/libraryInteraction";
  *   data-desk="<project id>"             a project's desk: let go anywhere on it
  *                                        to put the carried thing right there
  *   data-projects="<stage id>"           a stage's projects in the sidebar
+ *   data-project-grid="<stage id>"       a stage's page of project boxes
+ *                                        (data-project-tile), to arrange them
  *   data-stage-head="<stage id>"         a stage heading
  *   data-stages                          the sidebar, for arranging stages
  *   data-spring="<key>"                  a closed folder that opens when held over
@@ -71,11 +73,19 @@ interface Hit {
   /** The target to light up (a folder id, "none", or a stage id). */
   key: string | null;
   spring: string | null;
+  /** Over the middle of this cover, not held there long enough yet to stack. */
+  stackCandidate?: string;
 }
 
 const NOTHING: Hit = { drop: null, line: null, key: null, spring: null };
 /** How long a closed folder has to be held over before it opens. */
 const SPRING_MS = 650;
+/**
+ * How long a cover has to be held over the middle of another before letting
+ * go stacks them. On a desk, things overlap all the time: a quick drop just
+ * puts it down; stacking is something the writer means.
+ */
+const STACK_MS = 450;
 
 function childrenWith(el: HTMLElement, attr: string): HTMLElement[] {
   return Array.from(el.children).filter(
@@ -146,11 +156,54 @@ function deskHit(desk: HTMLElement, x: number, y: number, grab: DragPoint): Hit 
   };
 }
 
+/** Where a document let go here would be put: a place among covers or rows, or a spot on a desk. */
+function placeItem(el: HTMLElement | null, x: number, y: number, grab: DragPoint): Hit {
+  if (el?.closest("[data-tray]")) return NOTHING;
+  const grid = el?.closest<HTMLElement>("[data-grid]");
+  if (grid) {
+    const tiles = childrenWith(grid, "data-row");
+    const slot = gridSlotAt(tiles, x, y);
+    return {
+      drop: { kind: "grid", container: grid.dataset.grid!, slot },
+      line: gridLineFor(grid, tiles, slot, y),
+      key: null,
+      spring: null,
+    };
+  }
+  const list = el?.closest<HTMLElement>("[data-list]");
+  if (list) {
+    const rows = childrenWith(list, "data-row");
+    // A widened folder lays its things out as a grid of covers: place
+    // between covers then, not on a line between rows.
+    if (columnsOf(list) > 1) {
+      const slot = gridSlotAt(rows, x, y);
+      return {
+        drop: { kind: "list", container: list.dataset.list!, slot },
+        line: gridLineFor(list, rows, slot, y),
+        key: null,
+        spring: null,
+      };
+    }
+    const slot = listSlotAt(rows, y);
+    return {
+      drop: { kind: "list", container: list.dataset.list!, slot },
+      line: lineFor(list, rows, slot),
+      key: null,
+      spring: null,
+    };
+  }
+  const desk = el?.closest<HTMLElement>("[data-desk]");
+  if (desk) return deskHit(desk, x, y, grab);
+  return NOTHING;
+}
+
 function hitTest(
   source: HomeDragSource,
   { x, y }: DragPoint,
   side: HTMLElement | null,
-  grab: DragPoint = { x: 0, y: 0 }
+  grab: DragPoint = { x: 0, y: 0 },
+  /** Whether a cover has been held over this one long enough to stack. */
+  stackReady: (targetId: string) => boolean = () => true
 ): Hit {
   const el = document.elementFromPoint(x, y) as HTMLElement | null;
   if (source.kind === "deskFolder" || source.kind === "tool") {
@@ -164,8 +217,18 @@ function hitTest(
         return { drop: { kind: "into", folderId: raw }, line: null, key: raw, spring: into.dataset.spring ?? null };
       }
     }
+    // Something new let go over an open folder's list is made in that folder,
+    // as the folder's own words ("Carry things here") promise.
+    if (source.kind === "tool") {
+      const list = el?.closest<HTMLElement>("[data-list]");
+      const folderId = list?.dataset.list;
+      if (list && folderId && folderId !== "unfiled" && !side?.contains(list)) {
+        return { drop: { kind: "into", folderId }, line: null, key: folderId, spring: null };
+      }
+    }
     const desk = el?.closest<HTMLElement>("[data-desk]");
-    return desk ? deskHit(desk, x, y, grab) : NOTHING;
+    // A new thing reports the pointer itself: the page centres it there.
+    return desk ? deskHit(desk, x, y, source.kind === "tool" ? { x: 0, y: 0 } : grab) : NOTHING;
   }
   if (source.kind === "item") {
     const into = el?.closest<HTMLElement>("[data-drop-into]");
@@ -179,6 +242,7 @@ function hitTest(
       };
     }
     const onto = el?.closest<HTMLElement>("[data-stack-onto]");
+    let stackCandidate: string | undefined;
     if (onto) {
       const targetId = onto.dataset.stackOnto!;
       const own =
@@ -186,46 +250,14 @@ function hitTest(
         source.members?.includes(targetId) ||
         (!!source.group && onto.dataset.group === source.group);
       if (!own && inStackZone(onto, x, y)) {
-        return { drop: { kind: "stack", targetId }, line: null, key: "stack:" + targetId, spring: null };
+        if (stackReady(targetId)) {
+          return { drop: { kind: "stack", targetId }, line: null, key: "stack:" + targetId, spring: null };
+        }
+        stackCandidate = targetId;
       }
     }
-    if (el?.closest("[data-tray]")) return NOTHING;
-    const grid = el?.closest<HTMLElement>("[data-grid]");
-    if (grid) {
-      const tiles = childrenWith(grid, "data-row");
-      const slot = gridSlotAt(tiles, x, y);
-      return {
-        drop: { kind: "grid", container: grid.dataset.grid!, slot },
-        line: gridLineFor(grid, tiles, slot, y),
-        key: null,
-        spring: null,
-      };
-    }
-    const list = el?.closest<HTMLElement>("[data-list]");
-    if (list) {
-      const rows = childrenWith(list, "data-row");
-      // A widened folder lays its things out as a grid of covers: place
-      // between covers then, not on a line between rows.
-      if (columnsOf(list) > 1) {
-        const slot = gridSlotAt(rows, x, y);
-        return {
-          drop: { kind: "list", container: list.dataset.list!, slot },
-          line: gridLineFor(list, rows, slot, y),
-          key: null,
-          spring: null,
-        };
-      }
-      const slot = listSlotAt(rows, y);
-      return {
-        drop: { kind: "list", container: list.dataset.list!, slot },
-        line: lineFor(list, rows, slot),
-        key: null,
-        spring: null,
-      };
-    }
-    const desk = el?.closest<HTMLElement>("[data-desk]");
-    if (desk) return deskHit(desk, x, y, grab);
-    return NOTHING;
+    const placed = placeItem(el, x, y, grab);
+    return stackCandidate ? { ...placed, stackCandidate } : placed;
   }
   if (source.kind === "project") {
     const group = el?.closest<HTMLElement>("[data-projects]");
@@ -235,6 +267,18 @@ function hitTest(
       return {
         drop: { kind: "projects", stageId: group.dataset.projects!, slot },
         line: lineFor(group, rows, slot),
+        key: null,
+        spring: null,
+      };
+    }
+    // A stage's own page: between its project boxes.
+    const page = el?.closest<HTMLElement>("[data-project-grid]");
+    if (page) {
+      const tiles = childrenWith(page, "data-project-tile");
+      const slot = gridSlotAt(tiles, x, y);
+      return {
+        drop: { kind: "projects", stageId: page.dataset.projectGrid!, slot },
+        line: gridLineFor(page, tiles, slot, y),
         key: null,
         spring: null,
       };
@@ -283,6 +327,8 @@ export function useHomeDrag({
   /** Where the carried thing was grabbed, from its top-left corner. */
   const grabRef = useRef<DragPoint>({ x: 0, y: 0 });
   const spring = useRef<{ key: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  /** The cover being held over, and whether long enough to stack onto it. */
+  const stackArm = useRef<{ target: string; ready: boolean; timer: ReturnType<typeof setTimeout> } | null>(null);
   const handlers = useRef({ onDrop, onSpring });
   handlers.current = { onDrop, onSpring };
 
@@ -290,10 +336,25 @@ export function useHomeDrag({
     if (spring.current) clearTimeout(spring.current.timer);
     spring.current = null;
   };
-  useEffect(() => clearSpring, []);
+  const clearStackArm = () => {
+    if (stackArm.current) clearTimeout(stackArm.current.timer);
+    stackArm.current = null;
+  };
+  useEffect(
+    () => () => {
+      clearSpring();
+      clearStackArm();
+    },
+    []
+  );
+  const stackReady = (id: string) => {
+    const arm = stackArm.current;
+    return !!arm && arm.target === id && arm.ready;
+  };
 
   const finish = () => {
     clearSpring();
+    clearStackArm();
     hitRef.current = NOTHING;
     setHit(NOTHING);
     setSource(null);
@@ -310,6 +371,22 @@ export function useHomeDrag({
     grabRef.current = ghostOffset
       ? { x: -ghostOffset.x, y: -ghostOffset.y }
       : { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    let last: DragPoint = { x: event.clientX, y: event.clientY };
+    const show = (next: Hit) => {
+      hitRef.current = next;
+      // A spot on a desk changes with every pixel; the page only needs to
+      // know which desk, so it does not redraw on every move.
+      const shown = (h: Hit) =>
+        h.drop?.kind === "desk" ? JSON.stringify({ kind: "desk", container: h.drop.container }) : JSON.stringify(h.drop);
+      setHit((prev) =>
+        prev.key === next.key &&
+        shown(prev) === shown(next) &&
+        prev.line?.top === next.line?.top &&
+        prev.line?.left === next.line?.left
+          ? prev
+          : next
+      );
+    };
     beginPointerDrag(event.nativeEvent, {
       source: element,
       // Each pane scrolls under the pointer: the sidebar when over it, the
@@ -331,6 +408,21 @@ export function useHomeDrag({
           copy.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
           copy.classList.add("dk-ghost-full");
           copy.classList.remove("is-lifted", "is-stack-target", "is-drop", "is-rifling");
+          // A cover from a folder wide enough to show covers stays a cover in
+          // the air (out of the folder its layout would fall back to a row).
+          if (el.classList.contains("dk-row") && el.parentElement && columnsOf(el.parentElement) > 1) {
+            copy.classList.add("is-card");
+          }
+          // A copy starts scrolled to the top: an open folder carried away
+          // shows its list where the writer had scrolled it.
+          const lists = Array.from(el.querySelectorAll<HTMLElement>(".dk-column-body"), (list) => list.scrollTop);
+          if (lists.some((top) => top > 0)) {
+            queueMicrotask(() =>
+              copy.querySelectorAll<HTMLElement>(".dk-column-body").forEach((list, i) => {
+                list.scrollTop = lists[i] ?? 0;
+              })
+            );
+          }
           return copy;
         }
         if (what.kind === "tool") {
@@ -372,29 +464,34 @@ export function useHomeDrag({
           return chip;
         }
         const copy = el.cloneNode(true) as HTMLElement;
-        copy.classList.add("lib-ghost");
+        // A project's box travels as itself; a sidebar row as a row.
+        copy.classList.add(el.classList.contains("dk-project") ? "dk-ghost-project" : "lib-ghost");
         copy.classList.remove("is-on", "is-drop", "is-lifted");
         return copy;
       },
       ghostOffset,
       onStart: () => setSource(what),
       onMove: (point) => {
-        const next = hitTest(what, point, sideRef.current, grabRef.current);
-        hitRef.current = next;
-        // A spot on a desk changes with every pixel; the page only needs to
-        // know which desk, so it does not redraw on every move.
-        const shown = (h: Hit) =>
-          h.drop?.kind === "desk"
-            ? JSON.stringify({ kind: "desk", container: h.drop.container })
-            : JSON.stringify(h.drop);
-        setHit((prev) =>
-          prev.key === next.key &&
-          shown(prev) === shown(next) &&
-          prev.line?.top === next.line?.top &&
-          prev.line?.left === next.line?.left
-            ? prev
-            : next
-        );
+        last = point;
+        const next = hitTest(what, point, sideRef.current, grabRef.current, stackReady);
+        show(next);
+        // Held over the middle of another cover for a moment, it lights up
+        // as a place to stack; let go before that, it is simply put down.
+        const candidate = next.stackCandidate ?? (next.drop?.kind === "stack" ? next.drop.targetId : null);
+        if (candidate !== (stackArm.current?.target ?? null)) {
+          clearStackArm();
+          if (candidate) {
+            stackArm.current = {
+              target: candidate,
+              ready: false,
+              timer: setTimeout(() => {
+                if (stackArm.current?.target !== candidate) return;
+                stackArm.current.ready = true;
+                show(hitTest(what, last, sideRef.current, grabRef.current, stackReady));
+              }, STACK_MS),
+            };
+          }
+        }
         if (next.spring !== (spring.current?.key ?? null)) {
           clearSpring();
           if (next.spring) {
@@ -412,7 +509,8 @@ export function useHomeDrag({
       onDrop: (point) => {
         // Read the target once more where the pointer was let go: the pane may
         // have scrolled under it since the last move.
-        const drop = hitTest(what, point, sideRef.current, grabRef.current).drop ?? hitRef.current.drop;
+        const drop =
+          hitTest(what, point, sideRef.current, grabRef.current, stackReady).drop ?? hitRef.current.drop;
         finish();
         if (drop) handlers.current.onDrop(what, drop);
       },

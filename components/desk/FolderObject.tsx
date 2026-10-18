@@ -11,11 +11,12 @@ import { useCornerResize } from "./useCornerResize";
 
 /**
  * A folder sitting on a desk, shut: a real-looking folder with its papers
- * peeking out of the top. Run the pointer across it and the papers come up one
- * at a time, so a writer can rifle through a folder of one-pagers without
+ * peeking out of the top. Run the pointer across the papers and they come up
+ * one at a time, so a writer can rifle through a folder of one-pagers without
  * opening it; click the one that came up to open it, or drag it out onto the
- * desk. Click the front of the folder to open it into a column. Carry
- * something onto the folder to file it inside (data-drop-into).
+ * desk. Anywhere else (its front, its tab, its name) is the folder itself:
+ * press and drag to move it, click to open it into a column. Carry something
+ * onto the folder to file it inside (data-drop-into).
  *
  * Keyboard: Left and Right rifle, Enter opens what came up (or the folder),
  * Space opens the folder. The handle at its corner makes it bigger or
@@ -102,9 +103,22 @@ export function FolderObject({
   }, [shown.length]);
 
   const rifle = (e: React.PointerEvent<HTMLElement>) => {
-    if (n === 0 || document.documentElement.classList.contains("is-dragging")) return;
+    // A held button is a paper (or the folder) being picked up: the paper that
+    // came up stays the one that was pressed.
+    if (n === 0 || e.buttons !== 0 || document.documentElement.classList.contains("is-dragging")) return;
     const box = e.currentTarget.getBoundingClientRect();
     if (box.width <= 0) return;
+    // Only the strip of papers sticking out rifles (and the paper that came
+    // up, while the pointer is on it). Above it (the tab, the folder's top
+    // edge) and below it (the front) the pointer is on the folder itself, to
+    // move it or open it, so the paper goes back in. The strip is measured
+    // from the folder's own shape, so papers moving never move it.
+    const u = box.width / 214;
+    const onPaper = (e.target as Element).closest(".dk-folder-pulled");
+    if (!onPaper && (e.clientY < box.top + 30 * u || e.clientY >= box.bottom - 104 * u)) {
+      setPulled(null);
+      return;
+    }
     const i = Math.floor(((e.clientX - box.left) / box.width) * n);
     setPulled(Math.min(n - 1, Math.max(0, i)));
   };
@@ -125,6 +139,11 @@ export function FolderObject({
       tabIndex={0}
       aria-label={label}
       onPointerDown={(e) => onPointerDown(e, e.currentTarget)}
+      onClick={(e) => {
+        // Anywhere on the folder but a paper that came up (or its dots) opens it.
+        if ((e.target as Element).closest(".dk-folder-pulled, button")) return;
+        onOpen();
+      }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
@@ -202,14 +221,7 @@ export function FolderObject({
             <span className="dk-folder-pulled-title">{up.title || "Untitled"}</span>
           </div>
         )}
-        <div
-          className="dk-folder-front"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen();
-          }}
-          title="Open the folder"
-        >
+        <div className="dk-folder-front" title="Open the folder">
           <span className="dk-folder-front-line" aria-hidden="true" />
           {n === 0 && <span className="dk-folder-empty">Empty</span>}
           {n > 0 && slipLines > 0 && (

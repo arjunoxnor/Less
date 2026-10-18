@@ -4035,6 +4035,11 @@ html.is-dragging * {
   box-shadow: var(--e3) !important;
   opacity: 0.97;
   will-change: transform;
+  /* The copy is placed by its inline transform on every move: nothing the
+     original animates or eases may fight that (it would trail behind, or
+     streak in from the corner of the window). */
+  animation: none !important;
+  transition: none !important;
 }
 
 /* A screen-reader-only live region (announces drag and keyboard moves). */

@@ -28,17 +28,20 @@ const FANS: Record<number, { x: number; r: number; y: number }[]> = {
 
 /**
  * A project on a stage's page: a hand of its covers fanned out, its name, and
- * what is in it ("2 scripts, 4 one-pagers"). The whole tile opens the project,
- * and anything carried onto it is filed there.
+ * what is in it ("2 scripts, 4 one-pagers"). Click anywhere on it to open the
+ * project; press anywhere and drag to move it (between the other projects, or
+ * onto another stage in the sidebar). Anything carried onto it is filed there.
  */
 export function ProjectTile({
   card,
   covers,
   counts,
   isDrop,
+  lifted,
   kindFor,
   seedFor,
   onOpen,
+  onPointerDown,
 }: {
   card: Card;
   /** Up to four documents to show, the one to continue first. */
@@ -46,19 +49,33 @@ export function ProjectTile({
   /** How many of each kind it holds, most first. */
   counts: [DocKind, number][];
   isDrop: boolean;
+  /** Being carried somewhere else. */
+  lifted?: boolean;
   kindFor: (doc: ProjectMeta) => DocKind;
   seedFor: (doc: ProjectMeta) => string;
   onOpen: () => void;
+  /** Pick the project up, to move it. */
+  onPointerDown?: (e: React.PointerEvent, el: HTMLElement) => void;
 }) {
   const f = card.folder;
   const fan = FANS[Math.min(4, covers.length)] ?? [];
   return (
-    <button
-      type="button"
-      className={"dk-project" + (isDrop ? " is-drop" : "")}
+    <div
+      className={"dk-project" + (isDrop ? " is-drop" : "") + (lifted ? " is-lifted" : "")}
       style={{ ["--fc" as string]: f.color } as React.CSSProperties}
       data-drop-into={f.id}
+      data-project-tile={f.id}
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      onPointerDown={onPointerDown ? (e) => onPointerDown(e, e.currentTarget) : undefined}
       aria-label={`${f.name}, ${card.total} ${card.total === 1 ? "item" : "items"}`}
     >
       <span className="dk-fan" aria-hidden="true">
@@ -102,6 +119,6 @@ export function ProjectTile({
         {counts.length === 0 && <span>Empty</span>}
       </span>
       <span className="dk-project-when">edited {relativeTime(card.lastTouched)}</span>
-    </button>
+    </div>
   );
 }

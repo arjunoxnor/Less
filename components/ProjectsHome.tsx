@@ -63,7 +63,7 @@ import { DeskGrid, DeskTray } from "./desk/DeskGrid";
 import { ProjectTile } from "./desk/ProjectTile";
 import { KindPickerModal, StackWithModal } from "./desk/DeskModals";
 import { CoversGlyph, ListGlyph } from "./desk/glyphs";
-import { DeskCanvas, DeskSpotView } from "./desk/DeskCanvas";
+import { DeskCanvas, DeskSpotView, type DeskMotion } from "./desk/DeskCanvas";
 import { FolderObject } from "./desk/FolderObject";
 import { DeskRow, FolderColumn } from "./desk/FolderColumn";
 import { DESK_TOOLS, DeskToolbar, type DeskTool } from "./desk/DeskToolbar";
@@ -294,6 +294,10 @@ export function ProjectsHome({
   const [deskWidth, setDeskWidth] = useState(1100);
   /** Things are gliding to new places (tidy up, undo), so the move animates. */
   const [gliding, setGliding] = useState(false);
+  /** The last thing put down on a desk (it settles where it was let go), or
+   *  opened or folded shut (it unfolds from its corner). */
+  const [motion, setMotion] = useState<(DeskMotion & { key: string }) | null>(null);
+  const land = (key: string) => setMotion({ key, kind: "land", n: Date.now() });
   const glideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const glide = () => {
     setGliding(true);
@@ -825,8 +829,10 @@ export function ProjectsHome({
     if (label) remember(label, () => onSetDesk(cardId, before ?? emptyDesk()));
     return before;
   };
-  const moveOnDesk = (cardId: string, key: string, x: number, y: number) =>
-    commitDesk(cardId, (l) => placeOnDesk(l, key, { x, y }));
+  const moveOnDesk = (cardId: string, key: string, x: number, y: number) => {
+    land(key);
+    return commitDesk(cardId, (l) => placeOnDesk(l, key, { x, y }));
+  };
 
   /** A free place on the desk on screen, near the top of what is in view. */
   const freeSpotOnDesk = (w: number, h: number): { x: number; y: number } => {
@@ -846,6 +852,10 @@ export function ProjectsHome({
     return firstFree(w, h, rects, deskWidth, fromY);
   };
 
+  /** Whether a folder sits open on this desk, so a new thing made in it shows its name field. */
+  const openOnDesk = (deskId: string, folderId: string) =>
+    !!folderById.get(deskId)?.desk?.spots.some((x) => x.k === "f:" + folderId && x.open);
+
   /** Something new from the toolbar: on the desk (where it was let go), or inside a folder. */
   const createOnDesk = (card: Card, tool: DeskTool, at?: { x: number; y: number }, intoFolderId?: string) => {
     const deskId = card.folder.id;
@@ -855,9 +865,12 @@ export function ProjectsHome({
         onUpdateFolder(made.id, { name: "Untitled folder" });
         if (!intoFolderId) {
           const spot = at ?? freeSpotOnDesk(COLUMN_W, columnHeight(0));
+          if (at) land("f:" + made.id);
           commitDesk(deskId, (l) => placeOnDesk(l, "f:" + made.id, { ...spot, open: true }), null);
+          // Named right away in its own head. (Made inside another folder,
+          // it has no name field on the desk, so nothing waits for one.)
+          setRenamingFolder(made.id);
         }
-        setRenamingFolder(made.id);
         return;
       }
       const type: ProjectType = tool === "script" ? "screenplay" : tool === "board" ? "board" : "plain";
@@ -870,9 +883,12 @@ export function ProjectsHome({
       if (!intoFolderId) {
         const w = KIND_WIDTH[tool] ?? 180;
         const spot = at ?? freeSpotOnDesk(w, tileHeight(w));
+        if (at) land("d:" + meta.id);
         commitDesk(deskId, (l) => placeOnDesk(l, "d:" + meta.id, spot), null);
       }
-      setRenamingItem(meta.id);
+      // Named right away where its name shows: on the desk, or in a folder
+      // open on it. (In a shut folder nothing would ever show the field.)
+      if (!intoFolderId || openOnDesk(deskId, intoFolderId)) setRenamingItem(meta.id);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not make that.", { variant: "danger" });
     }
@@ -889,14 +905,23 @@ export function ProjectsHome({
   };
 
   /** Open a folder on its desk into a column, or fold it shut again. */
-  const setFolderOpen = (deskId: string, folderId: string, open: boolean) =>
-    commitDesk(deskId, (l) => placeOnDesk(l, "f:" + folderId, { open }), open ? "Open folder" : "Fold folder");
+  const setFolderOpen = (deskId: string, folderId: string, open: boolean) => {
+    setMotion({ key: "f:" + folderId, kind: "unfold", n: Date.now() });
+    return commitDesk(deskId, (l) => placeOnDesk(l, "f:" + folderId, { open }), open ? "Open folder" : "Fold folder");
+  };
 
   const commitDrop = (source: HomeDragSource, drop: HomeDrop) => {
     if (source.kind === "tool") {
       const card = cardById.get(source.desk);
       if (!card) return;
-      if (drop.kind === "desk") createOnDesk(card, source.tool as DeskTool, { x: drop.x, y: drop.y });
+      if (drop.kind === "desk") {
+        // The preview hung centred under the pointer: so does the new thing
+        // (a cover by its middle, an open folder by its head).
+        const tool = source.tool as DeskTool;
+        const w = tool === "folder" ? COLUMN_W : (KIND_WIDTH[tool] ?? 180);
+        const down = tool === "folder" ? 30 : Math.round((w * 4) / 6);
+        createOnDesk(card, tool, { x: Math.max(0, drop.x - Math.round(w / 2)), y: Math.max(0, drop.y - down) });
+      }
       else if (drop.kind === "into" && drop.folderId) createOnDesk(card, source.tool as DeskTool, undefined, drop.folderId);
       return;
     }
@@ -956,6 +981,7 @@ export function ProjectsHome({
           const wasStacked = stacksNow(plan.map((step) => step.id));
           const left = plan.filter((step) => step.id !== source.id && step.fields.stackId === null);
           const stackKey = project.stackId ? "s:" + project.stackId : null;
+          land(key);
           const beforeDesk = commitDesk(
             deskId,
             (l) => {
@@ -986,6 +1012,7 @@ export function ProjectsHome({
         // on this desk, right where it was let go.
         if (!ids.every((id) => canMoveProjectTo(id, deskId, projects, folders))) return;
         const was = whereNow(ids);
+        land(key);
         const beforeDesk = commitDesk(deskId, (l) => placeOnDesk(l, key, { x: drop.x, y: drop.y }), null);
         ids.forEach((id) => onSetFolder(id, deskId));
         told(movedText(ids.length, deskId), "Move", () => {
@@ -1059,10 +1086,8 @@ export function ProjectsHome({
     }
   };
 
-  const busy = () =>
-    menu !== null ||
-    renamingFolder !== null ||
-    renamingItem !== null ||
+  /** A dialog is up: nothing on the page is picked up under it. */
+  const blocked = () =>
     colorTarget !== null ||
     confirmDelete !== null ||
     confirmDeleteFolder !== null ||
@@ -1074,7 +1099,19 @@ export function ProjectsHome({
   const drag = useHomeDrag({
     sideRef,
     mainRef,
-    canStart: () => !busy(),
+    // A menu or a name being typed gives way to a drag: the menu closes, the
+    // name is kept, and the drag goes ahead. Only a dialog stops it.
+    canStart: () => {
+      if (blocked()) return false;
+      if (menu !== null) setMenu(null);
+      if (renamingItem !== null || renamingFolder !== null) {
+        const field = document.activeElement;
+        if (field instanceof HTMLInputElement && field.classList.contains("lib-rename")) field.blur();
+        setRenamingItem(null);
+        setRenamingFolder(null);
+      }
+      return true;
+    },
     onDrop: commitDrop,
     onSpring: (key) => setFold(key, true),
   });
@@ -1085,7 +1122,7 @@ export function ProjectsHome({
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      if (busy() || drag.source) return;
+      if (blocked() || menu !== null || drag.source) return;
       if (undo()) {
         e.preventDefault();
         showToast("Put back.");
@@ -1449,6 +1486,11 @@ export function ProjectsHome({
    * be made there. Text fields keep the browser's menu (spelling, paste).
    */
   const onContextMenu = (e: React.MouseEvent) => {
+    // Mid-drag, a right-click is nothing (and never the browser's menu).
+    if (drag.source) {
+      e.preventDefault();
+      return;
+    }
     const t = e.target as HTMLElement;
     if (t.closest("input, textarea, [contenteditable='true'], .ui-menu, [role='dialog']")) return;
     // From the keyboard (the menu key) there is no pointer: use the thing itself.
@@ -2213,7 +2255,7 @@ export function ProjectsHome({
             {held === 1 ? "item" : "items"}
           </div>
         </header>
-        <div className="dk-projects">
+        <div className="dk-projects" data-project-grid={f.id}>
           {section.cards.map((card) => (
             <ProjectTile
               key={card.folder.id}
@@ -2221,9 +2263,11 @@ export function ProjectsHome({
               covers={projectCovers(card)}
               counts={kindCounts([...card.items, ...card.shelves.flatMap((s) => s.items)])}
               isDrop={drag.dropKey === card.folder.id}
+              lifted={drag.source?.kind === "project" && drag.source.id === card.folder.id}
               kindFor={kindFor}
               seedFor={seedFor}
               onOpen={() => select({ kind: "project", id: card.folder.id })}
+              onPointerDown={(e, el) => drag.start(e, { kind: "project", id: card.folder.id }, el)}
             />
           ))}
           <button type="button" className="dk-project dk-project-new" onClick={() => newProjectIn(f.id)}>
@@ -2626,7 +2670,7 @@ export function ProjectsHome({
         empty={groups.length === 0 && sub.length === 0}
         onFold={() => setFolderOpen(deskId, s.id, false)}
         onMenu={(anchor) => setMenu({ kind: "folder", id: s.id, anchor })}
-        onHeadPointerDown={(e, el) => drag.start(e, { kind: "deskFolder", id: s.id, desk: deskId }, el)}
+        onPointerDown={(e, el) => drag.start(e, { kind: "deskFolder", id: s.id, desk: deskId }, el)}
         width={width}
         height={height}
         onResize={
@@ -2640,6 +2684,12 @@ export function ProjectsHome({
       </FolderColumn>
     );
   };
+
+  /** How far the desk on screen has reached: it never shrinks while the writer is on it. */
+  const deskReach = useRef<{ id: string; w: number; h: number } | null>(null);
+  useEffect(() => {
+    deskReach.current = null;
+  }, [view]);
 
   /** The desk as last laid out: redrawing during a drag never lays it out again. */
   const arrangedRef = useRef<{ key: string; placed: Map<string, Placed> } | null>(null);
@@ -2678,6 +2728,13 @@ export function ProjectsHome({
       };
     }
     const bottom = Math.max(extent.bottom, spread ? spread.top + 340 : 0);
+    // Moving the lowest (or rightmost) thing in would shrink the desk and pull
+    // the page up (or across) under the writer: it keeps its reach instead,
+    // until they leave it.
+    const reach = deskReach.current?.id === f.id ? deskReach.current : { id: f.id, w: 0, h: 0 };
+    reach.w = Math.max(reach.w, extent.right + DESK_PAD);
+    reach.h = Math.max(reach.h, bottom + 240, 560);
+    deskReach.current = reach;
     return (
       <>
         <header className="dk-deskhead" style={{ ["--fc" as string]: f.color } as React.CSSProperties}>
@@ -2749,8 +2806,8 @@ export function ProjectsHome({
           <div className="dk-desk-main">
             <DeskCanvas
               desk={f.id}
-              minWidth={extent.right + DESK_PAD}
-              height={Math.max(bottom + 240, 560)}
+              minWidth={reach.w}
+              height={reach.h}
               tidying={gliding}
               onWidth={setDeskWidth}
             >
@@ -2767,6 +2824,8 @@ export function ProjectsHome({
                 return (
                   <DeskSpotView
                     key={t.key}
+                    spotKey={t.key}
+                    motion={motion?.key === t.key ? motion : undefined}
                     x={at.x}
                     y={at.y}
                     z={at.z}

@@ -205,6 +205,32 @@ function carry(from: HTMLElement, over: () => Element | null) {
   });
 }
 
+/** Carry and rest over the target for `ms` before letting go (fake timers on). */
+function carryAndHold(from: HTMLElement, over: () => Element | null, ms: number) {
+  const at = (x: number, y: number) => ({
+    pointerId: 1,
+    isPrimary: true,
+    pointerType: "mouse",
+    button: 0,
+    buttons: 1,
+    clientX: x,
+    clientY: y,
+    bubbles: true,
+    cancelable: true,
+  });
+  document.elementFromPoint = () => over();
+  act(() => {
+    from.dispatchEvent(new PointerEvent("pointerdown", at(10, 10)));
+    window.dispatchEvent(new PointerEvent("pointermove", at(40, 40)));
+  });
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+  act(() => {
+    window.dispatchEvent(new PointerEvent("pointerup", at(40, 40)));
+  });
+}
+
 describe("ProjectsHome dragging", () => {
   it("files a script into a project it is dropped on in the sidebar", () => {
     const setFolder = vi.fn();
@@ -231,17 +257,19 @@ describe("ProjectsHome dragging", () => {
     expect(reorder).not.toHaveBeenCalled();
   });
 
-  it("does not start a drag while an actions menu is open", () => {
+  it("closes an open actions menu and carries on with the drag", () => {
     const setFolder = vi.fn();
     renderHome([stage, card, other], { projects: [draft], onSetFolder: setFolder });
     openProject("Card");
     act(() => host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!.click());
+    expect(document.querySelector(".ui-menu")).not.toBeNull();
     const row = host!.querySelector<HTMLElement>(".lib-main .lib-row")!;
     const target = [...host!.querySelectorAll(".lib-project")].find((el) =>
       el.textContent?.startsWith("Other")
     )!;
     carry(row.querySelector(".lib-row-title") as HTMLElement, () => target);
-    expect(setFolder).not.toHaveBeenCalled();
+    expect(setFolder).toHaveBeenCalledWith("draft", "other");
+    expect(document.querySelector(".ui-menu")).toBeNull();
     expect(document.querySelector(".drag-ghost")).toBeNull();
   });
 
@@ -481,7 +509,8 @@ describe("ProjectsHome desk", () => {
     expect(setOrg).toHaveBeenCalledWith("old", { stackId: "new", stackTop: null });
   });
 
-  it("stacks a cover dropped onto the middle of another", () => {
+  it("stacks a cover held for a moment over the middle of another", () => {
+    vi.useFakeTimers();
     const setOrg = vi.fn();
     const setFolder = vi.fn();
     const a = plain("a", "Treatment A");
@@ -490,12 +519,29 @@ describe("ProjectsHome desk", () => {
     openProject("Card");
     const target = tileTitled("Treatment B");
     box(target.querySelector(".dk-art")!, 0, 0, 100, 140);
-    carry(tileTitled("Treatment A").querySelector(".dk-title") as HTMLElement, () =>
-      target.querySelector(".cv")
-    );
+    carryAndHold(tileTitled("Treatment A").querySelector(".dk-title") as HTMLElement, () => target.querySelector(".cv"), 600);
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    vi.useRealTimers();
     expect(setOrg).toHaveBeenCalledWith("b", { stackId: "b", stackTop: expect.any(String) });
     expect(setOrg).toHaveBeenCalledWith("a", { stackId: "b", stackTop: null });
     expect(setFolder).not.toHaveBeenCalled();
+  });
+
+  it("puts a cover down on top of another, without stacking, when it is let go at once", () => {
+    const setOrg = vi.fn();
+    const setDesk = vi.fn();
+    const a = plain("a", "Treatment A");
+    const b = plain("b", "Treatment B");
+    renderHome([stage, card], { projects: [a, b], onSetOrg: setOrg, onSetDesk: setDesk });
+    openProject("Card");
+    const target = tileTitled("Treatment B");
+    box(target.querySelector(".dk-art")!, 0, 0, 100, 140);
+    box(host!.querySelector("[data-desk]")!, 0, 0, 1200, 900);
+    carry(tileTitled("Treatment A").querySelector(".dk-title") as HTMLElement, () => target.querySelector(".cv"));
+    expect(setOrg).not.toHaveBeenCalled();
+    expect(spotsOf(setDesk).find((x) => x.k === "d:a")).toMatchObject({ x: 30, y: 30 });
   });
 
   it("takes a version out of its stack when it is carried out of the fan onto the desk", () => {
@@ -559,6 +605,20 @@ describe("ProjectsHome desk", () => {
     expect(tile.textContent).toContain("1 one-pager");
   });
 
+  it("moves a project's box on its stage page by grabbing it anywhere", () => {
+    const reorder = vi.fn();
+    renderHome([stage, card, other], { projects: [draft], onReorderFolders: reorder });
+    act(() => host!.querySelector<HTMLElement>(".lib-stage-name")!.click());
+    const [first, second] = [...host!.querySelectorAll<HTMLElement>("[data-project-tile]")];
+    expect(first.dataset.projectTile).toBe("card");
+    // Both boxes sit to the left of where it is let go: it lands after the second.
+    box(first, -600, 0, 250, 300);
+    box(second, -300, 0, 250, 300);
+    const page = host!.querySelector("[data-project-grid]")!;
+    carry(first.querySelector(".dk-project-name") as HTMLElement, () => page);
+    expect(reorder).toHaveBeenLastCalledWith(["other", "card"]);
+  });
+
   it("switches to the list and remembers it", () => {
     renderHome([stage, card], { projects: [draft] });
     openProject("Card");
@@ -615,6 +675,14 @@ describe("ProjectsHome desk inside a project", () => {
     openProject("Card");
     const body = host!.querySelector(".dk-folder-body")!;
     box(body, 0, 0, 300, 200);
+    const front = host!.querySelector(".dk-folder-front")!;
+    box(front, 0, 100, 300, 100);
+    // On the folder's front the pointer is holding the folder: nothing comes up.
+    act(() => {
+      front.dispatchEvent(new PointerEvent("pointermove", { clientX: 250, clientY: 150, bubbles: true }));
+    });
+    expect(host!.querySelector(".dk-folder-pulled")).toBeNull();
+    // Over the papers, they come up one at a time.
     act(() => {
       body.dispatchEvent(new PointerEvent("pointermove", { clientX: 250, clientY: 50, bubbles: true }));
     });
@@ -622,6 +690,24 @@ describe("ProjectsHome desk inside a project", () => {
     expect(host!.querySelector(".dk-folder-count")?.textContent).toBe("3 of 3");
     act(() => host!.querySelector<HTMLElement>(".dk-folder-pulled")!.click());
     expect(open).toHaveBeenCalledWith("p2");
+  });
+
+  it("moves an open folder from anywhere on it, while a thing inside comes out on its own", () => {
+    const setDesk = vi.fn();
+    const setFolder = vi.fn();
+    const inside = plain("p", "Old draft", { folderId: "old" });
+    const withDesk = { ...card, desk: { v: 1 as const, spots: [{ k: "f:old", x: 400, y: 300, open: true }] } };
+    renderHome([stage, withDesk, old], { projects: [inside], onSetDesk: setDesk, onSetFolder: setFolder });
+    openProject("Card");
+    const desk = host!.querySelector("[data-desk]")!;
+    box(desk, 0, 0, 1200, 900);
+    // The empty space in the folder, not just its head, picks the folder up.
+    carry(host!.querySelector<HTMLElement>(".dk-column-body")!, () => desk);
+    expect(spotsOf(setDesk).find((x) => x.k === "f:old")).toMatchObject({ x: 30, y: 30, open: true });
+    expect(setFolder).not.toHaveBeenCalled();
+    // A row inside is carried as itself, out onto the desk.
+    carry(host!.querySelector<HTMLElement>(".dk-column [data-row]")!, () => desk);
+    expect(setFolder).toHaveBeenLastCalledWith("p", "card");
   });
 
   it("opens a folder into a column on the desk, and folds it shut again", () => {
@@ -653,8 +739,89 @@ describe("ProjectsHome desk inside a project", () => {
       "Untitled one-pager",
       expect.objectContaining({ folderId: "card", kind: "onepager" })
     );
-    // Hung under the pointer by (52, 66): let go at (40, 40) on a desk starting at (-100, -100).
-    expect(spotsOf(setDesk).find((x) => x.k === "d:fresh")).toMatchObject({ x: 88, y: 74 });
+    // Let go at (40, 40) on a desk starting at (-100, -100): the pointer is at
+    // (140, 140) on the desk, the middle of the new 188px cover (251px tall).
+    expect(spotsOf(setDesk).find((x) => x.k === "d:fresh")).toMatchObject({ x: 46, y: 15 });
+  });
+
+  it("lets a drag be called off with Escape, and letting go then opens nothing", () => {
+    const open = vi.fn();
+    const setDesk = vi.fn();
+    renderHome([stage, card], { projects: [plain("a", "Pitch A")], onOpen: open, onSetDesk: setDesk });
+    openProject("Card");
+    const title = tileTitled("Pitch A").querySelector(".dk-title") as HTMLElement;
+    const at = (x: number, buttons: number) => ({ pointerId: 1, isPrimary: true, pointerType: "mouse", button: 0, buttons, clientX: x, clientY: 10, bubbles: true, cancelable: true });
+    document.elementFromPoint = () => title;
+    act(() => {
+      title.dispatchEvent(new PointerEvent("pointerdown", at(10, 1)));
+      window.dispatchEvent(new PointerEvent("pointermove", at(60, 1)));
+    });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(document.querySelector(".drag-ghost")).toBeNull();
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointerup", at(60, 0)));
+      title.click();
+    });
+    expect(open).not.toHaveBeenCalled();
+    expect(setDesk).not.toHaveBeenCalled();
+  });
+
+  it("puts a folder's size back when Escape is pressed while resizing it", () => {
+    const setDesk = vi.fn();
+    const open = vi.fn();
+    renderHome([stage, card, old], { projects: [plain("p", "Old draft", { folderId: "old" })], onSetDesk: setDesk, onOpen: open });
+    openProject("Card");
+    const handle = host!.querySelector(".dk-folder-resize")!;
+    const at = (x: number, buttons: number) => ({ pointerId: 1, button: 0, buttons, clientX: x, clientY: 100, bubbles: true });
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", at(100, 1)));
+      window.dispatchEvent(new PointerEvent("pointermove", at(180, 1)));
+    });
+    expect((host!.querySelector(".dk-folder") as HTMLElement).style.width).toBe("294px");
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect((host!.querySelector(".dk-folder") as HTMLElement).style.width).toBe("214px");
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointerup", at(180, 0)));
+      (host!.querySelector(".dk-folder-name") as HTMLElement).click();
+    });
+    expect(setDesk).not.toHaveBeenCalled();
+  });
+
+  it("makes a new note inside a shut folder without leaving the desk waiting for its name", () => {
+    const setDesk = vi.fn();
+    const create = vi.fn(() => plain("fresh", "Untitled notes", { folderId: "old" }));
+    const props = renderHome([stage, card, old], {
+      projects: [plain("a", "Pitch A")],
+      onCreate: create,
+      onSetDesk: setDesk,
+      onSetOrg: vi.fn(),
+    });
+    openProject("Card");
+    const tool = [...host!.querySelectorAll<HTMLElement>(".dk-tool")].find((el) => el.textContent?.includes("Note"))!;
+    carry(tool, () => host!.querySelector(".dk-folder"));
+    expect(create).toHaveBeenCalledWith("plain", "Untitled notes", expect.objectContaining({ folderId: "old" }));
+    act(() =>
+      root?.render(<ProjectsHome {...props} projects={[plain("a", "Pitch A"), plain("fresh", "Untitled notes", { folderId: "old" })]} />)
+    );
+    // Nothing is left half-renamed: the next thing carried still moves.
+    const desk = host!.querySelector("[data-desk]")!;
+    box(desk, 0, 0, 1200, 900);
+    carry(tileTitled("Pitch A").querySelector(".dk-title") as HTMLElement, () => desk);
+    expect(spotsOf(setDesk).find((x) => x.k === "d:a")).toMatchObject({ x: 30, y: 30 });
+  });
+
+  it("makes a new note inside an open folder when it is let go over the folder's list", () => {
+    const create = vi.fn(() => plain("fresh", "Untitled notes", { folderId: "old" }));
+    const withDesk = { ...card, desk: { v: 1 as const, spots: [{ k: "f:old", x: 400, y: 300, open: true }] } };
+    renderHome([stage, withDesk, old], { projects: [], onCreate: create, onSetDesk: vi.fn(), onSetOrg: vi.fn() });
+    openProject("Card");
+    const tool = [...host!.querySelectorAll<HTMLElement>(".dk-tool")].find((el) => el.textContent?.includes("Note"))!;
+    carry(tool, () => host!.querySelector(".dk-column-body"));
+    expect(create).toHaveBeenCalledWith("plain", "Untitled notes", expect.objectContaining({ folderId: "old" }));
   });
 
   it("tidies up the desk, and undo puts every spot back", () => {

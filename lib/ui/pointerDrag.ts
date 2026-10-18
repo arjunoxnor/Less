@@ -98,6 +98,35 @@ let active = false;
 export const isPointerDragging = () => active;
 
 /**
+ * Eat the click that a press-and-drag would otherwise end with, so letting go
+ * over something never opens it. With `held`, the button is still down (the
+ * drag was called off with Escape): wait for it to come up first.
+ */
+export function swallowNextClick(pointerId: number, held = false): void {
+  const swallow = (event: MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+  };
+  const stop = () => {
+    window.removeEventListener("click", swallow, true);
+    window.removeEventListener("pointerdown", stop, true);
+  };
+  window.addEventListener("click", swallow, true);
+  // Whatever happens, a new press is never eaten.
+  window.addEventListener("pointerdown", stop, true);
+  if (!held) {
+    setTimeout(stop, 0);
+    return;
+  }
+  const up = (event: PointerEvent) => {
+    if (event.pointerId !== pointerId) return;
+    window.removeEventListener("pointerup", up, true);
+    setTimeout(stop, 0);
+  };
+  window.addEventListener("pointerup", up, true);
+}
+
+/**
  * Start watching a press. Call from a pointerdown handler; the rest runs on
  * window listeners until the pointer is released.
  */
@@ -113,6 +142,11 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
   const holdTimer = touch ? setTimeout(() => (ready = true), 260) : null;
 
   let started = false;
+  // Picked up near an edge (a tool at the top of the toolbar, say), the pane
+  // waits until the pointer has been away from that edge before it scrolls
+  // by itself, so it never runs off while the writer takes aim.
+  let armedY = false;
+  let armedX = false;
   let last: DragPoint = { x: startX, y: startY };
   let grab = { x: 0, y: 0 };
   let ghost: HTMLElement | null = null;
@@ -140,13 +174,17 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
     const step = autoScrollStep(last.y, rect.top, rect.bottom);
     // Sideways too, for a pane wider than the window (a project's desk).
     const wide = !pageScroller && scroller.scrollWidth > scroller.clientWidth;
-    const stepX = wide ? autoScrollStep(last.x, rect.left, rect.right) : 0;
-    if (step === 0 && stepX === 0) return;
+    const rawX = wide ? autoScrollStep(last.x, rect.left, rect.right) : 0;
+    if (step === 0) armedY = true;
+    if (rawX === 0) armedX = true;
+    const stepY = armedY ? step : 0;
+    const stepX = armedX ? rawX : 0;
+    if (stepY === 0 && stepX === 0) return;
     const before = pageScroller ? window.scrollY : scroller.scrollTop;
     const beforeX = pageScroller ? 0 : scroller.scrollLeft;
-    if (step !== 0) {
-      if (pageScroller) window.scrollBy(0, step);
-      else scroller.scrollTop += step;
+    if (stepY !== 0) {
+      if (pageScroller) window.scrollBy(0, stepY);
+      else scroller.scrollTop += stepY;
     }
     if (stepX !== 0) scroller.scrollLeft += stepX;
     const after = pageScroller ? window.scrollY : scroller.scrollTop;
@@ -187,12 +225,12 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
     frame = requestAnimationFrame(run);
   };
 
-  const cleanup = () => {
+  const cleanup = (held = false) => {
     window.removeEventListener("pointermove", move, true);
     window.removeEventListener("pointerup", up, true);
-    window.removeEventListener("pointercancel", cancel, true);
+    window.removeEventListener("pointercancel", lost, true);
     window.removeEventListener("keydown", key, true);
-    window.removeEventListener("blur", cancel);
+    window.removeEventListener("blur", lost);
     if (holdTimer) clearTimeout(holdTimer);
     cancelAnimationFrame(frame);
     ghost?.remove();
@@ -206,12 +244,7 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
       }
       // The release after a drag would otherwise land as a click on whatever
       // was carried, and open it.
-      const swallow = (event: MouseEvent) => {
-        event.stopPropagation();
-        event.preventDefault();
-      };
-      window.addEventListener("click", swallow, true);
-      setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+      swallowNextClick(down.pointerId, held);
     }
     active = false;
   };
@@ -242,24 +275,26 @@ export function beginPointerDrag(down: PointerEvent, options: PointerDragOptions
     if (was) options.onDrop(last);
   }
 
-  function cancel() {
+  function cancel(held = false) {
     const was = started;
-    cleanup();
+    cleanup(held);
     if (was) options.onCancel();
   }
+  const lost = () => cancel();
 
   function key(event: KeyboardEvent) {
     if (event.key !== "Escape" || !started) return;
     event.preventDefault();
     event.stopPropagation();
-    cancel();
+    // The button is still down: its release must not click what is under it.
+    cancel(true);
   }
 
   window.addEventListener("pointermove", move, true);
   window.addEventListener("pointerup", up, true);
-  window.addEventListener("pointercancel", cancel, true);
+  window.addEventListener("pointercancel", lost, true);
   window.addEventListener("keydown", key, true);
-  window.addEventListener("blur", cancel);
+  window.addEventListener("blur", lost);
 }
 
 /* ---- Hit-testing helpers --------------------------------------------------- */
