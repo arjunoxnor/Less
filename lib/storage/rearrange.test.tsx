@@ -371,3 +371,46 @@ describe("rearranging is not editing", () => {
     expect(shown(id)).toBe("3 days ago");
   });
 });
+
+describe("a document this device pulls fresh", () => {
+  /** A cloud row this device has never seen (a new device, or after signing back in). */
+  const row = (id: string, title: string, clocks: { updated: string; edited?: string }) => ({
+    id,
+    title,
+    type: "plain",
+    status: "writing",
+    created_at: daysAgo(10),
+    updated_at: clocks.updated,
+    placed_at: clocks.updated,
+    title_at: daysAgo(10),
+    status_at: daysAgo(10),
+    ...(clocks.edited ? { edited_at: clocks.edited } : {}),
+    folder_id: null,
+    position: null,
+    kind: null,
+    stack_id: null,
+    stack_top: null,
+    org_at: null,
+    digest: null,
+    tp_author: null,
+  });
+
+  it("reads 'edited' from when its writing changed, not from its last move", async () => {
+    // Written three days ago and dragged to a new spot an hour ago: the move
+    // bumped the row's updated_at, and must not read as an edit here.
+    const written = daysAgo(3);
+    // From a server that predates edited_at: updated_at is all there is.
+    const olderServer = daysAgo(2);
+    cloud.listScripts.mockResolvedValue([
+      row("moved", "Pilot draft 2", { updated: hoursAgo(1), edited: written }),
+      row("plain-old", "Notes", { updated: olderServer }),
+    ]);
+    await mount();
+    await settle();
+
+    expect(getProjectMeta("moved")!.updatedAt).toBe(written);
+    expect(shown("moved")).toBe("3 days ago");
+    expect(getProjectMeta("plain-old")!.updatedAt).toBe(olderServer);
+    expect(recentOrder()).toEqual(["plain-old", "moved"]);
+  });
+});

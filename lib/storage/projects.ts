@@ -45,7 +45,7 @@ export interface ProjectMeta {
   status: ProjectStatus;
   createdAt: string;
   /** When the writing (body or title) last changed on this device; a project
-   *  first pulled from the cloud starts from the cloud row's updated_at. It is
+   *  first pulled from the cloud starts from the cloud row's edited_at. It is
    *  the "edited" time the home shows and orders Recent by, so arranging must
    *  never move it: placement, status, kind and stacks each have their own clock. */
   updatedAt: string;

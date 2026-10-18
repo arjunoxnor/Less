@@ -173,9 +173,9 @@ async function loadOne(id: string): Promise<{ row: Row; lines: string[] }> {
 async function writeLines(row: Row, lines: string[]): Promise<void> {
   const at = new Date().toISOString();
   const res = await sql(
-    `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?
+    `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?, edited_at = ?
      WHERE type = 'voice' AND user_id = ? AND id = ? AND updated_at = ?`,
-    [JSON.stringify(linesToDoc(lines)), at, row.user_id, row.id, row.updated_at]
+    [JSON.stringify(linesToDoc(lines)), at, at, row.user_id, row.id, row.updated_at]
   );
   if (!(res.meta?.changes ?? 0)) {
     emit({ ok: false, reason: "changed-underneath" });
@@ -283,9 +283,9 @@ async function script(args: string[]): Promise<void> {
     const blank = { type: "screenplayLine", attrs: { element: "action" }, content: [] };
     existing.content = [...existing.content, blank, ...(doc.content ?? [])];
     const res = await sql(
-      `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?
+      `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?, edited_at = ?
        WHERE type = 'screenplay' AND user_id = ? AND id = ? AND updated_at = ?`,
-      [JSON.stringify(existing), at, USER, id, row.updated_at]
+      [JSON.stringify(existing), at, at, USER, id, row.updated_at]
     );
     if (!(res.meta?.changes ?? 0)) {
       emit({ ok: false, reason: "changed-underneath" });
@@ -299,9 +299,9 @@ async function script(args: string[]): Promise<void> {
   const title = args[0];
   const id = randomUUID();
   await sql(
-    `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [USER, id, "screenplay", title, "not_started", JSON.stringify(doc), null, null, null, at, at, at, at, at]
+    `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at,edited_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [USER, id, "screenplay", title, "not_started", JSON.stringify(doc), null, null, null, at, at, at, at, at, at]
   );
   const ledger = readLedger();
   ledger.push({ id, title, createdAt: at, source: file.split("/").pop() });
@@ -456,9 +456,9 @@ async function deliverVoiceNote(args: string[]): Promise<void> {
   }
   const now = new Date().toISOString();
   const res = await sql(
-    `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?
+    `UPDATE scripts SET content = ?, digest = NULL, updated_at = ?, edited_at = ?
      WHERE type IN ('plain','voice') AND user_id = ? AND id = ? AND updated_at = ?`,
-    [JSON.stringify(next), now, USER, docId, row.updated_at]
+    [JSON.stringify(next), now, now, USER, docId, row.updated_at]
   );
   if (!(res.meta?.changes ?? 0)) {
     emit({ ok: false, reason: "changed-underneath" });

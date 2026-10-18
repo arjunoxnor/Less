@@ -583,13 +583,15 @@ export function useProjects(user: User | null) {
             // does not start loose and then push a blank placement back up (which
             // would erase the folder for everyone). titleManual keeps the local
             // auto-namer from re-deriving the cloud title from the first line.
+            // "Edited" is when the writing last changed, not the row's
+            // updated_at, which every move and status change also bumps.
             upsertCloudMeta({
               id: c.id,
               title: c.title,
               type: c.type,
               status: c.status,
               createdAt: c.created_at ?? c.updated_at,
-              updatedAt: c.updated_at,
+              updatedAt: c.edited_at ?? c.updated_at,
               cloudCreated: true,
               folderId: c.folder_id ?? undefined,
               order: c.position ?? undefined,

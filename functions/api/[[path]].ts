@@ -551,7 +551,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         if (method === "GET") {
           const r = await db
             .prepare(
-              `SELECT id,title,type,status,updated_at,created_at,placed_at,title_at,status_at,folder_id,position,
+              `SELECT id,title,type,status,updated_at,created_at,placed_at,title_at,status_at,edited_at,folder_id,position,
                       kind,stack_id,stack_top,org_at,digest,
                       CASE WHEN json_valid(title_page) THEN json_extract(title_page,'$.author') END AS tp_author
                FROM scripts WHERE user_id=? ORDER BY updated_at DESC`
@@ -607,12 +607,12 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
           const stackTop = cleanIso(b.stack_top);
           await db
             .prepare(
-              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at,kind,stack_id,stack_top,org_at,digest)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+              `INSERT INTO scripts (user_id,id,type,title,status,content,title_page,folder_id,position,created_at,updated_at,placed_at,title_at,status_at,edited_at,kind,stack_id,stack_top,org_at,digest)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(user_id,id) DO UPDATE SET
                  type=excluded.type, title=excluded.title, status=excluded.status,
                  content=excluded.content, title_page=excluded.title_page, updated_at=excluded.updated_at,
-                 digest=excluded.digest`
+                 edited_at=excluded.edited_at, digest=excluded.digest`
             )
             .bind(
               uid,
@@ -627,6 +627,7 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               now,
               now,
               b.placed_at ?? now,
+              now,
               now,
               now,
               kind,
@@ -738,6 +739,10 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             if ("title" in b && !isBodySave) {
               sets.push("title_at = CASE WHEN title IS ? THEN title_at ELSE ? END");
               vals.push(b.title, now);
+              // A real rename counts as an edit, as it does on the device that
+              // made it (edited_at is what "edited" shows on a fresh device).
+              sets.push("edited_at = CASE WHEN title IS ? THEN edited_at ELSE ? END");
+              vals.push(b.title, now);
             }
             if ("status" in b && !isBodySave) {
               sets.push("status_at = CASE WHEN status IS ? THEN status_at ELSE ? END");
@@ -748,6 +753,10 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
             if (isBodySave) {
               sets.push("digest=?");
               vals.push(b.content != null ? JSON.stringify(digestOf(b.content)) : null);
+              // The writing changed. Nothing else (a move, a status change, a
+              // regrouping) moves edited_at, though each one bumps updated_at.
+              sets.push("edited_at=?");
+              vals.push(now);
             }
             // Kind and stack membership: one group on its own clock (org_at),
             // like folder + position on placed_at. Never part of a body save.

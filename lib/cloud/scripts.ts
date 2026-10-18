@@ -32,6 +32,10 @@ export interface ScriptSummary {
   placed_at: string | null;
   title_at: string | null;
   status_at: string | null;
+  /** When the writing (words, title page or title) last changed (migration
+   *  0008). Unlike updated_at, a move, a status change or a regrouping never
+   *  moves it. Absent from a server that predates it. */
+  edited_at?: string | null;
   folder_id: string | null;
   position: number | null;
   /** The desk (migration 0006): explicit kind, stack membership, their clock. */

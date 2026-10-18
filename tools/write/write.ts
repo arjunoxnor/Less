@@ -193,8 +193,8 @@ async function put(id: string, readAt: string, file: string, label: string) {
   }
   const at = now();
   const out = await sql(
-    "UPDATE scripts SET content = ?, digest = NULL, updated_at = ? WHERE user_id = ? AND id = ? AND updated_at = ?",
-    [next, at, USER, id, readAt]
+    "UPDATE scripts SET content = ?, digest = NULL, updated_at = ?, edited_at = ? WHERE user_id = ? AND id = ? AND updated_at = ?",
+    [next, at, at, USER, id, readAt]
   );
   if ((out.meta?.changes ?? 0) === 0) {
     console.error("Changed while writing. Nothing was replaced. Get it again and redo the edit on top.");
@@ -286,8 +286,8 @@ async function create(title: string, file: string, folderId?: string, asType?: s
   const id = randomUUID();
   const at = now();
   await sql(
-    "INSERT INTO scripts (user_id, id, type, title, status, content, title_page, folder_id, position, created_at, updated_at, placed_at, title_at, status_at) VALUES (?, ?, ?, ?, 'not_started', ?, NULL, ?, NULL, ?, ?, ?, ?, ?)",
-    [USER, id, rowType, title, body, folderId ?? null, at, at, at, at, at]
+    "INSERT INTO scripts (user_id, id, type, title, status, content, title_page, folder_id, position, created_at, updated_at, placed_at, title_at, status_at, edited_at) VALUES (?, ?, ?, ?, 'not_started', ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?)",
+    [USER, id, rowType, title, body, folderId ?? null, at, at, at, at, at, at]
   );
   // A new document has no History yet. Give it one entry, so the body written
   // here can be restored if a browser running an older build opens it, does not
