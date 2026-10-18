@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { DocKind } from "@/lib/cover/kinds";
 import type { Folder } from "@/lib/storage/folders";
 import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
 import { Cover } from "./Cover";
+import { settle } from "./settle";
 import { useCornerResize } from "./useCornerResize";
 
 /**
@@ -18,9 +19,16 @@ import { useCornerResize } from "./useCornerResize";
  *
  * Keyboard: Left and Right rifle, Enter opens what came up (or the folder),
  * Space opens the folder. The handle at its corner makes it bigger or
- * smaller; the folder is drawn in proportion to its width, so it keeps its
- * shape at any size.
+ * smaller, and the folder uses the room: a small one shows a few papers, a big
+ * one fans out more of them, and past a size it carries a typed contents slip
+ * on its front listing the first few titles. It is drawn in proportion to its
+ * width, so it keeps its shape at any size.
  */
+
+/** How many papers peek out of a folder this wide. */
+export const papersFor = (width: number) => (width < 170 ? 3 : width < 250 ? 5 : width < 330 ? 7 : 9);
+/** How many titles its contents slip lists (none on a smaller folder). */
+export const slipLinesFor = (width: number) => (width >= 380 ? 5 : width >= 290 ? 3 : 0);
 export function FolderObject({
   folder,
   docs,
@@ -69,8 +77,29 @@ export function FolderObject({
   });
   const shownWidth = resize.live?.w ?? width;
   const n = docs.length;
-  const shown = docs.slice(0, 5);
+  // A bigger folder shows more of what it holds; the fan opens more gently
+  // the more papers there are, so it never splays.
+  const shown = docs.slice(0, papersFor(shownWidth));
+  const spread = shown.length <= 3 ? 5 : shown.length <= 5 ? 3.5 : shown.length <= 7 ? 2.4 : 1.8;
+  const slipLines = slipLinesFor(shownWidth);
   const up = pulled !== null && pulled < n ? docs[pulled] : null;
+
+  // Papers that come into view as the folder grows rise out of its pocket.
+  const papersRef = useRef<HTMLDivElement>(null);
+  const shownBefore = useRef(shown.length);
+  useLayoutEffect(() => {
+    const before = shownBefore.current;
+    shownBefore.current = shown.length;
+    if (shown.length <= before || !papersRef.current) return;
+    settle(
+      Array.from(papersRef.current.children).slice(before),
+      [
+        { opacity: 0, translate: "0 45%" },
+        { opacity: 1, translate: "0 0" },
+      ],
+      { duration: 280, stagger: 40 }
+    );
+  }, [shown.length]);
 
   const rifle = (e: React.PointerEvent<HTMLElement>) => {
     if (n === 0 || document.documentElement.classList.contains("is-dragging")) return;
@@ -127,7 +156,12 @@ export function FolderObject({
         <div className="dk-folder-back" aria-hidden="true">
           <span className="dk-folder-tab" />
         </div>
-        <div className="dk-folder-papers" aria-hidden="true">
+        <div
+          ref={papersRef}
+          className="dk-folder-papers"
+          aria-hidden="true"
+          style={{ ["--spread" as string]: `${spread}deg` } as React.CSSProperties}
+        >
           {shown.map((doc, i) => (
             <span
               key={doc.id}
@@ -178,6 +212,16 @@ export function FolderObject({
         >
           <span className="dk-folder-front-line" aria-hidden="true" />
           {n === 0 && <span className="dk-folder-empty">Empty</span>}
+          {n > 0 && slipLines > 0 && (
+            <span className="dk-folder-slip" aria-hidden="true">
+              {docs.slice(0, slipLines).map((doc) => (
+                <span key={doc.id} className="dk-folder-slip-line">
+                  {doc.title || "Untitled"}
+                </span>
+              ))}
+              {n > slipLines && <span className="dk-folder-slip-more">and {n - slipLines} more</span>}
+            </span>
+          )}
         </div>
         {onResize && (
           <button

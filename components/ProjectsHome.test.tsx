@@ -736,4 +736,25 @@ describe("ProjectsHome desk inside a project", () => {
     rightClick(host!.querySelector(".dk-folder-front")!, 60, 60);
     expect(document.querySelector('[aria-label="Folder actions"]')?.textContent).toContain("Rename");
   });
+
+  it("shows more of a folder as it grows: more papers, then a contents slip with the first titles", () => {
+    const inside = Array.from({ length: 8 }, (_, i) => plain("q" + i, "Draft " + (i + 1), { folderId: "old" }));
+    const at = (w: number) => ({ ...card, desk: { v: 1 as const, spots: [{ k: "f:old", x: 40, y: 40, w }] } });
+    const props = renderHome([stage, at(150), old], { projects: inside });
+    openProject("Card");
+    const papers = () => host!.querySelectorAll(".dk-folder-paper").length;
+    expect(papers()).toBe(3);
+    expect(host!.querySelector(".dk-folder-slip")).toBeNull();
+    act(() => root?.render(<ProjectsHome {...props} folders={[stage, at(300), old]} />));
+    expect(papers()).toBe(7);
+    expect([...host!.querySelectorAll(".dk-folder-slip-line")].map((l) => l.textContent)).toEqual([
+      "Draft 1",
+      "Draft 2",
+      "Draft 3",
+    ]);
+    expect(host!.querySelector(".dk-folder-slip-more")?.textContent).toBe("and 5 more");
+    act(() => root?.render(<ProjectsHome {...props} folders={[stage, at(420), old]} />));
+    expect(papers()).toBe(8);
+    expect(host!.querySelectorAll(".dk-folder-slip-line")).toHaveLength(5);
+  });
 });

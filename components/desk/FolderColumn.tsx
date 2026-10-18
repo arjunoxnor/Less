@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { DocKind } from "@/lib/cover/kinds";
 import { KIND_LABEL } from "@/lib/cover/kinds";
 import type { Folder } from "@/lib/storage/folders";
@@ -8,6 +8,7 @@ import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
 import { NameInput, relativeTime } from "../home/homeParts";
 import { Cover } from "./Cover";
+import { settle } from "./settle";
 import { useCornerResize } from "./useCornerResize";
 
 /**
@@ -16,7 +17,8 @@ import { useCornerResize } from "./useCornerResize";
  * shut again into a folder; carry things into it (onto its head to file them,
  * or between its rows to put them in a place) and out of it onto the desk.
  * Its corner handle sets its width and height; shorter than what it holds,
- * it scrolls.
+ * it scrolls. Wide enough, it shows its things as a small grid of covers
+ * instead of a list (desk.css), and they settle into their new places.
  */
 export function FolderColumn({
   folder,
@@ -68,6 +70,25 @@ export function FolderColumn({
   });
   const shownW = resize.live?.w ?? width;
   const shownH = resize.live?.h ?? height;
+
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const asCovers = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const now = getComputedStyle(body).display === "grid";
+    const was = asCovers.current;
+    asCovers.current = now;
+    if (was === null || was === now) return;
+    settle(
+      Array.from(body.querySelectorAll("[data-row]")),
+      [
+        { opacity: 0.2, transform: "scale(0.94)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: 260, stagger: 18 }
+    );
+  }, [shownW]);
   return (
     <section
       className={"dk-column" + (lifted ? " is-lifted" : "") + (resize.live ? " is-resizing" : "")}
@@ -123,7 +144,7 @@ export function FolderColumn({
           <DotsIcon />
         </button>
       </header>
-      <div className="dk-column-body" data-list={folder.id}>
+      <div ref={bodyRef} className="dk-column-body" data-list={folder.id}>
         {children}
       </div>
       {empty && <p className="dk-column-empty">Carry things here to file them in {folder.name}.</p>}

@@ -95,7 +95,7 @@ function lineFor(container: HTMLElement, rows: HTMLElement[], slot: number): Dro
 /** The upright marker for a slot among covers: in the gap before or after a cover. */
 function gridLineFor(grid: HTMLElement, tiles: HTMLElement[], slot: number, y: number): DropLine {
   const artOf = (tile: HTMLElement) =>
-    (tile.querySelector(".dk-art") ?? tile).getBoundingClientRect();
+    (tile.querySelector(".dk-art, .dk-row-thumb") ?? tile).getBoundingClientRect();
   if (tiles.length === 0) {
     const box = grid.getBoundingClientRect();
     return { left: box.left + 2, top: box.top, width: 3, height: 120 };
@@ -113,6 +113,13 @@ function gridLineFor(grid: HTMLElement, tiles: HTMLElement[], slot: number, y: n
   }
   const box = prevBox!;
   return { left: box.right + 11 - 1.5, top: box.top, width: 3, height: box.height };
+}
+
+/** How many columns a list lays out in right now (a widened folder is a grid). */
+function columnsOf(list: HTMLElement): number {
+  const style = getComputedStyle(list);
+  if (style.display !== "grid") return 1;
+  return style.gridTemplateColumns.split(" ").filter(Boolean).length || 1;
 }
 
 /** A cover's middle: where letting go stacks, rather than places beside it. */
@@ -197,6 +204,17 @@ function hitTest(
     const list = el?.closest<HTMLElement>("[data-list]");
     if (list) {
       const rows = childrenWith(list, "data-row");
+      // A widened folder lays its things out as a grid of covers: place
+      // between covers then, not on a line between rows.
+      if (columnsOf(list) > 1) {
+        const slot = gridSlotAt(rows, x, y);
+        return {
+          drop: { kind: "list", container: list.dataset.list!, slot },
+          line: gridLineFor(list, rows, slot, y),
+          key: null,
+          spring: null,
+        };
+      }
       const slot = listSlotAt(rows, y);
       return {
         drop: { kind: "list", container: list.dataset.list!, slot },
