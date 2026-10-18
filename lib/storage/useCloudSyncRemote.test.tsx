@@ -15,6 +15,7 @@ import { syncFingerprint } from "./syncBaseline";
 import {
   createProject,
   getLastSavedAt,
+  getProjectMeta,
   getSyncedPrint,
   isDirty,
   isTitleDirty,
@@ -355,6 +356,34 @@ describe("a body written somewhere else while the document is open", () => {
     expect(cloud.saveScript.mock.calls[0][1]).toEqual(body("my real edit"));
     expect(editor.json).toEqual(body("my real edit"));
     expect(remote).not.toHaveBeenCalled();
+  });
+
+  it("leaves an idle document alone when the cloud only moved for a reorder", async () => {
+    // Dragging a document to a new spot sends a placement PATCH, and the
+    // server bumps the row's updated_at for it. The words did not change, so
+    // the open copy must neither be replaced nor re-sent, and must not start
+    // reading "edited just now".
+    startWith("start");
+    const editedBefore = getProjectMeta(projectId)!.updatedAt;
+    await mount();
+    await vi.waitFor(() => expect(syncApi?.status).toBe("synced"));
+    cloud.fetchScript.mockClear();
+
+    cloudHolds("start", T1); // same words, the row's clock moved for the reorder
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(getLastSavedAt(projectId)).toBe(T1));
+
+    expect(cloud.fetchScript).toHaveBeenCalledTimes(1); // it did look
+    expect(editor.setContent).not.toHaveBeenCalled(); // nothing pulled over the page
+    expect(cloud.saveScript).not.toHaveBeenCalled(); // nothing sent over the cloud
+    expect(editor.json).toEqual(body("start"));
+    expect(remote).not.toHaveBeenCalled();
+    expect(listLocalVersions(projectId)).toEqual([]);
+    expect(isDirty(projectId)).toBe(false);
+    expect(getProjectMeta(projectId)!.updatedAt).toBe(editedBefore);
   });
 
   it("does not resend a body that is flagged dirty but did not change", async () => {

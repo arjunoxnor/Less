@@ -44,6 +44,10 @@ export interface ProjectMeta {
   type: ProjectType;
   status: ProjectStatus;
   createdAt: string;
+  /** When the writing (body or title) last changed on this device; a project
+   *  first pulled from the cloud starts from the cloud row's updated_at. It is
+   *  the "edited" time the home shows and orders Recent by, so arranging must
+   *  never move it: placement, status, kind and stacks each have their own clock. */
   updatedAt: string;
   /** Whether a matching cloud row has been created for this project yet. */
   cloudCreated: boolean;
@@ -53,12 +57,14 @@ export interface ProjectMeta {
   titleManual?: boolean;
   /** Optional goal page count, shown in the status bar (local-only). */
   pageTarget?: number;
-  /** Which folder this project is filed under (local-only); undefined = loose. */
+  /** Which folder this project is filed under (synced as folder_id); undefined = loose. */
   folderId?: string;
-  /** Manual position within its container (local-only); unset sorts by recency. */
+  /** Manual position within its container (synced as position); unset sorts
+   *  after the placed ones, oldest first. */
   order?: number;
   /** When the placement (folder/position) last changed. Synced separately from
-   *  updatedAt so a content save can never out-rank a real folder move. */
+   *  updatedAt so a content save can never out-rank a real folder move, and so
+   *  a move never reads as an edit. */
   placedAt?: string;
   /** When the title last changed locally. Its own clock so an unrelated remote
    *  status/folder change can never make a stale cloud title out-rank a rename. */
@@ -896,17 +902,17 @@ export function setStatus(id: string, status: ProjectStatus): void {
 
 /**
  * File a project into a folder, or null to move it to the loose top level.
- * Bumps updatedAt so placement changes participate in last-write-wins sync.
+ * Stamps only the placement clock, which is what placement sync compares.
+ * Moving a document is not editing it, so its "edited" time stays put.
  */
 export function setProjectFolder(id: string, folderId: string | null): void {
-  const ts = nowIso();
-  patchMeta(id, { folderId: folderId ?? undefined, updatedAt: ts, placedAt: ts });
+  patchMeta(id, { folderId: folderId ?? undefined, placedAt: nowIso() });
 }
 
 /**
  * Apply a folder placement pulled from the cloud (folder + manual position).
- * Pass the cloud row's updatedAt so the local timestamp aligns and the value
- * does not immediately bounce back on the next reconcile.
+ * Pass the cloud row's placed_at so the local placement clock aligns and the
+ * value does not immediately bounce back on the next reconcile.
  */
 export function setProjectPlacement(
   id: string,
@@ -979,7 +985,11 @@ export function hasProjectBody(id: string): boolean {
   return lsGet(docKey(id)) !== null || lsGet(docPendingKey(id)) !== null;
 }
 
-/** Persist a manual order (local-only) for a set of project ids in a container. */
+/**
+ * Persist a manual order for a set of project ids in a container. Like a
+ * folder move it stamps only the placement clock: rearranging is not editing,
+ * so no row starts reading "edited just now" (and none jumps into Recent).
+ */
 export function reorderProjects(orderedIds: string[]): void {
   const list = readIndex();
   const pos = new Map(orderedIds.map((id, i) => [id, i]));
@@ -988,7 +998,7 @@ export function reorderProjects(orderedIds: string[]): void {
   for (let i = 0; i < list.length; i++) {
     const o = pos.get(list[i].id);
     if (o !== undefined && list[i].order !== o) {
-      list[i] = { ...list[i], order: o, updatedAt: ts, placedAt: ts };
+      list[i] = { ...list[i], order: o, placedAt: ts };
       changed = true;
     }
   }

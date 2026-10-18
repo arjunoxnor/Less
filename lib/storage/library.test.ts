@@ -215,8 +215,9 @@ describe("listLibrary", () => {
   });
 
   it("does not move anything when a project is filed into a folder", () => {
-    // The exact complaint: dragging something into a folder stamps its clock,
-    // and the page must not rearrange itself in response.
+    // The exact complaint: dragging something into a folder stamped its clock
+    // (it no longer does, but an edit right after still moves it), and the
+    // page must not rearrange itself in response.
     const before = listLibrary(PROJECTS, FOLDERS);
     const positions = (lib: ReturnType<typeof listLibrary>) => ({
       sections: lib.sections.map((s) => s.folder.name),
@@ -242,6 +243,35 @@ describe("listLibrary", () => {
       .sections.flatMap((s) => s.cards)
       .find((c) => c.folder.id === "gooa")!;
     expect(gooa.items.map((p) => p.title)).toEqual(["GooA brainstorming", "GooA D5"]);
+  });
+
+  it("dates a project by the writing in it, never by arranging it", () => {
+    // Dragging a project to a new spot, renaming it or recoloring it stamps
+    // the folder's own clock (that is how folders sync). None of it is
+    // writing, so none of it may make the project read "edited just now".
+    const cardOf = (folders: Folder[], id: string) =>
+      listLibrary(PROJECTS, folders)
+        .sections.flatMap((s) => s.cards)
+        .find((c) => c.folder.id === id)!;
+    const arranged = FOLDERS.map((f) =>
+      f.id === "gooa" || f.id === "inprogress" ? { ...f, order: f.order + 5, updatedAt: t(28) } : f
+    );
+    // Its newest document is the brainstorming doc, edited on day 22.
+    expect(cardOf(arranged, "gooa").lastTouched).toBe(t(22));
+    expect(cardOf(arranged, "gooa").lastTouched).toBe(cardOf(FOLDERS, "gooa").lastTouched);
+    const section = listLibrary(PROJECTS, arranged).sections.find(
+      (s) => s.folder.id === "inprogress"
+    )!;
+    expect(section.lastTouched).toBe(t(22));
+  });
+
+  it("dates an empty project by when it was made", () => {
+    const empty = { ...folder("empty", "Nothing yet", "inprogress"), createdAt: t(3), updatedAt: t(28) };
+    const card = listLibrary(PROJECTS, [...FOLDERS, empty])
+      .sections.flatMap((s) => s.cards)
+      .find((c) => c.folder.id === "empty")!;
+    expect(card.total).toBe(0);
+    expect(card.lastTouched).toBe(t(3));
   });
 });
 

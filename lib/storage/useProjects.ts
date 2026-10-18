@@ -609,6 +609,9 @@ export function useProjects(user: User | null) {
         // Covers: a device without this body (never opened here, or freed to
         // save space) draws from the cloud's digest, as does one whose copy is
         // older and has no unsaved edits. A local body with edits keeps its own.
+        // The cloud's updated_at moves on every PATCH (a reorder too), so at
+        // most this redraws a clean copy's cover from the cloud's own digest.
+        // It never touches the words.
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;
@@ -664,6 +667,10 @@ export function useProjects(user: User | null) {
         // a stale value of another field look "newer" (the shared updated_at is
         // bumped by every PATCH). The dirty flag means "we have a local edit to
         // push"; the clock decides who wins on a genuine conflict.
+        // A title or status this device never set has no clock of its own; its
+        // stand-in is when the writing last changed here (updatedAt). Arranging
+        // never moves that, so a reorder can never make a stale title or status
+        // look newer than a real change made on another device.
         for (const c of cloud) {
           const lm = getProjectMeta(c.id);
           if (!lm) continue;

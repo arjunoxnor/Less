@@ -600,7 +600,7 @@ export function ProjectsHome({
   /* ---- Continue, and what was touched lately ---- */
 
   // "Now writing" is whatever was last OPENED, not whatever was last written
-  // to: filing something stamps its clock, and tidying up must not move it.
+  // to, so nothing done on the home (tidying up, a sync) can swap it.
   const lead = useMemo(() => {
     const lastId = getLastOpenedId();
     const opened = lastId ? projectById.get(lastId) : undefined;

@@ -49,6 +49,7 @@ export interface Card {
   total: number;
   /** The newest screenplay in the card, or the newest project if none. */
   current: ProjectMeta | null;
+  /** When the writing inside last changed (what "edited" shows; see lastEdited). */
   lastTouched: string;
 }
 
@@ -58,6 +59,7 @@ export interface Section {
   cards: Card[];
   /** Projects filed straight into the section, with no card of their own. */
   loose: ProjectMeta[];
+  /** When the writing anywhere in the section last changed. */
   lastTouched: string;
 }
 
@@ -173,10 +175,9 @@ export function reorderIdsAtSlot(
 
 /**
  * The writer's own order, and nothing else: a manual position when one is set,
- * otherwise oldest first. Deliberately NOT by updatedAt. Filing something into
- * a folder stamps that project's clock, so a recency order made whatever you
- * just touched leap to the top of the page, which is disorienting when you are
- * only tidying up. Things stay where you put them.
+ * otherwise oldest first. Deliberately NOT by updatedAt. A recency order made
+ * whatever you just touched leap to the top of the page, which is disorienting
+ * when you are only tidying up. Things stay where you put them.
  */
 function byPlace(a: ProjectMeta, b: ProjectMeta): number {
   const oa = a.order ?? Number.MAX_SAFE_INTEGER;
@@ -187,6 +188,18 @@ function byPlace(a: ProjectMeta, b: ProjectMeta): number {
 
 function newer(a: string, b: string): string {
   return a > b ? a : b;
+}
+
+/**
+ * When the writing in these documents last changed, or `fallback` when there
+ * are none. A folder's own updatedAt never counts: it is that folder's sync
+ * clock, and it moves when the folder is dragged to a new spot, renamed or
+ * recolored. Arranging is not writing, so it must not read as "edited".
+ */
+function lastEdited(docs: ProjectMeta[], fallback: string): string {
+  let at = "";
+  for (const p of docs) at = newer(at, p.updatedAt);
+  return at || fallback;
 }
 
 /**
@@ -335,8 +348,8 @@ function buildCard(
   const scripts = all.filter((p) => p.type === "screenplay").sort(newestFirst);
   const current = scripts[0] ?? [...all].sort(newestFirst)[0] ?? null;
 
-  let lastTouched = folder.updatedAt;
-  for (const p of all) lastTouched = newer(lastTouched, p.updatedAt);
+  // An empty card has no writing yet, so it reads from when it was made.
+  const lastTouched = lastEdited(all, folder.createdAt);
 
   return { folder, items, shelves, total: all.length, current, lastTouched };
 }
@@ -356,9 +369,11 @@ export function listLibrary(projects: ProjectMeta[], folders: Folder[]): Library
     const cards = (kids.get(top.id) ?? []).map((f) => buildCard(f, kids, inFolder));
     const loose = inFolder.get(top.id) ?? [];
 
-    let lastTouched = top.updatedAt;
-    for (const c of cards) lastTouched = newer(lastTouched, c.lastTouched);
-    for (const p of loose) lastTouched = newer(lastTouched, p.updatedAt);
+    const inside = [
+      ...loose,
+      ...cards.flatMap((c) => [...c.items, ...c.shelves.flatMap((s) => s.items)]),
+    ];
+    const lastTouched = lastEdited(inside, top.createdAt);
 
     // No clock sort here either: childIndex already has these in the writer's
     // own folder order, and that is the order the page keeps.
