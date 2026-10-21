@@ -750,15 +750,14 @@ describe("ProjectsHome desk inside a project", () => {
     renderHome([stage, wide], { projects: [plain("a", "Pitch A"), plain("b", "Pitch B")], onSetDesk: setDesk });
     openProject("Card");
     const desk = host!.querySelector<HTMLElement>("[data-desk]")!;
-    // Laid out for 2200, shown 1100 wide: half size would be too small, so the
-    // smallest readable scale, and the rest scrolls.
-    expect(desk.dataset.scale).toBe("0.55");
-    expect(desk.style.zoom).toBe("0.55");
+    // Laid out for 2200, shown 1100 wide: half size.
+    expect(desk.dataset.scale).toBe("0.5");
+    expect(desk.style.zoom).toBe("0.5");
     box(desk, 0, 0, 1200, 900);
     carry(tileTitled("Pitch B").querySelector(".dk-title") as HTMLElement, () => desk);
-    // Let go 30px (on screen) from where it was grabbed: 55 desk units.
+    // Let go 30px (on screen) from where it was grabbed: 60 desk units.
     const spots = spotsOf(setDesk);
-    expect(spots.find((x) => x.k === "d:b")).toMatchObject({ x: 55, y: 55 });
+    expect(spots.find((x) => x.k === "d:b")).toMatchObject({ x: 60, y: 60 });
     expect((setDesk.mock.calls.at(-1)![1] as { w0?: number }).w0).toBe(2200);
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import type { ChainedCommands, Editor } from "@tiptap/react";
 import { DOC_FONTS, DOC_SIZES, docFontOf, sizeOf, styleAt, wordAround, type DocFont } from "@/lib/editor/docFonts";
 import type { DocFontChoice } from "@/lib/storage/localStore";
@@ -305,6 +305,15 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
 function usePopover<T extends string>() {
   const [menu, setMenu] = useState<T | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // A menu opens toward the side of the screen with room for it: a control
+  // at the right end of the toolbar opens leftward, one that wrapped to the
+  // left edge (a narrow window) opens rightward.
+  const [end, setEnd] = useState(false);
+  useLayoutEffect(() => {
+    if (!menu || !ref.current) return;
+    const box = ref.current.getBoundingClientRect();
+    setEnd(box.left + box.width / 2 > window.innerWidth / 2);
+  }, [menu]);
   useEffect(() => {
     if (!menu) return;
     const onDown = (e: MouseEvent) => {
@@ -325,7 +334,7 @@ function usePopover<T extends string>() {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [menu]);
-  return { menu, setMenu, ref };
+  return { menu, setMenu, ref, side: end ? " tb-menu-list-end" : "" };
 }
 
 function Caret() {
@@ -411,7 +420,7 @@ export function FontControls({
           <Caret />
         </button>
         {font.menu && (
-          <div className="tb-menu-list tb-menu-list-end pt-fonts" role="menu" aria-label="Font">
+          <div className={"tb-menu-list pt-fonts" + font.side} role="menu" aria-label="Font">
             {DOC_FONTS.map((f) => (
               <button
                 key={f.key}
@@ -459,7 +468,7 @@ export function FontControls({
           <Caret />
         </button>
         {size.menu && (
-          <div className="tb-menu-list tb-menu-list-end pt-sizes" role="menu" aria-label="Size">
+          <div className={"tb-menu-list pt-sizes" + size.side} role="menu" aria-label="Size">
             {DOC_SIZES.map((n) => (
               <button
                 key={n}

@@ -57,10 +57,11 @@ export const DESK_GAP = 30;
 export const DESK_W0_MIN = 480;
 export const DESK_W0_MAX = 8000;
 /**
- * How far a desk scales to fit a screen. Smaller than this it would be too
- * small to read, so it scrolls instead; bigger, the extra room just shows.
+ * How far a desk scales to fit a screen. Smaller than this the covers would
+ * be too small to tell apart, so it scrolls instead (names never shrink past
+ * a readable size, see desk.css); bigger, the extra room just shows.
  */
-export const DESK_SCALE_MIN = 0.55;
+export const DESK_SCALE_MIN = 0.4;
 export const DESK_SCALE_MAX = 1.8;
 
 const KEY = /^[dsf]:[A-Za-z0-9_-]{1,64}$/;
