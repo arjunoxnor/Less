@@ -548,6 +548,30 @@ export function addLocalVersion(
   return saved;
 }
 
+/**
+ * Make room on a full device by trimming on-device history: every other
+ * project keeps only its newest snapshot, and this one its newest two (the
+ * cloud keeps the full history for a signed-in writer). True if anything was
+ * freed.
+ */
+export function freeHistorySpace(keepId: string): boolean {
+  let keys: string[] = [];
+  try {
+    keys = Object.keys(window.localStorage).filter((k) => /^less:project:.+:localvers$/.test(k));
+  } catch {
+    return false;
+  }
+  let freed = false;
+  for (const key of keys) {
+    const id = key.slice("less:project:".length, -":localvers".length);
+    const ring = listLocalVersions(id);
+    const keep = id === keepId ? 2 : 1;
+    if (ring.length <= keep) continue;
+    freed = lsSet(key, JSON.stringify(ring.slice(0, keep))) || freed;
+  }
+  return freed;
+}
+
 export function clearLocalVersions(id: string): void {
   lsSet(localVersKey(id), null);
   lsSet(localVersAtKey(id), null);
@@ -710,7 +734,10 @@ export function saveProjectDoc(id: string, content: JSONContent): boolean {
     return saveConflictCopy(id, content);
   }
 
-  const result = writeProjectBody(localId, payload);
+  let result = writeProjectBody(localId, payload);
+  // Storage full: on-device history is the first thing to give way, never the
+  // writing itself. Trim it and try once more before reporting "Not saved".
+  if (!result.ok && freeHistorySpace(localId)) result = writeProjectBody(localId, payload);
   const ok = result.ok;
   // If the body did not persist (storage full/disabled), do NOT bump updatedAt
   // or re-derive the title: that would advance the index past content we failed

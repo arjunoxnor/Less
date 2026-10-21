@@ -30,7 +30,11 @@ export function buildRevisionTracker(isEnabled: () => boolean): Extension {
               transaction.docChanged &&
               !isHistoryTransaction(transaction) &&
               !transaction.getMeta(SKIP_REVISION_META) &&
-              !transaction.getMeta("preventUpdate");
+              !transaction.getMeta("preventUpdate") &&
+              // In a shared (Duet) script, a change arriving from someone
+              // else is theirs: it is starred on their screen, not here.
+              // (y-tiptap's sync plugin key; "isChangeOrigin" marks what it applied.)
+              !(transaction.getMeta("y-sync$") as { isChangeOrigin?: boolean } | undefined)?.isChangeOrigin;
             const ranges = finalChangedRanges(trs, edits);
             if (!ranges.length) return null;
 
