@@ -1,11 +1,12 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import type { DocKind } from "@/lib/cover/kinds";
 import type { Folder } from "@/lib/storage/folders";
 import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
 import { Cover } from "./Cover";
+import { DeskScale } from "./DeskCanvas";
 import { settle } from "./settle";
 import { useCornerResize } from "./useCornerResize";
 
@@ -74,6 +75,7 @@ export function FolderObject({
     width,
     minW: 140,
     maxW: 460,
+    scale: useContext(DeskScale),
     onCommit: onResize ? (size) => onResize(size.w) : undefined,
   });
   const shownWidth = resize.live?.w ?? width;

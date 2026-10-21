@@ -140,15 +140,19 @@ function inStackZone(tile: HTMLElement, x: number, y: number): boolean {
   return x > box.left + dx && x < box.right - dx && y > box.top + dy && y < box.bottom - dy;
 }
 
-/** Where the carried thing would land on a desk: its top-left, on the desk. */
+/** How much a desk is drawn scaled to fit the screen (see DeskCanvas). */
+const scaleOf = (desk: HTMLElement | null | undefined) => Number(desk?.dataset.scale) || 1;
+
+/** Where the carried thing would land on a desk: its top-left, in desk units. */
 function deskHit(desk: HTMLElement, x: number, y: number, grab: DragPoint): Hit {
   const box = desk.getBoundingClientRect();
+  const scale = scaleOf(desk);
   return {
     drop: {
       kind: "desk",
       container: desk.dataset.desk!,
-      x: Math.max(0, Math.round(x - grab.x - box.left)),
-      y: Math.max(0, Math.round(y - grab.y - box.top)),
+      x: Math.max(0, Math.round((x - grab.x - box.left) / scale)),
+      y: Math.max(0, Math.round((y - grab.y - box.top) / scale)),
     },
     line: null,
     key: null,
@@ -367,6 +371,9 @@ export function useHomeDrag({
     const offDesk = (what.kind === "item" && !!what.onDesk) || what.kind === "deskFolder";
     const ghostOffset =
       what.kind === "tool" ? { x: -52, y: -66 } : what.kind === "item" && !offDesk ? { x: 14, y: 10 } : undefined;
+    // Something still settling from its last move is measured where it comes
+    // to rest, so a quick second grab is held at the same spot as the first.
+    element.closest<HTMLElement>(".dk-spot")?.getAnimations?.().forEach((a) => a.finish());
     const rect = element.getBoundingClientRect();
     grabRef.current = ghostOffset
       ? { x: -ghostOffset.x, y: -ghostOffset.y }
@@ -408,14 +415,37 @@ export function useHomeDrag({
           copy.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
           copy.classList.add("dk-ghost-full");
           copy.classList.remove("is-lifted", "is-stack-target", "is-drop", "is-rifling");
+          // A copy starts scrolled to the top: an open folder carried away
+          // shows its list where the writer had scrolled it.
+          const lists = Array.from(el.querySelectorAll<HTMLElement>(".dk-column-body"), (list) => list.scrollTop);
           // A cover from a folder wide enough to show covers stays a cover in
           // the air (out of the folder its layout would fall back to a row).
           if (el.classList.contains("dk-row") && el.parentElement && columnsOf(el.parentElement) > 1) {
             copy.classList.add("is-card");
           }
-          // A copy starts scrolled to the top: an open folder carried away
-          // shows its list where the writer had scrolled it.
-          const lists = Array.from(el.querySelectorAll<HTMLElement>(".dk-column-body"), (list) => list.scrollTop);
+          // Off a desk scaled to fit the screen, the copy is drawn at the
+          // desk's scale, inside a holder the drag positions.
+          const scale = scaleOf(el.closest<HTMLElement>("[data-desk]"));
+          if (scale !== 1) {
+            const holder = document.createElement("div");
+            holder.className = "dk-ghost-zoom";
+            Object.assign(copy.style, {
+              position: "relative",
+              inset: "auto",
+              margin: "0px",
+              width: `${el.getBoundingClientRect().width / scale}px`,
+              zoom: String(scale),
+            });
+            holder.appendChild(copy);
+            if (lists.some((top) => top > 0)) {
+              queueMicrotask(() =>
+                copy.querySelectorAll<HTMLElement>(".dk-column-body").forEach((list, i) => {
+                  list.scrollTop = lists[i] ?? 0;
+                })
+              );
+            }
+            return holder;
+          }
           if (lists.some((top) => top > 0)) {
             queueMicrotask(() =>
               copy.querySelectorAll<HTMLElement>(".dk-column-body").forEach((list, i) => {

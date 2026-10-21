@@ -1,5 +1,6 @@
 "use client";
 
+import { useContext } from "react";
 import type { DocKind } from "@/lib/cover/kinds";
 import { KIND_LABEL } from "@/lib/cover/kinds";
 import { paletteFor, stickyFor } from "@/lib/cover/palette";
@@ -7,6 +8,7 @@ import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
 import { NameInput, relativeTime, STATUS_LABEL } from "../home/homeParts";
 import { Cover } from "./Cover";
+import { DeskScale } from "./DeskCanvas";
 import { StackGlyph } from "./glyphs";
 import { useCornerResize } from "./useCornerResize";
 
@@ -92,6 +94,7 @@ export function DeskTile({
     width: width ?? 180,
     minW: 96,
     maxW: 520,
+    scale: useContext(DeskScale),
     onCommit: onResize ? (size) => onResize(size.w) : undefined,
   });
   const liveWidth = resize.live?.w ?? null;

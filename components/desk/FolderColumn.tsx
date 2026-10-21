@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useContext, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { DocKind } from "@/lib/cover/kinds";
 import { KIND_LABEL } from "@/lib/cover/kinds";
 import type { Folder } from "@/lib/storage/folders";
@@ -8,6 +8,7 @@ import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
 import { NameInput, relativeTime } from "../home/homeParts";
 import { Cover } from "./Cover";
+import { DeskScale } from "./DeskCanvas";
 import { settle } from "./settle";
 import { useCornerResize } from "./useCornerResize";
 
@@ -57,6 +58,7 @@ export function FolderColumn({
   onResize?: (size: { w: number; h: number }) => void;
   children: ReactNode;
 }) {
+  const scale = useContext(DeskScale);
   const resize = useCornerResize({
     width,
     height: height ?? 320,
@@ -64,10 +66,12 @@ export function FolderColumn({
     maxW: 720,
     minH: 150,
     maxH: 2400,
-    // A column that has never been sized starts from the size it has on screen.
+    scale,
+    // A column that has never been sized starts from the size it has on
+    // screen (in desk units, on a desk scaled to fit).
     measure: (handle) => {
       const box = handle.closest(".dk-column")?.getBoundingClientRect();
-      return box && box.width > 0 ? { w: Math.round(box.width), h: Math.round(box.height) } : null;
+      return box && box.width > 0 ? { w: Math.round(box.width / scale), h: Math.round(box.height / scale) } : null;
     },
     onCommit: onResize ? (size) => onResize({ w: size.w, h: size.h ?? height ?? 320 }) : undefined,
   });

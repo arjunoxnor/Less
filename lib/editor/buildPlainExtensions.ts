@@ -1,7 +1,8 @@
 import { Extension } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
-import { TextStyle } from "@tiptap/extension-text-style";
+import { FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextAlign } from "@tiptap/extension-text-align";
@@ -10,6 +11,7 @@ import { TaskItem } from "@tiptap/extension-task-item";
 import { SmartCaps } from "./smartCaps";
 import { boardExtensions } from "./boardNodes";
 import { VoiceNote, VoicePending, type VoiceNoteOptions } from "./voiceNodes";
+import { cleanPastedHTML } from "./docFonts";
 
 /**
  * Notes use paragraph spacing for their visible rhythm. At the top level,
@@ -37,12 +39,21 @@ export const UniformPlainBreaks = Extension.create({
   },
 });
 
+/** Text pasted from another app takes on the document's own font and size (docFonts.ts). */
+export const PastedLooks = Extension.create({
+  name: "pastedLooks",
+  addProseMirrorPlugins() {
+    return [new Plugin({ key: new PluginKey("pastedLooks"), props: { transformPastedHTML: cleanPastedHTML } })];
+  },
+});
+
 /**
  * The plain-document editor schema: the STANDARD ProseMirror rich-text schema,
  * entirely separate from the strict screenplay schema. StarterKit 3 brings
  * paragraphs, headings, lists, blockquote, hr, code, history, link, and
  * bold/italic/underline/strike. On top we add the rest of the Google-Docs-style
- * toolset: text alignment, highlight, text color, and checklists.
+ * toolset: text alignment, highlight, text color, a font and a size for any
+ * stretch of text, and checklists.
  */
 export function buildPlainExtensions(opts?: {
   placeholder?: string;
@@ -56,7 +67,10 @@ export function buildPlainExtensions(opts?: {
       link: { openOnClick: false, autolink: true },
     }),
     TextStyle,
+    FontFamily,
+    FontSize,
     Color,
+    PastedLooks,
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ["heading", "paragraph"] }),
     TaskList,

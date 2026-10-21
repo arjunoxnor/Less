@@ -45,7 +45,7 @@ import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { modKeyLabel } from "@/lib/platform";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
-import { PlainToolbar } from "./PlainToolbar";
+import { FontControls, PlainToolbar } from "./PlainToolbar";
 import { BoardTools } from "./BoardTools";
 import { insertImages, type PlacedImage } from "@/lib/editor/boardNodes";
 import { imageFilesFrom, uploadImage } from "@/lib/cloud/assets";
@@ -658,43 +658,13 @@ export function PlainBody({
               />
             ) : null}
             <div className="toolbar-spacer" />
-            <div className="toolbar-group">
-              <select
-                className="tb-select"
-                value={prefs.docFont}
-                onChange={(e) => onPrefsChange({ docFont: e.target.value as Prefs["docFont"] })}
-                title="Font"
-                aria-label="Font"
-              >
-                {[
-                  { value: "calibri", label: "Calibri" },
-                  { value: "arial", label: "Arial" },
-                  { value: "times", label: "Times New Roman" },
-                  { value: "georgia", label: "Georgia" },
-                  { value: "verdana", label: "Verdana" },
-                  { value: "proxima", label: "Proxima Nova" },
-                  { value: "futura", label: "Futura" },
-                  { value: "courier-prime", label: "Courier Prime" },
-                ].map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="tb-select tb-select-size"
-                value={prefs.docFontSize ?? 16}
-                onChange={(e) => onPrefsChange({ docFontSize: Number(e.target.value) })}
-                title="Font size"
-                aria-label="Font size"
-              >
-                {[11, 12, 13, 14, 16, 18, 20, 24, 28, 32].map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* A font or size changes what is selected; the default is in its menu. */}
+            <FontControls
+              editor={editor}
+              baseFont={prefs.docFont}
+              baseSize={prefs.docFontSize ?? 16}
+              onBaseChange={onPrefsChange}
+            />
           </>
         }
         statusBar={

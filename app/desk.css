@@ -1496,6 +1496,29 @@ body {
 }
 
 /* the surface */
+/* A desk scaled down to fit a small screen keeps its words readable: each
+   name stays at least this big on screen (it wraps within its own width). */
+.dk-canvas .dk-title {
+  font-size: max(14px, calc(11px / var(--desk-scale, 1)));
+}
+.dk-canvas .dk-kind {
+  font-size: max(10.5px, calc(8.5px / var(--desk-scale, 1)));
+}
+.dk-canvas .dk-meta {
+  font-size: max(12px, calc(9.5px / var(--desk-scale, 1)));
+}
+.dk-canvas .dk-row-title {
+  font-size: max(13.5px, calc(11px / var(--desk-scale, 1)));
+}
+.dk-canvas .dk-row-when {
+  font-size: max(11.5px, calc(9px / var(--desk-scale, 1)));
+}
+.dk-canvas .dk-column-name {
+  font-size: max(20px, calc(13px / var(--desk-scale, 1)));
+}
+.dk-canvas .dk-folder-name {
+  font-size: max(clamp(15px, calc(18 * var(--u)), 30px), calc(12px / var(--desk-scale, 1)));
+}
 .dk-canvas {
   position: relative;
   min-height: 560px;
@@ -1616,9 +1639,18 @@ body {
 }
 /* The thing casts its own shadow, in its own shape: never the box around it
    (a tile is a cover and a label on nothing; a folder is a folder). */
-.drag-ghost.dk-ghost-full {
+.drag-ghost.dk-ghost-full,
+.drag-ghost.dk-ghost-zoom {
   box-shadow: none !important;
   opacity: 1;
+}
+/* The holder of a copy carried off a desk scaled to fit the screen. */
+.dk-ghost-zoom {
+  pointer-events: none;
+}
+.dk-ghost-zoom > * {
+  animation: none !important;
+  transition: none !important;
 }
 /* It lifts as it is picked up, rather than appearing already tilted. */
 .dk-ghost-full.dk-tile .dk-art,
@@ -1645,7 +1677,7 @@ body {
   transform: rotate(-2deg);
   filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.38));
 }
-.drag-ghost.dk-ghost-full.dk-column {
+.dk-ghost-full.dk-column:is(.drag-ghost, .dk-ghost-zoom > *) {
   box-shadow: 0 34px 60px -22px rgba(0, 0, 0, 0.55) !important;
 }
 .dk-ghost-full.dk-row {
@@ -1678,7 +1710,7 @@ body {
   transform: translate(6px, -6px) rotate(4deg);
   border-radius: 5px;
 }
-.drag-ghost.dk-ghost-full.dk-row {
+.dk-ghost-full.dk-row:is(.drag-ghost, .dk-ghost-zoom > *) {
   box-shadow: 0 18px 36px -14px rgba(0, 0, 0, 0.45) !important;
 }
 /* What was picked up fades as it lifts away (and is back at once when let go,

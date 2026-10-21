@@ -12,6 +12,10 @@
  * only where it sits. Filing (into a folder) and stacking stay separate,
  * deliberate actions, each one undoable.
  *
+ * A desk is laid out for one width (w0). Opened on a smaller or bigger screen,
+ * the whole desk is drawn scaled to fit it, so an arrangement made on a big
+ * monitor still sits right on a laptop, and the other way round.
+ *
  * Pure and dependency-free: the API sanitizes layouts with the same function.
  */
 
@@ -33,6 +37,8 @@ export interface DeskLayout {
   v: 1;
   /** Back to front: a later spot sits on top of an earlier one. */
   spots: DeskSpot[];
+  /** The width (px) the desk is laid out for: shown at any other, it scales to fit. */
+  w0?: number;
 }
 
 export const DESK_MAX_SPOTS = 600;
@@ -47,6 +53,15 @@ export const COLUMN_MAX_H = 2400;
 /** Room around the edge of the desk, and between things placed for you. */
 export const DESK_PAD = 28;
 export const DESK_GAP = 30;
+/** The widths a desk can be laid out for. */
+export const DESK_W0_MIN = 480;
+export const DESK_W0_MAX = 8000;
+/**
+ * How far a desk scales to fit a screen. Smaller than this it would be too
+ * small to read, so it scrolls instead; bigger, the extra room just shows.
+ */
+export const DESK_SCALE_MIN = 0.55;
+export const DESK_SCALE_MAX = 1.8;
 
 const KEY = /^[dsf]:[A-Za-z0-9_-]{1,64}$/;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -63,7 +78,7 @@ export function sanitizeDesk(value: unknown): DeskLayout | null {
     }
   }
   if (!v || typeof v !== "object") return null;
-  const raw = v as { v?: unknown; spots?: unknown };
+  const raw = v as { v?: unknown; spots?: unknown; w0?: unknown };
   if (raw.v !== 1 || !Array.isArray(raw.spots)) return null;
   const byKey = new Map<string, DeskSpot>();
   for (const item of raw.spots.slice(0, DESK_MAX_SPOTS * 2)) {
@@ -89,7 +104,37 @@ export function sanitizeDesk(value: unknown): DeskLayout | null {
     byKey.delete(r.k);
     byKey.set(r.k, spot);
   }
-  return { v: 1, spots: [...byKey.values()].slice(-DESK_MAX_SPOTS) };
+  const w0 = num(raw.w0);
+  return {
+    v: 1,
+    spots: [...byKey.values()].slice(-DESK_MAX_SPOTS),
+    ...(w0 !== null && w0 > 0 ? { w0: clamp(Math.round(w0), DESK_W0_MIN, DESK_W0_MAX) } : {}),
+  };
+}
+
+/** A layout's laid-out width, carried over to the layout that replaces it. */
+const keepW0 = (layout: DeskLayout | null | undefined) => (layout?.w0 ? { w0: layout.w0 } : {});
+
+/**
+ * The width a desk is laid out for: its own once it has one. A desk arranged
+ * before desks scaled is taken as laid out for the screen it is on (or for
+ * its rightmost thing, if that reaches further), so it only ever scales down
+ * to fit, never up, until it is next arranged.
+ */
+export function designWidthOf(layout: DeskLayout | null, things: readonly DeskThing[], width: number): number {
+  if (layout?.w0) return layout.w0;
+  const sizes = new Map(things.map((t) => [t.key, t.w]));
+  let right = 0;
+  for (const spot of layout?.spots ?? []) right = Math.max(right, spot.x + (sizes.get(spot.k) ?? 0) + DESK_PAD);
+  return clamp(Math.round(Math.max(width, right)), DESK_W0_MIN, DESK_W0_MAX);
+}
+
+/** How much a desk laid out for w0 is scaled to show on a screen this wide. */
+export function deskScale(width: number, w0: number): number {
+  if (!(width > 0) || !(w0 > 0)) return 1;
+  const s = clamp(width / w0, DESK_SCALE_MIN, DESK_SCALE_MAX);
+  // Within a hair of the width it was made for, it is drawn as it is.
+  return Math.abs(s - 1) < 0.01 ? 1 : Math.round(s * 1000) / 1000;
 }
 
 /* ---- Placing things ------------------------------------------------------ */
@@ -214,7 +259,7 @@ export function freezeDesk(
     })
     .filter((r): r is { spot: DeskSpot; z: number } => !!r)
     .sort((a, b) => a.z - b.z);
-  return { v: 1, spots: rows.map((r) => r.spot) };
+  return { v: 1, ...keepW0(layout), spots: rows.map((r) => r.spot) };
 }
 
 /** Carry a spot's sizes and open state over to its replacement. */
@@ -248,21 +293,25 @@ export function placeOnDesk(layout: DeskLayout, key: string, patch: Partial<Omit
     if (patch.oh === undefined) delete next.oh;
     else next.oh = clamp(Math.round(patch.oh), COLUMN_MIN_H, COLUMN_MAX_H);
   }
-  return { v: 1, spots: [...layout.spots.filter((s) => s.k !== key), next] };
+  return { v: 1, ...keepW0(layout), spots: [...layout.spots.filter((s) => s.k !== key), next] };
 }
 
 /** Take things off a desk (they moved elsewhere). */
 export function removeFromDesk(layout: DeskLayout, keys: readonly string[]): DeskLayout {
   const gone = new Set(keys);
-  return { v: 1, spots: layout.spots.filter((s) => !gone.has(s.k)) };
+  return { v: 1, ...keepW0(layout), spots: layout.spots.filter((s) => !gone.has(s.k)) };
 }
 
-/** Tidy up: everything placed afresh, most important first; sizes and open folders kept. */
+/**
+ * Tidy up: everything placed afresh, most important first; sizes and open
+ * folders kept. The desk is laid out anew for the width it is tidied at.
+ */
 export function tidyDesk(things: readonly DeskThing[], layout: DeskLayout | null, width: number): DeskLayout {
   const fresh = arrangeDesk(things, null, width);
   const old = new Map((layout?.spots ?? []).map((s) => [s.k, s]));
   return {
     v: 1,
+    w0: clamp(Math.round(width), DESK_W0_MIN, DESK_W0_MAX),
     spots: things.map((t) => {
       const p = fresh.get(t.key)!;
       const prior = [t.key, ...(t.aliases ?? [])].map((k) => old.get(k)).find(Boolean);

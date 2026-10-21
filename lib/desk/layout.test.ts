@@ -3,6 +3,9 @@ import {
   arrangeDesk,
   DESK_GAP,
   DESK_PAD,
+  DESK_W0_MIN,
+  deskScale,
+  designWidthOf,
   firstFree,
   freezeDesk,
   placeOnDesk,
@@ -103,5 +106,38 @@ describe("freeze, place, remove, tidy", () => {
     expect(tidy.spots.map((s) => s.k)).toEqual(["d:a", "d:b", "f:x"]);
     expect(tidy.spots[0]).toMatchObject({ x: DESK_PAD, y: DESK_PAD, w: 150 });
     expect(tidy.spots[2].open).toBe(true);
+  });
+});
+
+describe("a desk laid out for one screen, shown on another", () => {
+  const things = [thing("d:a"), thing("d:b")];
+
+  it("keeps the width it is laid out for through sync and every change", () => {
+    const clean = sanitizeDesk({ v: 1, w0: 1999.6, spots: [{ k: "d:a", x: 10, y: 10 }] })!;
+    expect(clean.w0).toBe(2000);
+    expect(sanitizeDesk({ v: 1, w0: 99, spots: [] })!.w0).toBe(DESK_W0_MIN);
+    expect(sanitizeDesk({ v: 1, w0: "wide", spots: [] })!.w0).toBeUndefined();
+    expect(placeOnDesk(clean, "d:a", { x: 50 }).w0).toBe(2000);
+    expect(removeFromDesk(clean, ["d:a"]).w0).toBe(2000);
+    expect(freezeDesk(things, arrangeDesk(things, clean, 2000), clean).w0).toBe(2000);
+    // Tidied up, it is laid out afresh for the screen it was tidied on.
+    expect(tidyDesk(things, clean, 1100).w0).toBe(1100);
+  });
+
+  it("scales to fit: down on a smaller screen, up on a bigger one, within limits", () => {
+    expect(deskScale(1100, 2200)).toBe(0.55);
+    expect(deskScale(1500, 2000)).toBe(0.75);
+    expect(deskScale(2000, 1000)).toBe(1.8);
+    expect(deskScale(1500, 1000)).toBe(1.5);
+    expect(deskScale(1102, 1100)).toBe(1);
+  });
+
+  it("takes a desk arranged before it had a width as made for this screen, or for its rightmost thing", () => {
+    const old: DeskLayout = { v: 1, spots: [{ k: "d:a", x: 1600, y: 40 }] };
+    // Its cover reaches 1600 + 100 + the edge.
+    expect(designWidthOf(old, things, 1100)).toBe(1728);
+    expect(designWidthOf(old, things, 2400)).toBe(2400);
+    expect(designWidthOf(null, things, 1300)).toBe(1300);
+    expect(designWidthOf({ ...old, w0: 1500 }, things, 900)).toBe(1500);
   });
 });

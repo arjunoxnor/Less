@@ -1,7 +1,13 @@
 "use client";
 
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { createContext, useLayoutEffect, useRef, type ReactNode } from "react";
 import { settle } from "./settle";
+
+/**
+ * How much the desk on screen is scaled to fit (1 anywhere else), so what is
+ * measured on screen (a resize drag, say) turns back into desk units.
+ */
+export const DeskScale = createContext(1);
 
 /**
  * A project's desk: an open surface where things sit wherever they were put.
@@ -10,19 +16,27 @@ import { settle } from "./settle";
  * the width it has, so things placed for the writer fit across it.
  *
  * data-desk makes the whole surface a place to let go (see useHomeDrag).
+ *
+ * Laid out for one width and shown at another, it is drawn scaled to fit
+ * (CSS zoom): places, sizes and words together, so the arrangement keeps its
+ * shape on any screen. data-scale tells the drag code how to turn a point on
+ * screen back into a place on the desk.
  */
 export function DeskCanvas({
   desk,
   minWidth,
   height,
+  scale = 1,
   tidying,
   onWidth,
   children,
 }: {
   desk: string;
-  /** The rightmost edge of what is on the desk. */
+  /** The rightmost edge of what is on the desk (desk units). */
   minWidth: number;
   height: number;
+  /** Drawn this much bigger or smaller than its own units, to fit the screen. */
+  scale?: number;
   /** Things are gliding to new places (tidy up, undo). */
   tidying?: boolean;
   onWidth: (width: number) => void;
@@ -39,19 +53,32 @@ export function DeskCanvas({
       if (w > 0) report.current(w);
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
+    // The window resizing (and the pane, when the sidebar folds) rescales
+    // the desk to fit as it happens.
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
   }, []);
   return (
     <div
       ref={ref}
       className={"dk-canvas" + (tidying ? " is-tidying" : "")}
       data-desk={desk}
-      style={{ minWidth, height }}
+      data-scale={scale}
+      style={
+        {
+          minWidth,
+          height,
+          ...(scale !== 1 ? { zoom: scale } : {}),
+          ["--desk-scale" as string]: scale,
+        } as React.CSSProperties
+      }
     >
-      {children}
+      <DeskScale.Provider value={scale}>{children}</DeskScale.Provider>
     </div>
   );
 }

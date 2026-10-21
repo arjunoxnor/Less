@@ -744,6 +744,36 @@ describe("ProjectsHome desk inside a project", () => {
     expect(spotsOf(setDesk).find((x) => x.k === "d:fresh")).toMatchObject({ x: 46, y: 15 });
   });
 
+  it("draws a desk laid out for a bigger screen scaled to fit, and drops land in desk units", () => {
+    const setDesk = vi.fn();
+    const wide = { ...card, desk: { v: 1 as const, w0: 2200, spots: [{ k: "d:a", x: 1600, y: 40 }] } };
+    renderHome([stage, wide], { projects: [plain("a", "Pitch A"), plain("b", "Pitch B")], onSetDesk: setDesk });
+    openProject("Card");
+    const desk = host!.querySelector<HTMLElement>("[data-desk]")!;
+    // Laid out for 2200, shown 1100 wide: half size would be too small, so the
+    // smallest readable scale, and the rest scrolls.
+    expect(desk.dataset.scale).toBe("0.55");
+    expect(desk.style.zoom).toBe("0.55");
+    box(desk, 0, 0, 1200, 900);
+    carry(tileTitled("Pitch B").querySelector(".dk-title") as HTMLElement, () => desk);
+    // Let go 30px (on screen) from where it was grabbed: 55 desk units.
+    const spots = spotsOf(setDesk);
+    expect(spots.find((x) => x.k === "d:b")).toMatchObject({ x: 55, y: 55 });
+    expect((setDesk.mock.calls.at(-1)![1] as { w0?: number }).w0).toBe(2200);
+  });
+
+  it("gives a desk arranged before desks scaled the width it is shown at, the first time it changes", () => {
+    const setDesk = vi.fn();
+    const before = { ...card, desk: { v: 1 as const, spots: [{ k: "d:a", x: 40, y: 40 }] } };
+    renderHome([stage, before], { projects: [plain("a", "Pitch A")], onSetDesk: setDesk });
+    openProject("Card");
+    expect(host!.querySelector<HTMLElement>("[data-desk]")!.dataset.scale).toBe("1");
+    const desk = host!.querySelector("[data-desk]")!;
+    box(desk, 0, 0, 1200, 900);
+    carry(tileTitled("Pitch A").querySelector(".dk-title") as HTMLElement, () => desk);
+    expect((setDesk.mock.calls.at(-1)![1] as { w0?: number }).w0).toBe(1100);
+  });
+
   it("lets a drag be called off with Escape, and letting go then opens nothing", () => {
     const open = vi.fn();
     const setDesk = vi.fn();

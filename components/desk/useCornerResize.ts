@@ -21,6 +21,7 @@ export function useCornerResize({
   maxW,
   minH = 0,
   maxH = 4000,
+  scale = 1,
   measure,
   onCommit,
 }: {
@@ -30,7 +31,9 @@ export function useCornerResize({
   maxW: number;
   minH?: number;
   maxH?: number;
-  /** Read the size it really has on screen when a drag starts (from its handle). */
+  /** How much the desk is scaled on screen: the pointer travels in screen px. */
+  scale?: number;
+  /** Read the size it really has (in desk units) when a drag starts (from its handle). */
   measure?: (handle: HTMLElement) => { w: number; h: number } | null;
   onCommit?: (size: { w: number; h?: number }) => void;
 }) {
@@ -61,7 +64,7 @@ export function useCornerResize({
       if (ev.pointerId !== pointerId) return;
       // Let go somewhere this page never heard about (another window): done.
       if (ev.buttons === 0) return end(ev, false);
-      setLive(sized(ev.clientX - sx, ev.clientY - sy, fromW, fromH));
+      setLive(sized((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, fromW, fromH));
     };
     const up = (ev: PointerEvent) => {
       if (ev.pointerId === pointerId) end(ev, false);
@@ -87,7 +90,7 @@ export function useCornerResize({
       setLive(null);
       swallowNextClick(pointerId, held);
       if (!ev) return;
-      const next = sized(ev.clientX - sx, ev.clientY - sy, fromW, fromH);
+      const next = sized((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, fromW, fromH);
       const moved = Math.abs(next.w - fromW) >= 2 || (fromH !== undefined && Math.abs((next.h ?? fromH) - fromH) >= 2);
       if (moved) onCommit!(next);
     }

@@ -73,6 +73,8 @@ import {
   columnHeight,
   DESK_PAD,
   deskExtent,
+  deskScale,
+  designWidthOf,
   firstFree,
   folderHeight,
   FOLDER_W,
@@ -812,7 +814,14 @@ export function ProjectsHome({
 
   /** What the desk on screen holds and where, as last drawn. A change to a
    *  desk pins everything down where it is, so nothing else jumps. */
-  const deskNow = useRef<{ cardId: string; things: DeskThing[]; placed: Map<string, Placed> } | null>(null);
+  const deskNow = useRef<{
+    cardId: string;
+    things: DeskThing[];
+    placed: Map<string, Placed>;
+    /** The width the desk is laid out for, and how much it is scaled on screen. */
+    w0: number;
+    scale: number;
+  } | null>(null);
   const emptyDesk = (): DeskLayout => ({ v: 1, spots: [] });
 
   /** Change a project's desk. With a label, Undo can put it back. */
@@ -825,7 +834,10 @@ export function ProjectsHome({
     if (!onSetDesk) return before;
     const now = deskNow.current?.cardId === cardId ? deskNow.current : null;
     const base = now ? freezeDesk(now.things, now.placed, before) : (before ?? emptyDesk());
-    onSetDesk(cardId, change(base));
+    const next = change(base);
+    // The first change to a desk settles the width it is laid out for: the
+    // one it is drawn at now, so nothing moves on this screen or any other.
+    onSetDesk(cardId, next.w0 || !now ? next : { ...next, w0: now.w0 });
     if (label) remember(label, () => onSetDesk(cardId, before ?? emptyDesk()));
     return before;
   };
@@ -845,11 +857,15 @@ export function ProjectsHome({
       : [];
     const canvas = document.querySelector<HTMLElement>("[data-desk]");
     const main = mainRef.current;
+    const scale = now?.scale ?? 1;
     const fromY =
       canvas && main
-        ? Math.max(DESK_PAD, Math.round(main.getBoundingClientRect().top - canvas.getBoundingClientRect().top) + DESK_PAD)
+        ? Math.max(
+            DESK_PAD,
+            Math.round((main.getBoundingClientRect().top - canvas.getBoundingClientRect().top) / scale) + DESK_PAD
+          )
         : DESK_PAD;
-    return firstFree(w, h, rects, deskWidth, fromY);
+    return firstFree(w, h, rects, now?.w0 ?? deskWidth, fromY);
   };
 
   /** Whether a folder sits open on this desk, so a new thing made in it shows its name field. */
@@ -1514,10 +1530,15 @@ export function ProjectsHome({
     if (canvas?.dataset.desk && cardById.has(canvas.dataset.desk)) {
       e.preventDefault();
       const box = canvas.getBoundingClientRect();
+      // A point on a desk scaled to fit the screen, in desk units.
+      const scale = Number(canvas.dataset.scale) || 1;
       setMenu({
         kind: "desk",
         card: canvas.dataset.desk,
-        at: { x: Math.max(0, Math.round(e.clientX - box.left)), y: Math.max(0, Math.round(e.clientY - box.top)) },
+        at: {
+          x: Math.max(0, Math.round((e.clientX - box.left) / scale)),
+          y: Math.max(0, Math.round((e.clientY - box.top) / scale)),
+        },
         anchor: anchorFor(null),
       });
       return;
@@ -2703,8 +2724,11 @@ export function ProjectsHome({
     const f = card.folder;
     const stage = stageOfCard.get(f.id);
     const { layout, things, groupOf, shelfOf } = deskThingsOf(card);
-    const placed = arrangeOnce(things, layout, deskWidth);
-    deskNow.current = { cardId: f.id, things, placed };
+    // Laid out for one width, drawn scaled to fit this screen.
+    const w0 = designWidthOf(layout, things, deskWidth);
+    const scale = deskScale(deskWidth, w0);
+    const placed = arrangeOnce(things, layout, w0);
+    deskNow.current = { cardId: f.id, things, placed, w0, scale };
     const extent = deskExtent(things, placed);
     const everything = [...card.items, ...card.shelves.flatMap((x) => x.items)];
     const counts = kindCounts(everything);
@@ -2717,10 +2741,10 @@ export function ProjectsHome({
       const t = things.find((x) => x.key === openGroup.key)!;
       const width = Math.min(
         Math.max(340, openGroup.members.length * 174 + 48),
-        Math.max(340, deskWidth - 2 * DESK_PAD)
+        Math.max(340, w0 - 2 * DESK_PAD)
       );
       spread = {
-        left: Math.max(DESK_PAD, Math.min(at.x - 24, deskWidth - width - DESK_PAD)),
+        left: Math.max(DESK_PAD, Math.min(at.x - 24, w0 - width - DESK_PAD)),
         top: at.y + t.h + 8,
         width,
         members: openGroup.members,
@@ -2808,6 +2832,7 @@ export function ProjectsHome({
               desk={f.id}
               minWidth={reach.w}
               height={reach.h}
+              scale={scale}
               tidying={gliding}
               onWidth={setDeskWidth}
             >
