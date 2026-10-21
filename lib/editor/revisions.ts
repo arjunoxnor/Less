@@ -45,7 +45,8 @@ export function buildRevisionTracker(isEnabled: () => boolean): Extension {
             }
             if (!changed) return null;
             setTr.setMeta(SKIP_REVISION_META, true);
-            setTr.setMeta("addToHistory", false);
+            // The star joins the edit's own undo step: undoing the edit takes
+            // its star with it, so the PDF never stars an unchanged line.
             return setTr;
           },
         }),

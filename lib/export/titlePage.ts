@@ -3,7 +3,20 @@
  * the strict screenplayLine+ document. All fields are optional; an absent or
  * all-empty title page means "no title page" and every exporter skips it.
  */
+/**
+ * A script's own settings. They change what its PDF says, so they belong to
+ * the script, not the app: kept with its title page, they sync with it. A
+ * script that never set one follows the app's default.
+ */
+export interface ScriptSettings {
+  sceneNumbers?: boolean;
+  autoContd?: boolean;
+  revisionMode?: boolean;
+}
+
 export interface TitlePage {
+  /** Not part of the page: the script's own settings (see ScriptSettings). */
+  settings?: ScriptSettings;
   title?: string;
   credit?: string; // e.g. "Written by"
   author?: string;
@@ -16,7 +29,7 @@ export interface TitlePage {
 export const EMPTY_TITLE_PAGE: TitlePage = {};
 
 /** The field order used for the Fountain title block and the PDF layout. */
-export const TITLE_PAGE_FIELDS: (keyof TitlePage)[] = [
+export const TITLE_PAGE_FIELDS: Exclude<keyof TitlePage, "settings">[] = [
   "title",
   "credit",
   "author",
@@ -42,7 +55,13 @@ export function trimTitlePage(tp: TitlePage | null | undefined): TitlePage | nul
   const out: TitlePage = {};
   for (const key of TITLE_PAGE_FIELDS) {
     const v = tp[key];
-    if (typeof v === "string" && v.trim() !== "") out[key] = v.trim();
+    if (typeof v === "string" && v.trim() !== "") (out as Record<string, string>)[key] = v.trim();
   }
-  return hasTitlePage(out) ? out : null;
+  const settings: ScriptSettings = {};
+  for (const key of ["sceneNumbers", "autoContd", "revisionMode"] as const) {
+    const v = tp.settings?.[key];
+    if (typeof v === "boolean") settings[key] = v;
+  }
+  if (Object.keys(settings).length) out.settings = settings;
+  return hasTitlePage(out) || out.settings ? out : null;
 }

@@ -341,3 +341,13 @@ describe("format capitals are applied on the way out", () => {
     expect(printed).not.toContain("alex");
   });
 });
+
+describe("a script's own settings ride with its title page", () => {
+  it("keeps them through trimming, and never counts them as a title page", () => {
+    const tp = trimTitlePage({ settings: { sceneNumbers: true, revisionMode: false, junk: 1 } as never });
+    expect(tp).toEqual({ settings: { sceneNumbers: true, revisionMode: false } });
+    expect(hasTitlePage(tp)).toBe(false);
+    expect(trimTitlePage({ title: " Gods ", settings: { autoContd: true } })).toEqual({ title: "Gods", settings: { autoContd: true } });
+    expect(trimTitlePage({ settings: {} })).toBeNull();
+  });
+});

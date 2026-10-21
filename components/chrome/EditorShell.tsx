@@ -108,7 +108,9 @@ export function EditorShell({
   // so an Esc that dismissed one of those never reaches this.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      // An Escape something else already used (cancelling a rename in a
+      // panel, say) closes nothing more.
+      if (e.key !== "Escape" || e.defaultPrevented) return;
       if (railOpen) {
         setRailOpen(false);
         return;

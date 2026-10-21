@@ -122,6 +122,9 @@ import { TitlePageModal } from "./TitlePageModal";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import { Modal } from "./ui/Modal";
 import { showToast } from "./ui/Toast";
+
+/** A dialog is open over the script (the palette itself does not count). */
+const modalOpen = () => !!document.querySelector(".ui-modal-scrim, .modal-backdrop");
 import type { TitlePage } from "@/lib/export/titlePage";
 import {
   clearProjectShare,
@@ -842,6 +845,17 @@ function ScreenplayEditor({
     flushBeacon,
   } = useCloudSync(editor, user, syncOpts);
 
+  // Scene numbers, auto (CONT'D) and revision mode belong to this script (its
+  // PDF says what they say): kept with its title page, they sync with it. A
+  // script that never set one follows the app's default.
+  const scriptPrefs = {
+    sceneNumbers: titlePage?.settings?.sceneNumbers ?? prefs.sceneNumbers,
+    autoContd: titlePage?.settings?.autoContd ?? prefs.autoContd,
+    revisionMode: titlePage?.settings?.revisionMode ?? prefs.revisionMode,
+  };
+  const setScriptPref = (patch: Partial<typeof scriptPrefs>) =>
+    setTitlePage({ ...(titlePage ?? {}), settings: { ...(titlePage?.settings ?? {}), ...patch } });
+
   // Flush local + cloud on the way out of this project.
   const flushRef = useRef(flush);
   flushRef.current = flush;
@@ -939,15 +953,15 @@ function ScreenplayEditor({
   }, [prefs.spellCheck, editor]);
 
   useEffect(() => {
-    revisionEnabledRef.current = prefs.revisionMode;
-  }, [prefs.revisionMode]);
+    revisionEnabledRef.current = scriptPrefs.revisionMode;
+  }, [scriptPrefs.revisionMode]);
 
   useEffect(() => {
-    contdEnabledRef.current = prefs.autoContd;
+    contdEnabledRef.current = scriptPrefs.autoContd;
     if (editor) {
       rescanContd(editor.view);
     }
-  }, [prefs.autoContd, editor]);
+  }, [scriptPrefs.autoContd, editor]);
 
   // Keep the breakdown highlight plugin's live reads current, and repaint when
   // the catalog or the toggle changes.
@@ -1035,13 +1049,13 @@ function ScreenplayEditor({
     (format: ExportFormat) => {
       if (editor) {
         void exportDoc(editor.getJSON(), format, titlePage ?? undefined, {
-          sceneNumbers: prefs.sceneNumbers,
-          autoContd: prefs.autoContd,
+          sceneNumbers: scriptPrefs.sceneNumbers,
+          autoContd: scriptPrefs.autoContd,
           lock: pageLock,
         });
       }
     },
-    [editor, titlePage, prefs.sceneNumbers, prefs.autoContd, pageLock]
+    [editor, titlePage, scriptPrefs.sceneNumbers, scriptPrefs.autoContd, pageLock]
   );
 
   // Lock the current pagination: page numbers freeze and later insertions take
@@ -1050,13 +1064,13 @@ function ScreenplayEditor({
     if (!editor) return;
     const lines = docToLines(editor.getJSON());
     const { pages } = paginate(lines, {
-      sceneNumbers: prefs.sceneNumbers,
-      autoContd: prefs.autoContd,
+      sceneNumbers: scriptPrefs.sceneNumbers,
+      autoContd: scriptPrefs.autoContd,
     });
     const lock = capturePageLock(pages, lines, { lockedAt: new Date().toISOString() });
     savePageLock(projectId, lock);
     setPageLock(lock);
-  }, [editor, projectId, prefs.sceneNumbers, prefs.autoContd]);
+  }, [editor, projectId, scriptPrefs.sceneNumbers, scriptPrefs.autoContd]);
 
   const unlockPages = useCallback(() => {
     savePageLock(projectId, null);
@@ -1093,7 +1107,11 @@ function ScreenplayEditor({
     if (!pending) return;
     setImportPending(null);
     if (importMode === "replace" || !onImportAsNew) {
-      importContent(pending.doc, pending.titlePage ?? undefined);
+      // An imported title page replaces the page, never this script's settings.
+      importContent(
+        pending.doc,
+        pending.titlePage ? { ...pending.titlePage, settings: titlePage?.settings } : undefined
+      );
       return;
     }
     try {
@@ -1225,6 +1243,8 @@ function ScreenplayEditor({
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
+        // Not behind a dialog the writer is typing in (the title page, say).
+        if (modalOpen()) return;
         setActivePanel("find");
       }
     };
@@ -1386,6 +1406,7 @@ function ScreenplayEditor({
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        if (modalOpen()) return;
         setShowPalette((v) => !v);
       }
     };
@@ -1433,9 +1454,9 @@ function ScreenplayEditor({
     cmds.push({ id: "exp-fountain", group: "Export", label: "Export Fountain", run: () => handleExport("fountain") });
     cmds.push({ id: "exp-fdx", group: "Export", label: "Export Final Draft (FDX)", run: () => handleExport("fdx") });
     cmds.push({ id: "t-spell", group: "Toggle", label: (prefs.spellCheck ? "Turn off" : "Turn on") + " spell check", run: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) });
-    cmds.push({ id: "t-scenenum", group: "Toggle", label: (prefs.sceneNumbers ? "Hide" : "Show") + " scene numbers", run: () => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers }) });
-    cmds.push({ id: "t-rev", group: "Toggle", label: (prefs.revisionMode ? "Turn off" : "Turn on") + " revision mode", run: () => onPrefsChange({ revisionMode: !prefs.revisionMode }) });
-    cmds.push({ id: "t-contd", group: "Toggle", label: (prefs.autoContd ? "Turn off" : "Turn on") + " auto (CONT'D)", run: () => onPrefsChange({ autoContd: !prefs.autoContd }) });
+    cmds.push({ id: "t-scenenum", group: "Toggle", label: (scriptPrefs.sceneNumbers ? "Hide" : "Show") + " scene numbers", run: () => setScriptPref({ sceneNumbers: !scriptPrefs.sceneNumbers }) });
+    cmds.push({ id: "t-rev", group: "Toggle", label: (scriptPrefs.revisionMode ? "Turn off" : "Turn on") + " revision mode", run: () => setScriptPref({ revisionMode: !scriptPrefs.revisionMode }) });
+    cmds.push({ id: "t-contd", group: "Toggle", label: (scriptPrefs.autoContd ? "Turn off" : "Turn on") + " auto (CONT'D)", run: () => setScriptPref({ autoContd: !scriptPrefs.autoContd }) });
     cmds.push({ id: "t-focus", group: "Toggle", label: "Focus mode", run: () => onPrefsChange({ focusMode: !prefs.focusMode }) });
     cmds.push({ id: "t-typewriter", group: "Toggle", label: (prefs.focusTypewriter ? "Turn off" : "Turn on") + " typewriter scrolling", run: () => onPrefsChange({ focusTypewriter: !prefs.focusTypewriter }) });
     cmds.push({ id: "t-bd", group: "Toggle", label: (prefs.breakdownHighlight ? "Hide" : "Show") + " breakdown highlights", run: () => onPrefsChange({ breakdownHighlight: !prefs.breakdownHighlight }) });
@@ -1506,10 +1527,10 @@ function ScreenplayEditor({
     { kind: "divider" },
     { kind: "label", label: "View" },
     { kind: "checkbox", label: "Spell check", checked: prefs.spellCheck, onToggle: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) },
-    { kind: "checkbox", label: "Scene numbers", checked: prefs.sceneNumbers, onToggle: () => onPrefsChange({ sceneNumbers: !prefs.sceneNumbers }) },
-    { kind: "checkbox", label: "Auto (CONT'D)", checked: prefs.autoContd, onToggle: () => onPrefsChange({ autoContd: !prefs.autoContd }) },
-    { kind: "checkbox", label: "Revision mode", checked: prefs.revisionMode, onToggle: () => onPrefsChange({ revisionMode: !prefs.revisionMode }) },
-    ...(prefs.revisionMode
+    { kind: "checkbox", label: "Scene numbers", checked: scriptPrefs.sceneNumbers, onToggle: () => setScriptPref({ sceneNumbers: !scriptPrefs.sceneNumbers }) },
+    { kind: "checkbox", label: "Auto (CONT'D)", checked: scriptPrefs.autoContd, onToggle: () => setScriptPref({ autoContd: !scriptPrefs.autoContd }) },
+    { kind: "checkbox", label: "Revision mode", checked: scriptPrefs.revisionMode, onToggle: () => setScriptPref({ revisionMode: !scriptPrefs.revisionMode }) },
+    ...(scriptPrefs.revisionMode
       ? [{ label: "Clear revision marks", danger: true, onSelect: clearRevisions } as MenuItem]
       : []),
     { kind: "checkbox", label: "Typewriter scrolling", checked: prefs.focusTypewriter, onToggle: () => onPrefsChange({ focusTypewriter: !prefs.focusTypewriter }) },
@@ -1675,7 +1696,7 @@ function ScreenplayEditor({
     <>
       <EditorShell
         rootClassName={
-          `app font-${prefs.font}` + (prefs.sceneNumbers ? " show-scene-numbers" : "")
+          `app font-${prefs.font}` + (scriptPrefs.sceneNumbers ? " show-scene-numbers" : "")
         }
         focusMode={prefs.focusMode}
         onExitFocus={() => onPrefsChange({ focusMode: false })}

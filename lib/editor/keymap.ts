@@ -30,6 +30,15 @@ import {
  */
 
 /** Find the screenplayLine node that contains a resolved position. */
+/** The selection covers more than one line (ignoring an end at a line's very start). */
+function spansLines(state: EditorState): boolean {
+  const { empty, $from, $to } = state.selection;
+  if (empty || $from.depth === 0 || $to.depth === 0) return false;
+  if ($from.sameParent($to)) return false;
+  // Ending at the start of the next line is still one line.
+  return !($to.parentOffset === 0 && $to.before() === $from.after());
+}
+
 export function lineAt($pos: ResolvedPos) {
   for (let depth = $pos.depth; depth > 0; depth--) {
     const node = $pos.node(depth);
@@ -142,12 +151,17 @@ export const ScreenplayKeymap = Extension.create({
     return {
       Enter: () => runEnterFlow(editor),
 
+      // Tab cycles the line's element. With several lines selected it does
+      // nothing (it used to retype them all, a select-all made the whole
+      // script one element), and it never leaves the page.
       Tab: () => {
+        if (spansLines(editor.state)) return true;
         const type = currentElementType(editor.state);
         return setCurrent(nextElement(type));
       },
 
       "Shift-Tab": () => {
+        if (spansLines(editor.state)) return true;
         const type = currentElementType(editor.state);
         return setCurrent(prevElement(type));
       },

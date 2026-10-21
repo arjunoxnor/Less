@@ -159,13 +159,13 @@ export function useCloudSync(
   // Load content into the editor WITHOUT firing 'update', mirror it to local
   // storage, and signal the UI to recompute.
   const pullInto = useCallback(
-    (content: JSONContent, tp?: TitlePage | null) => {
+    (content: JSONContent, tp?: TitlePage | null, undoable = false) => {
       if (!editor) return;
       // Only the stretch that differs is replaced, so a writer who is looking
       // at the page keeps their caret on the same words and the view does not
       // move. A whole-document swap sent the caret to the end of the script
       // and wiped every page break until the pages were measured again.
-      replaceDocInPlace(editor, content);
+      replaceDocInPlace(editor, content, { undoable });
       const docSaved = optsRef.current.saveLocalDoc(content) !== false;
       let titlePageSaved = true;
       ownDirtyRef.current = false;
@@ -871,7 +871,8 @@ export function useCloudSync(
   const restoreVersion = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
       snapshotLive("Before restore");
-      pullInto(content, tp);
+      // The writer's own act: Ctrl+Z straight after puts the text back.
+      pullInto(content, tp, true);
       optsRef.current.setDirty(true);
       ownDirtyRef.current = true;
       if (tp !== undefined) optsRef.current.setTitlePageDirty(true);
@@ -885,7 +886,7 @@ export function useCloudSync(
   const importContent = useCallback(
     (content: JSONContent, tp?: TitlePage | null) => {
       snapshotLive("Before import");
-      pullInto(content, tp);
+      pullInto(content, tp, true);
       optsRef.current.setDirty(true);
       ownDirtyRef.current = true;
       if (tp !== undefined) optsRef.current.setTitlePageDirty(true);

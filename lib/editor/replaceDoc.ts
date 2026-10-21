@@ -14,11 +14,13 @@ import type { Node as PMNode } from "@tiptap/pm/model";
  * the caret on the same words (ProseMirror maps it through the step), keeps
  * every page break outside the change, and keeps the view where it was.
  *
- * The edit is not undoable (it is not the writer's own), does not fire
- * 'update' (so it is not re-saved as a local edit), and is a no-op when the
- * content is identical. Anything the schema rejects falls back to setContent.
+ * A copy arriving from elsewhere is not undoable (it is not the writer's own);
+ * a version the writer restores or a file they import is (`undoable`), so
+ * Ctrl+Z right after it puts back what was there. Neither fires 'update' (so
+ * it is not re-saved as a local edit), and identical content is a no-op.
+ * Anything the schema rejects falls back to setContent.
  */
-export function replaceDocInPlace(editor: Editor, content: JSONContent): void {
+export function replaceDocInPlace(editor: Editor, content: JSONContent, opts?: { undoable?: boolean }): void {
   if (editor.isDestroyed) return;
   const { state } = editor;
   let next: PMNode;
@@ -41,9 +43,7 @@ export function replaceDocInPlace(editor: Editor, content: JSONContent): void {
     endA += overlap;
     endB += overlap;
   }
-  const tr = state.tr
-    .replace(start, endA, next.slice(start, endB))
-    .setMeta("addToHistory", false)
-    .setMeta("preventUpdate", true);
+  const tr = state.tr.replace(start, endA, next.slice(start, endB)).setMeta("preventUpdate", true);
+  if (!opts?.undoable) tr.setMeta("addToHistory", false);
   editor.view.dispatch(tr);
 }

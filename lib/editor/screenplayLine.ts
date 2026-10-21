@@ -192,7 +192,10 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
       setElement:
         (type: ElementType) =>
         ({ state, dispatch }) => {
-          const { from, to } = state.selection;
+          const { from, empty, $to } = state.selection;
+          // A selection made with Shift+Down ends at the very start of the
+          // next line: that line is not part of it, so it keeps its type.
+          const to = !empty && $to.depth > 0 && $to.parentOffset === 0 && $to.before() > from ? $to.before() : state.selection.to;
           let changed = false;
           const tr = state.tr;
           const activeLinePos =
@@ -395,7 +398,7 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
             }
           });
           if (changed && dispatch) {
-            tr.setMeta("addToHistory", false);
+            // Undoable: one click clears every star, so Ctrl+Z puts them back.
             tr.setMeta(SKIP_REVISION_META, true);
             dispatch(tr);
           }
