@@ -26,6 +26,23 @@ function isProse(state: EditorState): boolean {
   return parent.type.name === "paragraph" || parent.type.name === "heading";
 }
 
+/**
+ * Words that end in a full stop without ending a sentence ("9 a.m. the",
+ * "i.e. the", "Mr. Lee"): the next word is not capitalized after them.
+ */
+const ABBREVIATIONS = new Set([
+  "i.e", "e.g", "a.m", "p.m", "etc", "vs", "cf", "ca", "approx", "incl", "esp", "viz",
+  "mr", "mrs", "ms", "dr", "st", "jr", "sr", "prof", "no", "vol", "pp", "ext", "fig",
+]);
+
+/** The word just before the sentence punctuation the caret follows, lowercased. */
+function wordBeforeStop(state: EditorState): string {
+  const { $from } = state.selection;
+  const before = $from.parent.textBetween(0, $from.parentOffset, undefined, "\ufffc");
+  const head = before.replace(/[.!?]['"’”)\]}]*\s+$/, "");
+  return (/([A-Za-z.]+)$/.exec(head)?.[1] ?? "").toLowerCase();
+}
+
 export const SmartCaps = Extension.create({
   name: "screenplaySmartCaps",
 
@@ -56,6 +73,7 @@ export const SmartCaps = Extension.create({
         find: /[.!?]['"’”)\]}]*\s+([a-z])$/,
         handler: ({ state, match }) => {
           if (!isProse(state)) return null;
+          if (ABBREVIATIONS.has(wordBeforeStop(state))) return null;
           state.tr.insertText(
             match[1].toUpperCase(),
             state.selection.from,
@@ -68,6 +86,15 @@ export const SmartCaps = Extension.create({
       // selection. Replace it with "I" and add the boundary. Newlines are
       // deliberately excluded because TipTap also runs input rules for Enter;
       // consuming that key would insert raw text instead of splitting the block.
+      // "i.e." typed out: the "i" made a capital by the rule below goes back
+      // to lowercase once the abbreviation is complete.
+      new InputRule({
+        find: /(^|[^A-Za-z])I\.e\.$/,
+        handler: ({ state }) => {
+          if (!isProse(state)) return null;
+          state.tr.insertText("i.e.", state.selection.from - 3, state.selection.to);
+        },
+      }),
       new InputRule({
         find: /(^|[^A-Za-z])i((?:[.,!?;:'"’”)\]}]|[^\S\r\n]))$/,
         handler: ({ state, match }) => {

@@ -119,6 +119,24 @@ export function AppShell() {
     setPrefs(loadPrefs());
   }, []);
 
+  // A file dropped anywhere nothing takes it would make the browser open it
+  // and leave LESS (taking an unsaved edit with it): it is simply ignored.
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+    const onOver = (e: DragEvent) => {
+      if (hasFiles(e) && !e.defaultPrevented) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      if (hasFiles(e) && !e.defaultPrevented) e.preventDefault();
+    };
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
   // Voice notes recorded on this device go to the server whenever they can,
   // whatever is open (lib/voicenote/upload.ts), and right after a sign-in.
   useEffect(() => startUploadLoop(), []);

@@ -50,7 +50,7 @@ describe("ScreenplayBody safety wiring", () => {
     // three places that could file the room as a phantom project.
     expect(source).toContain("if (!mirrorsToLibrary) {");
     expect(source).toContain("if (ed && unsavedRef.current && mirrorsToLibrary) {");
-    expect(source).toContain("if (!ed || !unsavedRef.current || !mirrorsToLibrary) return;");
+    expect(source).toContain("if (!ed || !unsavedRef.current || !mirrorsToLibrary) return true;");
     // And the sync hook's own local write, which a restore or import uses even
     // while cloud sync is off.
     expect(source).toContain("mirrorsToLibrary ? saveProjectDoc(projectId, d) : true");

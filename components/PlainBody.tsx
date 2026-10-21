@@ -43,7 +43,7 @@ import { signOut } from "@/lib/cloud/auth";
 import { showToast } from "./ui/Toast";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
-import { modKeyLabel } from "@/lib/platform";
+import { isMac, modKeyLabel } from "@/lib/platform";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { FontControls, PlainToolbar } from "./PlainToolbar";
 import { BoardTools } from "./BoardTools";
@@ -471,13 +471,15 @@ export function PlainBody({
   // force the pending edit to localStorage on hide/close and best-effort push
   // to the cloud while the page is still alive.
   useEffect(() => {
-    const flushLocal = () => {
+    // True when nothing is left unsaved on this device.
+    const flushLocal = (): boolean => {
       const ed = editorRef.current;
-      if (!ed || !unsavedRef.current) return;
+      if (!ed || !unsavedRef.current) return true;
       debouncedSave.cancel();
       const ok = saveProjectDoc(projectId, ed.getJSON());
       if (ok) unsavedRef.current = false;
       setSaveError(!ok);
+      return ok;
     };
     const onPageHide = () => {
       flushLocal();
@@ -489,9 +491,29 @@ export function PlainBody({
         flushRef.current();
       }
     };
+    // Ctrl+S (Cmd+S on a Mac) saves now, as in any writing app, instead of
+    // opening the browser's "Save page as".
+    const onKey = (e: KeyboardEvent) => {
+      if (!(isMac() ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "s") return;
+      e.preventDefault();
+      const ok = flushLocal();
+      flushRef.current();
+      if (ok) showToast("Saved.");
+      else showToast("This device's storage is full, so the latest changes could not be saved here.", { variant: "danger" });
+    };
+    // Closing while the latest change could not be saved: the browser asks first.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (flushLocal()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("beforeunload", onBeforeUnload);
     window.addEventListener("pagehide", onPageHide);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
     };

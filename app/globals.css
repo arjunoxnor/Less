@@ -1569,6 +1569,9 @@ body {
 .pl-prose:focus {
   outline: none;
 }
+.pl-prose {
+  tab-size: 4;
+}
 .pl-prose h1 {
   font-size: 1.75em;
   line-height: 1.25;
@@ -3718,6 +3721,9 @@ body {
   .page-host-pl,
   .pl-prose {
     page: document;
+    /* Colored text and highlights print in color. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .sp-editor .sp-prose,
   .pl-prose {

@@ -865,9 +865,10 @@ function ScreenplayEditor({
   // synchronous, reliable write) on hide/close so the last few keystrokes are
   // never lost, and best-effort push to the cloud while the page is still alive.
   useEffect(() => {
-    const flushLocal = () => {
+    // True when nothing is left unsaved on this device.
+    const flushLocal = (): boolean => {
       const ed = editorRef.current;
-      if (!ed || !unsavedRef.current || !mirrorsToLibrary) return;
+      if (!ed || !unsavedRef.current || !mirrorsToLibrary) return true;
       debouncedSave.cancel();
       const current = duetSession?.getContent() ?? ed.getJSON();
       const ok = saveProjectDoc(
@@ -876,6 +877,7 @@ function ScreenplayEditor({
       );
       if (ok) unsavedRef.current = false;
       setSaveError(!ok);
+      return ok;
     };
     const onPageHide = () => {
       flushLocal();
@@ -889,9 +891,29 @@ function ScreenplayEditor({
         flushRef.current();
       }
     };
+    // Ctrl+S (Cmd+S on a Mac) saves now, as in any writing app, instead of
+    // opening the browser's "Save page as".
+    const onKey = (e: KeyboardEvent) => {
+      if (!(isMac() ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "s") return;
+      e.preventDefault();
+      const ok = flushLocal();
+      flushRef.current();
+      if (ok) showToast("Saved.");
+      else showToast("This device's storage is full, so the latest changes could not be saved here.", { variant: "danger" });
+    };
+    // Closing while the latest change could not be saved: the browser asks first.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (flushLocal()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("beforeunload", onBeforeUnload);
     window.addEventListener("pagehide", onPageHide);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
     };

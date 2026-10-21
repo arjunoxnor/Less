@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Editor, type JSONContent } from "@tiptap/core";
 import { buildPlainExtensions } from "@/lib/editor/buildPlainExtensions";
 import { DOC_FONTS } from "@/lib/editor/docFonts";
-import { FontControls } from "./PlainToolbar";
+import { FontControls, PlainToolbar } from "./PlainToolbar";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -94,5 +94,38 @@ describe("the font and size controls", () => {
     act(() => button(/^Size:/).click());
     act(() => item("Make 24 the default size").click());
     expect(onBase).toHaveBeenCalledWith({ docFontSize: 24 });
+  });
+});
+
+describe("clear formatting", () => {
+  it("takes off bold and colour but keeps a link, and does the word under a bare cursor", () => {
+    editor = new Editor({
+      element: document.createElement("div"),
+      extensions: buildPlainExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "Bold", marks: [{ type: "bold" }, { type: "link", attrs: { href: "https://a.b" } }] },
+              { type: "text", text: " plain" },
+            ],
+          },
+        ],
+      },
+    });
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root!.render(<PlainToolbar editor={editor} />));
+    // The cursor inside "Bold", nothing selected.
+    act(() => {
+      editor!.commands.setTextSelection(3);
+    });
+    act(() => [...host!.querySelectorAll("button")].find((b) => b.textContent === "Clear")!.click());
+    const first = (editor!.getJSON() as JSONContent).content![0].content![0];
+    expect(first.text).toBe("Bold");
+    expect(first.marks?.map((m) => m.type)).toEqual(["link"]);
   });
 });

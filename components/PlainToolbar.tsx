@@ -30,6 +30,13 @@ const HIGHLIGHTS: { label: string; value: string }[] = [
   { label: "Pink", value: "#ffc9e0" },
 ];
 
+/** A link typed without its scheme ("example.com") opens the site, not a page inside LESS. */
+function withScheme(raw: string): string {
+  const url = raw.trim();
+  if (url === "" || /^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("#") || url.startsWith("/")) return url;
+  return (url.includes("@") && !url.includes("/") ? "mailto:" : "https://") + url;
+}
+
 function AlignIcon({ kind }: { kind: "left" | "center" | "right" | "justify" }) {
   const lines: Record<string, [number, number][]> = {
     left: [[3, 16], [3, 11], [3, 16], [3, 11]],
@@ -138,10 +145,31 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
     });
   };
   const applyLink = () => {
-    const url = linkDraft.trim();
+    const url = withScheme(linkDraft);
     if (url === "") chain().extendMarkRange("link").unsetLink().run();
     else chain().extendMarkRange("link").setLink({ href: url }).run();
     setMenu(null);
+  };
+
+  // Clear formatting takes off bold, colors, fonts and the like and puts the
+  // text back to the left, keeping links (as Google Docs does). With nothing
+  // selected it clears the word the cursor is in, and what is typed next.
+  const clearFormatting = () => {
+    const { state } = editor;
+    const word = wordAround(state);
+    const caret = state.selection.from;
+    const { from, to } = word ?? state.selection;
+    chain()
+      .command(({ tr }) => {
+        for (const type of Object.values(state.schema.marks)) {
+          if (type.name !== "link") tr.removeMark(from, to, type);
+        }
+        tr.setStoredMarks([]);
+        return true;
+      })
+      .unsetTextAlign()
+      .setTextSelection(word ? caret : { from: state.selection.from, to: state.selection.to })
+      .run();
   };
   const removeLink = () => {
     chain().extendMarkRange("link").unsetLink().run();
@@ -287,6 +315,11 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
                 <button type="button" className="tb-btn" onClick={removeLink}>
                   Remove
                 </button>
+                {withScheme(linkDraft) !== "" && (
+                  <a className="tb-btn" href={withScheme(linkDraft)} target="_blank" rel="noopener noreferrer">
+                    Open
+                  </a>
+                )}
                 <button type="button" className="tb-btn tb-btn-active" onClick={applyLink}>
                   Set
                 </button>
@@ -295,7 +328,7 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
           )}
         </div>
         {Btn("Divider", false, () => chain().setHorizontalRule().run(), "Horizontal rule", { toggle: false })}
-        {Btn("Clear", false, () => chain().unsetAllMarks().run(), "Clear formatting", { toggle: false })}
+        {Btn("Clear", false, clearFormatting, "Clear formatting (keeps links)", { toggle: false })}
       </div>
     </>
   );
@@ -392,13 +425,14 @@ export function FontControls({
     const c = editor.chain().focus();
     (word ? run(c.setTextSelection(word)).setTextSelection(caret) : run(c)).run();
   };
-  const pickFont = (f: DocFont) => {
-    // The default font needs no mark of its own: the text follows the default.
-    styleSelection((c) => (f.key === baseFont ? c.unsetFontFamily() : c.setFontFamily(f.stack)));
+  // A font picked is the font the text keeps, whatever the default becomes;
+  // "Default" takes it off, so the text follows the default again.
+  const pickFont = (f: DocFont | null) => {
+    styleSelection((c) => (f ? c.setFontFamily(f.stack) : c.unsetFontFamily()));
     font.setMenu(null);
   };
-  const pickSize = (n: number) => {
-    styleSelection((c) => (n === baseSize ? c.unsetFontSize() : c.setFontSize(`${n}px`)));
+  const pickSize = (n: number | null) => {
+    styleSelection((c) => (n !== null ? c.setFontSize(`${n}px`) : c.unsetFontSize()));
     size.setMenu(null);
   };
 
@@ -421,17 +455,27 @@ export function FontControls({
         </button>
         {font.menu && (
           <div className={"tb-menu-list pt-fonts" + font.side} role="menu" aria-label="Font">
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={!fam.mixed && !fam.value}
+              className="pt-font"
+              onClick={() => pickFont(null)}
+            >
+              <span style={{ fontFamily: base.stack }}>Default</span>
+              <span className="pt-font-note">{base.label}</span>
+            </button>
+            <div className="pt-menu-sep" role="separator" />
             {DOC_FONTS.map((f) => (
               <button
                 key={f.key}
                 type="button"
                 role="menuitemradio"
-                aria-checked={current?.key === f.key}
+                aria-checked={!!fam.value && current?.key === f.key}
                 className="pt-font"
                 onClick={() => pickFont(f)}
               >
                 <span style={{ fontFamily: f.stack }}>{f.label}</span>
-                {f.key === baseFont && <span className="pt-font-note">Default</span>}
               </button>
             ))}
             {current && current.key !== baseFont && (
@@ -469,17 +513,27 @@ export function FontControls({
         </button>
         {size.menu && (
           <div className={"tb-menu-list pt-sizes" + size.side} role="menu" aria-label="Size">
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={!px.mixed && !px.value}
+              className="pt-font"
+              onClick={() => pickSize(null)}
+            >
+              <span>Default</span>
+              <span className="pt-font-note">{baseSize}</span>
+            </button>
+            <div className="pt-menu-sep" role="separator" />
             {DOC_SIZES.map((n) => (
               <button
                 key={n}
                 type="button"
                 role="menuitemradio"
-                aria-checked={currentSize === n}
+                aria-checked={!!px.value && currentSize === n}
                 className="pt-font"
                 onClick={() => pickSize(n)}
               >
                 <span>{n}</span>
-                {n === baseSize && <span className="pt-font-note">Default</span>}
               </button>
             ))}
             {currentSize !== null && currentSize !== baseSize && (

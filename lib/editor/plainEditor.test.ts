@@ -275,3 +275,29 @@ describe("plain-document editing boundaries", () => {
     expect((ed.getJSON() as JSONContent).content).toHaveLength(500);
   });
 });
+
+describe("keys and corrections a writer expects", () => {
+  const para = (text: string): JSONContent => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+  const text = (ed: Editor) => ((ed.getJSON() as JSONContent).content ?? []).map((b) => (b.content ?? []).map((t) => t.text).join(""));
+
+  it("Tab indents the line instead of leaving the page", () => {
+    const ed = setup(para("Scene"));
+    ed.commands.setTextSelection(1);
+    expect(ed.commands.keyboardShortcut("Tab")).toBe(true);
+    expect(text(ed)).toEqual(["	Scene"]);
+  });
+
+  it("Ctrl+Enter starts a new paragraph, not a soft break", () => {
+    const ed = setup(para("One"));
+    ed.commands.setTextSelection(4);
+    ed.commands.keyboardShortcut("Mod-Enter");
+    expect(((ed.getJSON() as JSONContent).content ?? []).map((b) => b.type)).toEqual(["paragraph", "paragraph"]);
+  });
+
+  it("does not capitalize after an abbreviation, and keeps i.e. lowercase", () => {
+    const ed = setup(para(""));
+    ed.commands.setTextSelection(1);
+    typeWithInputRules(ed, "we meet at 9 a.m. the next day, i.e. tomorrow. then");
+    expect(text(ed)[0]).toBe("We meet at 9 a.m. the next day, i.e. tomorrow. Then");
+  });
+});
