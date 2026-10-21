@@ -1,3 +1,5 @@
+import type { BreakdownItem } from "@/lib/editor/breakdown";
+import type { PageLock } from "./pageLock";
 /**
  * The screenplay title page: metadata that lives BESIDE the script, never inside
  * the strict screenplayLine+ document. All fields are optional; an absent or
@@ -12,6 +14,12 @@ export interface ScriptSettings {
   sceneNumbers?: boolean;
   autoContd?: boolean;
   revisionMode?: boolean;
+  /** Locked pages (null: unlocked on purpose). */
+  pageLock?: PageLock | null;
+  /** Breakdown tags. */
+  breakdown?: BreakdownItem[];
+  /** About how many pages the script aims for (null: no target). */
+  pageTarget?: number | null;
 }
 
 export interface TitlePage {
@@ -58,9 +66,20 @@ export function trimTitlePage(tp: TitlePage | null | undefined): TitlePage | nul
     if (typeof v === "string" && v.trim() !== "") (out as Record<string, string>)[key] = v.trim();
   }
   const settings: ScriptSettings = {};
+  const raw = tp.settings;
   for (const key of ["sceneNumbers", "autoContd", "revisionMode"] as const) {
-    const v = tp.settings?.[key];
+    const v = raw?.[key];
     if (typeof v === "boolean") settings[key] = v;
+  }
+  if (raw?.pageLock === null || (raw?.pageLock && Array.isArray(raw.pageLock.anchors))) settings.pageLock = raw.pageLock;
+  if (Array.isArray(raw?.breakdown)) {
+    settings.breakdown = raw.breakdown.filter(
+      (it) => it && typeof it.id === "string" && typeof it.name === "string" && typeof it.category === "string"
+    );
+  }
+  if (raw?.pageTarget === null) settings.pageTarget = null;
+  else if (typeof raw?.pageTarget === "number" && raw.pageTarget >= 1 && raw.pageTarget <= 999) {
+    settings.pageTarget = Math.round(raw.pageTarget);
   }
   if (Object.keys(settings).length) out.settings = settings;
   return hasTitlePage(out) || out.settings ? out : null;

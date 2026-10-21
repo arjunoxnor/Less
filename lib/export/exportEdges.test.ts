@@ -351,3 +351,14 @@ describe("a script's own settings ride with its title page", () => {
     expect(trimTitlePage({ settings: {} })).toBeNull();
   });
 });
+
+describe("page lock, tags and the page target travel with the script", () => {
+  it("keeps well-formed ones and drops the rest", () => {
+    const lock = { lockedAt: "2026-10-21T00:00:00.000Z", anchors: [] };
+    const tags = [{ id: "a", category: "props", name: "Sword" }];
+    const tp = trimTitlePage({ settings: { pageLock: lock, breakdown: [...tags, { bad: true } as never], pageTarget: 110.4 } });
+    expect(tp?.settings).toEqual({ pageLock: lock, breakdown: tags, pageTarget: 110 });
+    expect(trimTitlePage({ settings: { pageLock: null, pageTarget: null } })?.settings).toEqual({ pageLock: null, pageTarget: null });
+    expect(trimTitlePage({ settings: { pageTarget: 5000 } })).toBeNull();
+  });
+});

@@ -125,7 +125,7 @@ import { showToast } from "./ui/Toast";
 
 /** A dialog is open over the script (the palette itself does not count). */
 const modalOpen = () => !!document.querySelector(".ui-modal-scrim, .modal-backdrop");
-import type { TitlePage } from "@/lib/export/titlePage";
+import type { ScriptSettings, TitlePage } from "@/lib/export/titlePage";
 import {
   clearProjectShare,
   clearDuetDocumentCache,
@@ -853,8 +853,43 @@ function ScreenplayEditor({
     autoContd: titlePage?.settings?.autoContd ?? prefs.autoContd,
     revisionMode: titlePage?.settings?.revisionMode ?? prefs.revisionMode,
   };
-  const setScriptPref = (patch: Partial<typeof scriptPrefs>) =>
-    setTitlePage({ ...(titlePage ?? {}), settings: { ...(titlePage?.settings ?? {}), ...patch } });
+  // Always from the latest title page, so a callback made earlier never
+  // writes back an older one over a newer setting.
+  const titlePageNow = useRef(titlePage);
+  titlePageNow.current = titlePage;
+  const setScriptPref = useCallback(
+    (patch: ScriptSettings) => {
+      const tp = titlePageNow.current;
+      setTitlePage({ ...(tp ?? {}), settings: { ...(tp?.settings ?? {}), ...patch } });
+    },
+    [setTitlePage]
+  );
+
+  // Page lock, breakdown tags and the page target ride with the title page
+  // too, so a lock taken on the laptop numbers the desktop's PDF the same.
+  // (They were kept only on this device; the device copy stays as the
+  // fallback for a script whose title page has not carried them yet.)
+  const syncedLock = titlePage?.settings?.pageLock;
+  const syncedTags = titlePage?.settings?.breakdown;
+  const syncedTarget = titlePage?.settings?.pageTarget;
+  const syncedLockKey = JSON.stringify(syncedLock ?? "none");
+  const syncedTagsKey = JSON.stringify(syncedTags ?? "none");
+  useEffect(() => {
+    if (syncedLock === undefined) return;
+    setPageLock(syncedLock);
+    savePageLock(projectId, syncedLock);
+  }, [syncedLockKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!syncedTags) return;
+    breakdownItemsRef.current = syncedTags;
+    setBreakdownItems(syncedTags);
+    saveBreakdown(projectId, syncedTags);
+  }, [syncedTagsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (syncedTarget === undefined) return;
+    setPageTarget(syncedTarget ?? undefined);
+    patchProjectMeta(projectId, { pageTarget: syncedTarget ?? undefined });
+  }, [syncedTarget, projectId]);
 
   // Flush local + cloud on the way out of this project.
   const flushRef = useRef(flush);
@@ -1008,8 +1043,9 @@ function ScreenplayEditor({
       breakdownItemsRef.current = next;
       setBreakdownItems(next);
       saveBreakdown(projectId, next);
+      setScriptPref({ breakdown: next });
     },
-    [projectId]
+    [projectId, setScriptPref]
   );
 
   const removeBreakdownItem = useCallback(
@@ -1018,8 +1054,9 @@ function ScreenplayEditor({
       breakdownItemsRef.current = next;
       setBreakdownItems(next);
       saveBreakdown(projectId, next);
+      setScriptPref({ breakdown: next });
     },
-    [projectId]
+    [projectId, setScriptPref]
   );
 
   const tagSelection = useCallback(
@@ -1070,11 +1107,13 @@ function ScreenplayEditor({
     const lock = capturePageLock(pages, lines, { lockedAt: new Date().toISOString() });
     savePageLock(projectId, lock);
     setPageLock(lock);
-  }, [editor, projectId, scriptPrefs.sceneNumbers, scriptPrefs.autoContd]);
+    setScriptPref({ pageLock: lock });
+  }, [editor, projectId, scriptPrefs.sceneNumbers, scriptPrefs.autoContd, setScriptPref]);
 
   const unlockPages = useCallback(() => {
     savePageLock(projectId, null);
     setPageLock(null);
+    setScriptPref({ pageLock: null });
   }, [projectId]);
 
   const handleImport = useCallback(
@@ -1944,6 +1983,7 @@ function ScreenplayEditor({
                 const next = Number.isFinite(n) && n > 0 ? n : undefined;
                 patchProjectMeta(projectId, { pageTarget: next });
                 setPageTarget(next);
+                setScriptPref({ pageTarget: next ?? null });
                 setShowPageTarget(false);
               },
             },
@@ -1965,6 +2005,7 @@ function ScreenplayEditor({
                   const next = Number.isFinite(n) && n > 0 ? n : undefined;
                   patchProjectMeta(projectId, { pageTarget: next });
                   setPageTarget(next);
+                  setScriptPref({ pageTarget: next ?? null });
                   setShowPageTarget(false);
                 }
               }}
