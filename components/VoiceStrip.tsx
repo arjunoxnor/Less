@@ -136,11 +136,11 @@ export function VoiceStrip({
         {line}
       </span>
 
-      {listening && interim ? (
-        <span className="voice-interim" aria-hidden="true">
-          {interim}
-        </span>
-      ) : null}
+      {/* Always holding its room, so the toolbar does not reflow (and the page
+          jump) each time the live words come and go. */}
+      <span className="voice-interim" aria-hidden="true">
+        {listening ? interim : ""}
+      </span>
 
       {micMessage ? (
         <span className="voice-mic-error" role="status">

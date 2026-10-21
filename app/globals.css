@@ -2334,7 +2334,8 @@ body {
 .session-banner {
   position: fixed;
   left: 50%;
-  bottom: 18px;
+  /* Above the editor's status bar, never on it. */
+  bottom: calc(var(--status-h) + 16px);
   transform: translateX(-50%);
   z-index: var(--z-toasts);
   max-width: min(560px, calc(100vw - 32px));
@@ -3853,6 +3854,7 @@ body {
   color: var(--muted);
   font-style: italic;
   opacity: 0.7;
+  width: 34ch;
   max-width: 34ch;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3980,6 +3982,13 @@ body {
   text-align: center;
   font-size: var(--text-xs);
   color: var(--muted);
+}
+.brd-cols.is-off {
+  opacity: 0.5;
+}
+/* A toast while a notice is up stands above the notice, not on it. */
+body:has(.storage-banner, .session-banner) .ui-toast {
+  bottom: calc(var(--status-h) + 76px);
 }
 .brd-palette-input {
   width: 100%;
@@ -4849,8 +4858,19 @@ html.is-dragging * {
   background: var(--surface);
   border-bottom: 1px solid var(--hairline);
 }
+/* The sidebar's fold button, at every width: a drawer on a phone, a fold on
+   anything bigger (so a laptop's desk can have the whole window). */
 .lib-top-menu {
-  display: none;
+  display: grid;
+}
+@media (min-width: 761px) {
+  .lib.is-side-folded .lib-side {
+    display: none;
+  }
+  .lib.is-side-folded .lib-brand {
+    width: auto;
+    padding-right: 16px;
+  }
 }
 .lib-brand {
   flex: 0 0 auto;

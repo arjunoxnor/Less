@@ -84,44 +84,40 @@ export function BoardTools({
       >
         Add images
       </button>
-      {figure && (
-        <button
-          type="button"
-          className="tb-btn"
-          title="Take this picture off the board (Ctrl+Z puts it back)"
-          onClick={() => removeFigureAt(editor.view, figure.pos)}
-        >
-          Remove picture
-        </button>
-      )}
-      {/* The grid's own controls, only while working in a grid. */}
-      {board && (
-        <>
-          <button
-            type="button"
-            className="tb-btn"
-            title="Fewer columns in this grid"
-            aria-label="Fewer columns in this grid"
-            disabled={board.columns <= 2}
-            onClick={() => setBoardColumns(editor, board.columns - 1)}
-          >
-            −
-          </button>
-          <span className="brd-cols" aria-live="polite">
-            {board.columns} across
-          </span>
-          <button
-            type="button"
-            className="tb-btn"
-            title="More columns in this grid"
-            aria-label="More columns in this grid"
-            disabled={board.columns >= 6}
-            onClick={() => setBoardColumns(editor, board.columns + 1)}
-          >
-            +
-          </button>
-        </>
-      )}
+      {/* Always there (greyed out when they do not apply), so the toolbar
+          never reflows, and the page never jumps, as the cursor moves. */}
+      <button
+        type="button"
+        className="tb-btn"
+        title={figure ? "Take this picture off the board (Ctrl+Z puts it back)" : "Click a picture to remove it"}
+        disabled={!figure}
+        onClick={() => figure && removeFigureAt(editor.view, figure.pos)}
+      >
+        Remove picture
+      </button>
+      <button
+        type="button"
+        className="tb-btn"
+        title={board ? "Fewer columns in this grid" : "Click in a grid of pictures to change its columns"}
+        aria-label="Fewer columns in this grid"
+        disabled={!board || board.columns <= 2}
+        onClick={() => board && setBoardColumns(editor, board.columns - 1)}
+      >
+        −
+      </button>
+      <span className={"brd-cols" + (board ? "" : " is-off")} aria-live="polite">
+        {board ? `${board.columns} across` : "Grid"}
+      </span>
+      <button
+        type="button"
+        className="tb-btn"
+        title={board ? "More columns in this grid" : "Click in a grid of pictures to change its columns"}
+        aria-label="More columns in this grid"
+        disabled={!board || board.columns >= 6}
+        onClick={() => board && setBoardColumns(editor, board.columns + 1)}
+      >
+        +
+      </button>
       <button
         type="button"
         className="tb-btn"

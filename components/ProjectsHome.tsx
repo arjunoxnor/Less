@@ -323,6 +323,20 @@ export function ProjectsHome({
     return () => mq.removeEventListener?.("change", sync);
   }, []);
   const [sideOpen, setSideOpen] = useState(false);
+  // On a laptop or bigger the sidebar can be folded away (remembered), so the
+  // desk gets the whole window; on a phone it is a drawer (sideOpen).
+  const [sideFolded, setSideFolded] = useState(false);
+  useEffect(() => setSideFolded(lsGet("less:home:side:v1") === "folded"), []);
+  const toggleSide = () => {
+    if (typeof window !== "undefined" && window.matchMedia?.("(max-width: 760px)").matches) {
+      setSideOpen((v) => !v);
+      return;
+    }
+    setSideFolded((v) => {
+      lsSet("less:home:side:v1", v ? null : "folded");
+      return !v;
+    });
+  };
   const [menu, setMenu] = useState<HomeMenu>(null);
   const [colorTarget, setColorTarget] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null);
@@ -2951,16 +2965,19 @@ export function ProjectsHome({
 
   return (
     <div
-      className={"lib" + (desk ? " is-desk" : "") + (drag.source ? " is-carrying" : "")}
+      className={
+        "lib" + (desk ? " is-desk" : "") + (drag.source ? " is-carrying" : "") + (sideFolded ? " is-side-folded" : "")
+      }
       onContextMenu={onContextMenu}
     >
       <header className="lib-top">
         <button
           type="button"
           className="tb-icon lib-top-menu"
-          aria-label="Library"
-          aria-expanded={sideOpen}
-          onClick={() => setSideOpen((v) => !v)}
+          aria-label={sideFolded ? "Show the sidebar" : "Library"}
+          title={sideFolded ? "Show the sidebar" : "Fold the sidebar away"}
+          aria-expanded={sideOpen || !sideFolded}
+          onClick={toggleSide}
         >
           <MenuGlyph />
         </button>
