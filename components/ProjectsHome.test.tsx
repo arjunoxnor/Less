@@ -352,6 +352,28 @@ describe("ProjectsHome layered interactions", () => {
     expect(setFolder).not.toHaveBeenCalled();
   });
 
+  it("moves a whole stack with Move to, and Ctrl+Z puts it back", () => {
+    const setFolder = vi.fn();
+    const v1 = { ...draft, id: "v1", title: "Pitch v1", type: "plain" as const, stackId: "s" };
+    const v2 = { ...draft, id: "v2", title: "Pitch v2", type: "plain" as const, stackId: "s", stackTop: "2026-10-09T00:00:00.000Z" };
+    storage.set("less:home:layout:v1", "list");
+    renderHome([stage, card, other], { projects: [v1, v2], onSetFolder: setFolder });
+    openProject("Card");
+    act(() => host!.querySelector<HTMLButtonElement>(".lib-main .lib-row .lib-kebab")!.click());
+    clickMenuItem("Move to");
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>(".move-item")].find((b) => b.textContent?.includes("Other"))!.click()
+    );
+    expect(setFolder).toHaveBeenCalledWith("v1", "other");
+    expect(setFolder).toHaveBeenCalledWith("v2", "other");
+    setFolder.mockClear();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }));
+    });
+    expect(setFolder).toHaveBeenCalledWith("v1", "card");
+    expect(setFolder).toHaveBeenCalledWith("v2", "card");
+  });
+
   it("moves cyclic folder contents to the top when deleting the folder", () => {
     vi.useFakeTimers();
     const a = { ...stage, id: "a", name: "A", parentId: "b" };

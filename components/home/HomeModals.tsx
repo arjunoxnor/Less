@@ -53,10 +53,13 @@ export function FolderColorModal({
 
 export function DeleteProjectModal({
   project,
+  versions = 1,
   onDelete,
   onClose,
 }: {
   project: ProjectMeta;
+  /** How many versions its stack holds: only this one is deleted. */
+  versions?: number;
   onDelete: () => void;
   onClose: () => void;
 }) {
@@ -77,7 +80,11 @@ export function DeleteProjectModal({
         { label: "Delete", variant: "danger", onClick: onDelete },
       ]}
     >
-      <p>Delete &quot;{project.title}&quot;? This cannot be undone.</p>
+      <p>
+        {versions > 1
+          ? `Delete this version, "${project.title}"? The other ${versions - 1 === 1 ? "version stays" : `${versions - 1} versions stay`} in the stack. This cannot be undone.`
+          : `Delete "${project.title}"? This cannot be undone.`}
+      </p>
     </Modal>
   );
 }

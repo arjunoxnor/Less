@@ -352,7 +352,7 @@ export function AppShell() {
   // syncs to Supabase exactly like a hand-made project, so an import done while
   // signed in lands on every device.
   const importScreenplays = useCallback(
-    async (files: File[]): Promise<{ imported: number; failed: string[] }> => {
+    async (files: File[], intoFolder?: string | null): Promise<{ imported: number; failed: string[] }> => {
       const manifestFile = files.find((f) => f.name.toLowerCase().endsWith(".json"));
       let manifest: ImportManifest | null = null;
       if (manifestFile) {
@@ -400,7 +400,8 @@ export function AppShell() {
           create(isPlain ? "plain" : "screenplay", info.title || (isPlain ? "" : titlePage?.title) || fallback, {
             content: isPlain ? plainDoc : doc,
             titlePage: isPlain ? undefined : titlePage,
-            folderId: folderId ?? undefined,
+            // Imported from inside a script: it goes beside that script.
+            folderId: folderId ?? intoFolder ?? undefined,
             status: info.status,
           });
           imported++;
@@ -484,7 +485,7 @@ export function AppShell() {
           onPrefsChange={onPrefsChange}
           user={user}
           sessionExpired={sessionExpired}
-          onImportAsNew={(file) => importScreenplays([file])}
+          onImportAsNew={(file) => importScreenplays([file], current.folderId ?? null)}
           onOpenProject={openProject}
           onSaveDraft={(input) => saveDraftOf(current, input)}
           autoFocusTitle={autoFocusTitle}

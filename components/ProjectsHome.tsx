@@ -3144,6 +3144,7 @@ export function ProjectsHome({
       {confirmDelete && (
         <DeleteProjectModal
           project={confirmDelete}
+          versions={stackOf(confirmDelete).length}
           onDelete={() => {
             onDelete(confirmDelete.id);
             setConfirmDelete(null);
@@ -3156,8 +3157,31 @@ export function ProjectsHome({
           target={moveTarget}
           folders={folders}
           onMove={(folderId) => {
-            if (moveTarget.kind === "item") onSetFolder(moveTarget.meta.id, folderId);
-            else onUpdateFolder(moveTarget.folder.id, { parentId: folderId });
+            // As with dragging: a stack moves with all its versions, and Undo
+            // (the toast, or Ctrl+Z) puts it back.
+            if (moveTarget.kind === "item") {
+              const ids = stackOf(moveTarget.meta)
+                .map((d) => d.id)
+                .filter((id) => (projectById.get(id)?.folderId ?? null) !== folderId);
+              if (ids.length === 0) return;
+              const was = whereNow(ids);
+              ids.forEach((id) => onSetFolder(id, folderId));
+              told(
+                ids.length > 1
+                  ? `Moved ${ids.length} versions of "${moveTarget.meta.title}" to ${folderName(folderId)}.`
+                  : `Moved "${moveTarget.meta.title}" to ${folderName(folderId)}.`,
+                "Move",
+                () => putBack(was)
+              );
+            } else {
+              const f = moveTarget.folder;
+              const was = f.parentId ?? null;
+              if (was === folderId) return;
+              onUpdateFolder(f.id, { parentId: folderId });
+              told(`Moved "${f.name}" to ${folderName(folderId)}.`, "Move folder", () =>
+                onUpdateFolder(f.id, { parentId: was })
+              );
+            }
           }}
           onClose={() => setMoveTarget(null)}
         />
