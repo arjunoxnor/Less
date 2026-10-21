@@ -7,6 +7,7 @@ import { broadcast } from "./broadcast";
 import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
 import { digestOf, type CoverDigest } from "@/lib/cover/digest";
+import { pickVersions } from "@/lib/server/versionPick";
 
 /**
  * Multi-project, local-first storage. Replaces the single-document scheme: a
@@ -523,7 +524,13 @@ export function addLocalVersion(
     lsSet(localVersAtKey(id), String(now));
     return true;
   }
-  ring = [entry, ...ring].slice(0, LOCAL_VERS_MAX);
+  // Thinned with age like the cloud's History (versionPick), so a few
+  // snapshots reach back hours and days, not just the last half hour.
+  const merged = [entry, ...ring];
+  const keep = new Set(
+    pickVersions(merged.map((v) => ({ id: v.at, created_at: v.at, label: v.label ?? null })), now, LOCAL_VERS_MAX)
+  );
+  ring = merged.filter((v) => keep.has(v.at));
   // Enforce the byte budget (keep at least the newest entry).
   let payload = JSON.stringify(ring);
   while (ring.length > 1 && payload.length > LOCAL_VERS_BYTES) {

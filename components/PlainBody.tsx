@@ -311,7 +311,7 @@ export function PlainBody({
     extensions,
     content: initialContent,
     editorProps: {
-      attributes: { class: "pl-prose", spellcheck: "true" },
+      attributes: { class: "pl-prose", spellcheck: prefs.spellCheck ? "true" : "false" },
       scrollMargin: TYPING_SCROLL_MARGIN,
       scrollThreshold: TYPING_SCROLL_MARGIN,
       handleDrop: (view, event, _slice, moved) => {
@@ -346,6 +346,11 @@ export function PlainBody({
       measureSoon(editor);
     },
   });
+
+  // The Spell check setting reaches documents too (it only reached scripts).
+  useEffect(() => {
+    editor?.view.dom.setAttribute("spellcheck", prefs.spellCheck ? "true" : "false");
+  }, [editor, prefs.spellCheck]);
 
   // The status bar reads the same decoration set that places the text, so its
   // current page cannot disagree with the visible sheets.
@@ -565,6 +570,7 @@ export function PlainBody({
 
   const overflowItems: MenuItem[] = [
     { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },
+    { kind: "checkbox", label: "Spell check", checked: prefs.spellCheck, onToggle: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) },
     { kind: "divider" },
     ...STATUS_ROWS.map(
       (s): MenuItem => ({

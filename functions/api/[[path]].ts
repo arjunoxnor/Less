@@ -20,6 +20,7 @@ import {
 } from "../../lib/server/assets";
 import { digestOf, readDigest } from "../../lib/cover/digest";
 import { sanitizeDesk } from "../../lib/desk/layout";
+import { pickVersions } from "../../lib/server/versionPick";
 
 /* ---------- the desk: kinds and version stacks ---------- */
 // The prose kinds a plain document can be set to. Anything else stores NULL,
@@ -653,11 +654,21 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
         const id = seg[1];
         if (seg[2] === "versions") {
           if (method === "GET") {
+            // History thins out with age (lib/server/versionPick.ts) so it
+            // reaches back to the first draft, not just the last few hours.
+            const all = await db
+              .prepare("SELECT id,label,created_at FROM script_versions WHERE user_id=? AND script_id=? ORDER BY created_at DESC LIMIT 20000")
+              .bind(uid, id)
+              .all<{ id: string; label: string | null; created_at: string }>();
+            // 90, not 100: the content query binds every id plus two, and D1
+            // allows 100 values in one query.
+            const ids = pickVersions(all.results, Date.now(), 90);
+            if (ids.length === 0) return json([]);
             const r = await db
               .prepare(
-                "SELECT id,content,title_page,label,created_at FROM script_versions WHERE user_id=? AND script_id=? ORDER BY created_at DESC LIMIT 100"
+                `SELECT id,content,title_page,label,created_at FROM script_versions WHERE user_id=? AND script_id=? AND id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at DESC`
               )
-              .bind(uid, id)
+              .bind(uid, id, ...ids)
               .all<Record<string, unknown>>();
             return json(
               r.results.map((v) => ({
