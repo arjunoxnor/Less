@@ -75,6 +75,8 @@ export function DeskCanvas({
           height,
           ...(scale !== 1 ? { zoom: scale } : {}),
           ["--desk-scale" as string]: scale,
+          // Controls undo a shrink, so they stay full size on screen.
+          ["--desk-up" as string]: scale < 1 ? Math.round((1 / scale) * 1000) / 1000 : 1,
         } as React.CSSProperties
       }
     >

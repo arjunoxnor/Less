@@ -51,7 +51,7 @@ body {
   background-size: 22px 22px;
 }
 .lib.is-desk .lib-main-inner {
-  max-width: 1180px;
+  max-width: clamp(1180px, 82vw, 1900px);
 }
 
 /* ============================== Covers ===================================== */
@@ -1407,6 +1407,16 @@ body {
   flex: 1 1 auto;
   min-width: 0;
 }
+@media (max-height: 760px) {
+  /* On a short screen every tool still fits: icons only (each keeps its name
+     as a tooltip). */
+  .dk-tools .dk-tool-label {
+    display: none;
+  }
+  .dk-tools .dk-tool {
+    padding: 6px 2px;
+  }
+}
 .dk-tools {
   position: sticky;
   top: 14px;
@@ -1518,6 +1528,14 @@ body {
 }
 .dk-canvas .dk-folder-name {
   font-size: max(clamp(15px, calc(18 * var(--u)), 30px), calc(12px / var(--desk-scale, 1)));
+}
+/* A desk scaled down keeps its controls full size, so they stay easy to hit. */
+.dk-canvas .dk-resize,
+.dk-canvas .dk-folder-resize,
+.dk-canvas .dk-column-resize,
+.dk-canvas .lib-icon-btn,
+.dk-canvas .dk-versions {
+  zoom: var(--desk-up, 1);
 }
 .dk-canvas {
   position: relative;

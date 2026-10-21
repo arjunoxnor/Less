@@ -222,7 +222,9 @@ body {
 
 .page-wrap {
   display: flex;
-  justify-content: center;
+  /* Centred, but never pushed off the left edge when the window is narrower
+     than the page (the overflow stays scrollable). */
+  justify-content: safe center;
 }
 
 /* Relative host. The plain host remains full width so its responsive text
@@ -3207,8 +3209,8 @@ body {
   display: none;
 }
 
-/* Below 1280px the dock overlays the page with a scrim. */
-@media (max-width: 1279px) {
+/* Below 1200px the dock overlays the page with a scrim. */
+@media (max-width: 1199px) {
   .editor-rail {
     position: absolute;
     top: 0;
@@ -3251,8 +3253,9 @@ body {
   }
 }
 
-/* At >=1280px the dock is a grid column, so the page recenters as it opens. */
-@media (min-width: 1280px) {
+/* At >=1200px the dock is a grid column, so the page recenters as it opens
+   (816px page + 32px gutter + 44px rail + 300px dock = 1192px). */
+@media (min-width: 1200px) {
   .editor-body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 44px 0px;
@@ -3287,6 +3290,14 @@ body {
 .dock-inner .history-item:hover .history-restore,
 .dock-inner .history-item:focus-within .history-restore {
   opacity: 1;
+}
+
+/* Between 900 and 1199px the rail floats at the page column's right edge:
+   the column keeps clear of it, so it never covers the page's scrollbar. */
+@media (min-width: 900px) and (max-width: 1199px) {
+  .editor-page-col {
+    margin-right: 44px;
+  }
 }
 
 @media (max-width: 899px) {
@@ -4524,12 +4535,7 @@ html.is-dragging * {
   color: var(--ink);
   box-shadow: var(--e1);
 }
-/* Below 1280px the rail floats over the page column's right edge. */
-@media (min-width: 721px) and (max-width: 1279px) {
-  .sb-inner {
-    padding-right: calc(var(--space-6) + 44px);
-  }
-}
+
 
 /* Scenes panel: the storyline dot, and dragging a scene to a new place. */
 .scene-story {
@@ -4787,12 +4793,7 @@ html.is-dragging * {
     padding: 0.5in 0.4in;
   }
 }
-/* Below 1280px the rail floats over the page column's right edge. */
-@media (min-width: 721px) and (max-width: 1279px) {
-  .cmp-head {
-    padding-right: calc(var(--space-5) + 44px);
-  }
-}
+
 /* Change bars sit in the page margin whatever the line's indent. */
 .cmp-row.sp-dialogue::before {
   left: calc(-0.45in - 1in);
@@ -4918,7 +4919,8 @@ html.is-dragging * {
   outline: none;
 }
 .lib-main-inner {
-  max-width: 900px;
+  /* Grows with a big monitor instead of staying a narrow column. */
+  max-width: clamp(900px, 70vw, 1400px);
   margin: 0 auto;
   padding: 40px 40px 140px;
 }
