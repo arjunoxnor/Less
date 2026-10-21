@@ -8,6 +8,7 @@ import { parseFdx, toFdx } from "./fdx";
 import { docxToLines, odtToLines, rtfToLines, looksBinary } from "./docImport";
 import { exportPdf } from "./pdf";
 import type { TitlePage } from "./titlePage";
+import { markdownToPlainDoc, textToPlainDoc } from "./markdownImport";
 import type { PageLock } from "./pageLock";
 
 /**
@@ -134,6 +135,9 @@ export async function importFile(file: File): Promise<{
 
   let lines: ScriptLine[];
   let titlePage: TitlePage | null = null;
+  // A prose file keeps its own text: Markdown is read as Markdown, plain text
+  // line for line (the Fountain reader would drop headings and emphasis).
+  let prose: { text: string; markdown: boolean } | null = null;
 
   // Formats that are inherently screenplays, so content detection is skipped.
   const forceScreenplay =
@@ -172,9 +176,13 @@ export async function importFile(file: File): Promise<{
     name.endsWith(".md") ||
     name.endsWith(".markdown")
   ) {
-    const r = parseFountain(await readText(file));
+    const text = await readText(file);
+    const r = parseFountain(text);
     lines = r.lines;
     titlePage = r.titlePage;
+    if (!name.endsWith(".fountain") && !name.endsWith(".spmd")) {
+      prose = { text, markdown: name.endsWith(".md") || name.endsWith(".markdown") };
+    }
   } else {
     // Unknown extension: if it decodes as text, treat it as Fountain / plain
     // text; otherwise refuse rather than dumping binary into the editor.
@@ -205,6 +213,13 @@ export async function importFile(file: File): Promise<{
     doc: linesToDoc(normalizeDual(lines)),
     titlePage,
     kind,
-    plainDoc: kind === "plain" ? linesToPlainDoc(lines) : undefined,
+    plainDoc:
+      kind !== "plain"
+        ? undefined
+        : prose
+          ? prose.markdown
+            ? markdownToPlainDoc(prose.text)
+            : textToPlainDoc(prose.text)
+          : linesToPlainDoc(lines),
   };
 }

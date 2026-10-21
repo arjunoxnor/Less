@@ -30,6 +30,7 @@ import type { Outline } from "@/types/screenplay";
 import type { NSpell } from "nspell";
 import type { DuetSession } from "@/lib/collab/duet";
 import { DualLayout } from "./dualLayout";
+import { ScreenplayPaste } from "./screenplayPaste";
 
 /** Hint shown on the current empty line, tailored to its element type. */
 function placeholderFor(element: ElementType): string {
@@ -110,6 +111,8 @@ export function buildExtensions(opts?: {
     // keymap; it only consumes keys while its menu is open.
     buildAutocomplete(getOutline, opts?.onAutocompleteState),
     FindReplace,
+    // A pasted scene keeps its elements instead of becoming all Action.
+    ScreenplayPaste,
     Gapcursor,
     Dropcursor,
     Placeholder.configure({

@@ -66,28 +66,24 @@ function escapeInline(text: string): string {
 }
 
 /**
- * Strip Fountain inline emphasis (*ital* **bold** _underline_) down to plain
- * text, while unescaping any backslash-escaped markers. LESS stores no inline
- * styling, so import yields clean text. Scans character by character so a
- * "\*" survives as a literal "*" but a bare "*" is removed.
+ * Strip Fountain inline emphasis (*ital* **bold** ***both*** _underline_)
+ * down to plain text, unescaping backslash-escaped markers. Only markers that
+ * come in a matching pair are emphasis: a lone "*" or "_" (an email address,
+ * a URL, "5 * 3", a "____" blank to fill in) is text and is kept.
  */
 function stripInline(text: string): string {
-  let out = "";
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (
-      ch === "\\" &&
-      text[i + 1] != null &&
-      "\\*_/.@!>~#=[]^<".includes(text[i + 1])
-    ) {
-      out += text[i + 1];
-      i++;
-      continue;
-    }
-    if (ch === "*" || ch === "_") continue;
-    out += ch;
-  }
-  return out;
+  const held: string[] = [];
+  // Escaped markers are set aside first, so they never pair up.
+  const hold = (c: string) => {
+    held.push(c);
+    return `${held.length - 1}`;
+  };
+  let t = text.replace(/\\([\\*_/.@!>~#=[\]^<])/g, (_, c: string) => hold(c));
+  t = t.replace(/\*\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*\*/g, "$1");
+  t = t.replace(/\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*/g, "$1");
+  t = t.replace(/\*(?=[^\s*])(.+?)(?<=[^\s*])\*/g, "$1");
+  t = t.replace(/(^|[^\p{L}\p{N}_])_(?=[^\s_])(.+?)(?<=[^\s_])_(?=$|[^\p{L}\p{N}_])/gu, "$1$2");
+  return t.replace(/(\d+)/g, (_, n: string) => held[Number(n)]);
 }
 
 /**
@@ -322,7 +318,10 @@ export function parseFountain(text: string): {
     const nextBlank = isBlank(idx + 1);
     const line = raw.trim();
 
-    const push = (element: ElementType, value: string, dual = false) => {
+    const push = (element: ElementType, rawValue: string, dual = false) => {
+      // A scene number written into the heading ("INT. HOUSE - DAY #12A#") is
+      // not part of its text: LESS numbers scenes itself.
+      const value = element === "scene_heading" ? rawValue.replace(/\s*#[^#\s]+#\s*$/, "") : rawValue;
       out.push(
         dual
           ? { element, text: stripInline(value), dual: true }

@@ -76,3 +76,28 @@ describe("revision stars and undo", () => {
     expect(ed.state.doc.child(0).attrs.revised).toBe(true);
   });
 });
+
+describe("pasting a scene", () => {
+  it("lands headings, cues and dialogue as themselves, not all Action", () => {
+    const ed = (editor = makeEditor(docOf(line("action", ""))));
+    ed.commands.setTextSelection(1);
+    const text = "INT. KITCHEN - NIGHT\n\nMara stirs the pot.\n\nMARA\n(quietly)\nIt's ready.\n\nCUT TO:\n";
+    const data = { getData: (type: string) => (type === "text/plain" ? text : "") };
+    const event = Object.assign(new Event("paste"), { clipboardData: data }) as unknown as ClipboardEvent;
+    ed.view.someProp("handlePaste", (handler) => handler(ed.view, event, null as never));
+    expect(linesOf(ed).map((l) => [l.element, l.text])).toEqual([
+      ["scene_heading", "INT. KITCHEN - NIGHT"],
+      ["action", "Mara stirs the pot."],
+      ["character", "MARA"],
+      ["parenthetical", "(quietly)"],
+      ["dialogue", "It's ready."],
+      ["transition", "CUT TO:"],
+    ]);
+  });
+
+  it("leaves a single line or plain prose to the ordinary paste", async () => {
+    const { screenplayLinesFromPaste } = await import("./screenplayPaste");
+    expect(screenplayLinesFromPaste("just one line")).toBeNull();
+    expect(screenplayLinesFromPaste("A paragraph of notes.\n\nAnother one.")).toBeNull();
+  });
+});

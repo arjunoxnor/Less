@@ -47,7 +47,7 @@ describe("real adversarial format fixtures", () => {
       author: "Élodie O’Connor",
     });
     expect(parsed.lines).toEqual([
-      { element: "scene_heading", text: "INT. CAFÉ 東京 - DAY #12#" },
+      { element: "scene_heading", text: "INT. CAFÉ 東京 - DAY" },
       { element: "action", text: "Le café attend — שקט." },
       { element: "character", text: "ÉLODIE" },
       { element: "parenthetical", text: "(très calme)" },
@@ -243,7 +243,7 @@ describe("hostile size and screenplay semantics", () => {
       "",
     ].join("\n")).lines;
     expect(parsed).toEqual([
-      { element: "scene_heading", text: "A PLACE OUTSIDE TIME #A12#" },
+      { element: "scene_heading", text: "A PLACE OUTSIDE TIME" },
       { element: "character", text: "ÉLODIE" },
       { element: "dialogue", text: "One." },
       { element: "parenthetical", text: "(MORE)" },
