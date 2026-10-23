@@ -12,6 +12,7 @@ import {
   splitOptions,
   type SplitOption,
 } from "@/lib/export/splitRules";
+import { pageScale } from "./pageZoom";
 
 /**
  * Visual pagination: makes a single continuous editor LOOK like a stack of
@@ -570,8 +571,9 @@ interface MeasuredBlock {
  * Viewport tops of a block's rendered text lines, from Range.getClientRects
  * over its text nodes. Text inside our own widgets (.pm-split / .pm-page-gap)
  * is skipped so a block that already hosts a split measures its own lines.
+ * In page pixels: screen pixels divided by the page zoom (`scale`).
  */
-function textLineTops(el: HTMLElement, lineH: number): number[] {
+function textLineTops(el: HTMLElement, lineH: number, scale: number): number[] {
   const tops: number[] = [];
   const doc = el.ownerDocument;
   const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
@@ -592,7 +594,7 @@ function textLineTops(el: HTMLElement, lineH: number): number[] {
     range.selectNodeContents(node);
     for (const r of Array.from(range.getClientRects())) {
       if (r.height <= 0) continue;
-      tops.push(r.top);
+      tops.push(r.top / scale);
     }
   }
   tops.sort((a, b) => a - b);
@@ -633,12 +635,13 @@ type MetricsCache = Map<string, KindMetrics>;
     a block already carrying a split measures its text height. Uses
     offsetHeight for the block (no rect allocation); the split wrapper is
     inline, so its bounding rect (the union of its display:block children)
-    carries the widget's occupied height. */
-function cleanBlockHeight(el: HTMLElement): number {
+    carries the widget's occupied height (in screen pixels, so divided by the
+    page zoom, `scale`, to compare with offsetHeight's page pixels). */
+function cleanBlockHeight(el: HTMLElement, scale: number): number {
   let h = el.offsetHeight;
   const widgets = el.getElementsByClassName("pm-split");
   for (let i = 0; i < widgets.length; i++) {
-    h -= widgets[i].getBoundingClientRect().height;
+    h -= widgets[i].getBoundingClientRect().height / scale;
   }
   return h;
 }
@@ -672,7 +675,8 @@ function resolveLineStartOffset(
   view: EditorView,
   b: MeasuredBlock,
   row: number,
-  lineH: number
+  lineH: number,
+  scale: number
 ): number | null {
   const tops = b.lineTops;
   if (!tops || row <= 0 || row >= tops.length) return null;
@@ -681,7 +685,7 @@ function resolveLineStartOffset(
   const to = from + b.node.content.size;
   const topAt = (pos: number): number | null => {
     try {
-      return view.coordsAtPos(pos, 1).top;
+      return view.coordsAtPos(pos, 1).top / scale;
     } catch {
       return null;
     }
@@ -774,6 +778,9 @@ function compute(
   let currentCue: string | null = null;
   const doms = blockDoms(view);
   const hostedAll = hostedSplitsByBlock(view.state);
+  // Screen measurements (rects, caret coordinates) are scaled by the page
+  // zoom; everything below works in page pixels.
+  const scale = pageScale(view);
   let childIndex = 0;
   view.state.doc.forEach((node, offset) => {
     const dom = doms[childIndex++];
@@ -795,7 +802,7 @@ function compute(
       pos: offset,
       node,
       el: dom,
-      cleanHeight: (hosted.length ? cleanBlockHeight(dom) : dom.offsetHeight) - padding,
+      cleanHeight: (hosted.length ? cleanBlockHeight(dom, scale) : dom.offsetHeight) - padding,
       element,
       dual: node.attrs.dual === true,
       mt: 0,
@@ -1041,8 +1048,8 @@ function compute(
       const br = brs[bi];
       let offset = br.offset ?? null;
       if (offset == null) {
-        if (!b.lineTops) b.lineTops = textLineTops(b.el, lineH);
-        offset = resolveLineStartOffset(view, b, br.rowFromStart, lineH);
+        if (!b.lineTops) b.lineTops = textLineTops(b.el, lineH, scale);
+        offset = resolveLineStartOffset(view, b, br.rowFromStart, lineH, scale);
       }
       if (offset == null) break; // degrade: the rest of the block flows on
       const more = br.more;

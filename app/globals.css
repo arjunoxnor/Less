@@ -235,6 +235,23 @@ body {
 .page-host-pl {
   width: 100%;
 }
+/* The writer's zoom (status bar, lib/editor/pageZoom.ts): the pages drawn
+   bigger or smaller, never laid out again, so every zoom keeps the same line
+   and page breaks. The margins give the layout the size that is drawn, so the
+   scroll range, the centring and sideways scrolling follow the zoom. Absent at
+   100%, where the host is exactly as it always was. */
+.page-host[data-page-zoom] {
+  flex-shrink: 0;
+  transform: scale(var(--page-zoom));
+  transform-origin: 50% 0;
+  margin: 0 calc((var(--page-zoom) - 1) * 4.25in) calc((var(--page-zoom) - 1) * var(--page-h));
+}
+/* A document's host is as wide as its page (full width it would scale the
+   empty desk on either side too). Same text width as at 100%. */
+.page-host-pl[data-page-zoom] {
+  width: min(8.5in, 100%);
+  margin-inline: calc((var(--page-zoom) - 1) * min(4.25in, 50%));
+}
 .page-backdrop {
   position: absolute;
   inset: 0;
@@ -440,6 +457,46 @@ body {
 }
 
 /* Contextual dual-dialogue chip, visible only inside a cue cluster. */
+/* Page zoom: out, the size (a menu of presets), in. */
+.status-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: -6px;
+}
+.status-zoom-step,
+.status-zoom-value {
+  height: 22px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+.status-zoom-step {
+  width: 22px;
+  padding: 0;
+  font-size: 15px;
+}
+.status-zoom-value {
+  min-width: 42px;
+  padding: 0 4px;
+  color: var(--ink);
+}
+.status-zoom-step:hover:not(:disabled),
+.status-zoom-value:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.status-zoom-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .dual-chip {
   height: 20px;
   padding: 0 9px;
@@ -2453,6 +2510,10 @@ body {
 
 /* Page geometry only. See the note above: 720px, not 900px. */
 @media (max-width: 720px) {
+  /* A phone's page already fills the screen: no zoom (usePageZoom). */
+  .status-zoom {
+    display: none;
+  }
   /* The page: full width, reflowed. */
   .page-scroll {
     padding: 12px 0 48px;
@@ -3714,6 +3775,10 @@ body {
     background: #fff !important;
     color: #000 !important;
     box-shadow: none !important;
+  }
+  /* Print at the page's own size, whatever the screen zoom. */
+  .page-host {
+    transform: none !important;
   }
   .page-host-sp,
   .sp-editor .sp-prose {

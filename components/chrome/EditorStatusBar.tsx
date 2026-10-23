@@ -10,13 +10,14 @@ import {
 import { Menu, type MenuItem } from "../ui/Menu";
 import { ChevronUpIcon } from "./icons";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
+import { ZoomControl } from "./ZoomControl";
 
 /**
  * The 26px status bar (Superaudit 2, 2B.4). Left: the element pill (click or
  * Ctrl/Cmd+E opens an upward menu of the six elements with their shortcuts)
  * and a contextual Dual chip that appears only while the caret sits in a cue
- * cluster. Right: locked-pages chip, page count, word count, and the
- * aria-live save word.
+ * cluster. Right: locked-pages chip, page count, word count, the aria-live
+ * save word, and the page zoom.
  */
 export function EditorStatusBar({
   currentElement,
@@ -34,6 +35,8 @@ export function EditorStatusBar({
   collaborative,
   locked,
   lockRevision,
+  zoom,
+  onZoom,
 }: {
   currentElement: ElementType;
   onSetElement: (type: ElementType) => void;
@@ -50,6 +53,8 @@ export function EditorStatusBar({
   collaborative?: boolean;
   locked: boolean;
   lockRevision?: string;
+  zoom?: number;
+  onZoom?: (zoom: number) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pillRef = useRef<HTMLButtonElement>(null);
@@ -156,6 +161,7 @@ export function EditorStatusBar({
       >
         {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
       </span>
+      {onZoom && <ZoomControl zoom={zoom ?? 1} onZoom={onZoom} />}
     </div>
   );
 }

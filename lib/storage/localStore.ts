@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import type { TitlePage } from "@/lib/export/titlePage";
+import { clampZoom } from "@/lib/editor/pageZoom";
 
 /**
  * Local-first storage.
@@ -44,6 +45,8 @@ export interface Prefs {
   revisionMode: boolean;
   autoContd: boolean;
   breakdownHighlight: boolean;
+  /** How big the pages are drawn on screen (1 = 100%). Never changes layout. */
+  pageZoom: number;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -62,6 +65,7 @@ export const DEFAULT_PREFS: Prefs = {
   // default never silently changes a working setup.
   autoContd: true,
   breakdownHighlight: true,
+  pageZoom: 1,
 };
 
 /** Load the saved document, or null if this is a first visit. */
@@ -119,7 +123,9 @@ export function loadPrefs(): Prefs {
     // the flipped default (ON) applies only where no prefs were ever saved,
     // i.e. genuinely new installs. Documented choice per Superaudit 2 task 12.
     if (parsed.autoContd === undefined) parsed.autoContd = false;
-    return { ...DEFAULT_PREFS, ...parsed };
+    const prefs = { ...DEFAULT_PREFS, ...parsed };
+    prefs.pageZoom = clampZoom(prefs.pageZoom);
+    return prefs;
   } catch {
     return DEFAULT_PREFS;
   }

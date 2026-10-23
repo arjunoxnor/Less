@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, type CSSProperties } from "react";
 import { PAGE_H, STRIDE } from "@/lib/editor/pagination";
 
 /**
@@ -35,3 +35,18 @@ export const PageBackdrop = memo(function PageBackdrop({
     </div>
   );
 });
+
+/**
+ * The page host's own style: tall enough for every sheet, and at a zoom other
+ * than 100% the custom properties the zoom rules in globals.css draw it with
+ * (see lib/editor/pageZoom.ts).
+ */
+export function pageHostStyle(pages: number, zoom: number): CSSProperties {
+  const height = (Math.max(1, pages) - 1) * STRIDE + PAGE_H;
+  if (zoom === 1) return { minHeight: height };
+  return {
+    minHeight: height,
+    ["--page-zoom" as string]: zoom,
+    ["--page-h" as string]: `${height}px`,
+  };
+}

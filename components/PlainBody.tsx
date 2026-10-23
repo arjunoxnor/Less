@@ -58,7 +58,8 @@ import type { MenuItem } from "./ui/Menu";
 import type { SaveDraft } from "./ScreenplayBody";
 import { listFolders } from "@/lib/storage/folders";
 import { cardForProject, MAX_LIBRARY_NAME_LENGTH } from "@/lib/storage/library";
-import { PageBackdrop } from "./PageBackdrop";
+import { PageBackdrop, pageHostStyle } from "./PageBackdrop";
+import { ZoomControl, usePageZoom } from "./chrome/ZoomControl";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
 import { MicGlyph, RecordingBar } from "./RecordingBar";
 import { canRecord, newVoiceId, VoiceRecording } from "@/lib/voicenote/recorder";
@@ -346,6 +347,10 @@ export function PlainBody({
       measureSoon(editor);
     },
   });
+
+  const { zoom, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
+    onPrefsChange({ pageZoom })
+  );
 
   // The Spell check setting reaches documents too (it only reached scripts).
   useEffect(() => {
@@ -715,6 +720,7 @@ export function PlainBody({
             >
               {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
             </span>
+            {isBoard ? null : <ZoomControl zoom={zoom} onZoom={setZoom} />}
           </div>
         }
       >
@@ -733,7 +739,8 @@ export function PlainBody({
             <div className="page-wrap">
               <div
                 className="page-host page-host-pl"
-                style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
+                data-page-zoom={zoom !== 1 ? zoom : undefined}
+                style={pageHostStyle(pages, zoom)}
               >
                 <PageBackdrop pages={pages} />
                 <EditorContent editor={editor} className="pl-doc" />

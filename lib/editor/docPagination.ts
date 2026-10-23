@@ -11,6 +11,7 @@ import {
   passCostTracker,
   restoreViewAnchor,
 } from "./pagination";
+import { pageScale } from "./pageZoom";
 
 /** The page margin derives from the screenplay sheet width, which is 8.5in. */
 export const DOC_PAGE_MARGIN = PAGE_W / 8.5;
@@ -321,10 +322,13 @@ function gapElement(height: number, listItem: boolean, split: boolean): HTMLElem
   return element;
 }
 
-function oldGaps(root: HTMLElement): OldGap[] {
+/* Every measurement here is in page pixels: a rect or caret coordinate is in
+   screen pixels, so it is divided by the page zoom (`scale`, pageScale()). */
+
+function oldGaps(root: HTMLElement, scale: number): OldGap[] {
   return Array.from(root.querySelectorAll<HTMLElement>(".doc-page-gap")).map((el) => {
     const rect = el.getBoundingClientRect();
-    return { top: rect.top, height: rect.height };
+    return { top: rect.top / scale, height: rect.height / scale };
   });
 }
 
@@ -340,7 +344,8 @@ function lineTopsFor(
   el: HTMLElement,
   rootTop: number,
   gaps: OldGap[],
-  blockCleanTop: number
+  blockCleanTop: number,
+  scale: number
 ): number[] {
   const doc = el.ownerDocument;
   const nodeFilter = doc.defaultView?.NodeFilter;
@@ -366,7 +371,7 @@ function lineTopsFor(
     range.selectNodeContents(textNode);
     for (const rect of Array.from(range.getClientRects())) {
       if (rect.height <= 0) continue;
-      tops.push(cleanCoordinate(rootTop, gaps, rect.top) - blockCleanTop);
+      tops.push(cleanCoordinate(rootTop, gaps, rect.top / scale) - blockCleanTop);
     }
   }
   tops.sort((a, b) => a - b);
@@ -398,10 +403,12 @@ function measureBlocks(view: EditorView): {
   blocks: MeasuredDomBlock[];
   rootTop: number;
   gaps: OldGap[];
+  scale: number;
 } {
   const root = view.dom as HTMLElement;
-  const rootTop = root.getBoundingClientRect().top;
-  const gaps = oldGaps(root);
+  const scale = pageScale(view);
+  const rootTop = root.getBoundingClientRect().top / scale;
+  const gaps = oldGaps(root, scale);
   const blocks: MeasuredDomBlock[] = [];
 
   const push = (
@@ -416,10 +423,10 @@ function measureBlocks(view: EditorView): {
     const rect = el.getBoundingClientRect();
     const descendantGapHeight = Array.from(
       el.querySelectorAll<HTMLElement>(".doc-page-gap")
-    ).reduce((sum, gap) => sum + gap.getBoundingClientRect().height, 0);
+    ).reduce((sum, gap) => sum + gap.getBoundingClientRect().height / scale, 0);
     const style = getComputedStyle(el);
-    const cleanTop = cleanCoordinate(rootTop, gaps, rect.top);
-    const height = Math.max(0, rect.height - descendantGapHeight);
+    const cleanTop = cleanCoordinate(rootTop, gaps, rect.top / scale);
+    const height = Math.max(0, rect.height / scale - descendantGapHeight);
     blocks.push({
       pos,
       node,
@@ -429,7 +436,7 @@ function measureBlocks(view: EditorView): {
       height,
       marginTop: collapseMargins(extraTop, px(style.marginTop)),
       marginBottom: collapseMargins(px(style.marginBottom), extraBottom),
-      lineTops: lineTopsFor(el, rootTop, gaps, cleanTop),
+      lineTops: lineTopsFor(el, rootTop, gaps, cleanTop, scale),
       cleanTop,
     });
   };
@@ -477,7 +484,7 @@ function measureBlocks(view: EditorView): {
     current.marginTop = effectiveGap;
   }
 
-  return { blocks, rootTop, gaps };
+  return { blocks, rootTop, gaps, scale };
 }
 
 function resolveLineStart(
@@ -485,7 +492,8 @@ function resolveLineStart(
   block: MeasuredDomBlock,
   line: number,
   rootTop: number,
-  gaps: OldGap[]
+  gaps: OldGap[],
+  scale: number
 ): number | null {
   if (line <= 0 || line >= block.lineTops.length) return null;
   const target = block.lineTops[line];
@@ -494,7 +502,7 @@ function resolveLineStart(
   const relativeTopAt = (pos: number): number | null => {
     try {
       const coords = view.coordsAtPos(pos, 1);
-      return cleanCoordinate(rootTop, gaps, coords.top) - block.cleanTop;
+      return cleanCoordinate(rootTop, gaps, coords.top / scale) - block.cleanTop;
     } catch {
       return null;
     }
@@ -568,7 +576,8 @@ function compute(view: EditorView): {
         block,
         brk.line,
         measured.rootTop,
-        measured.gaps
+        measured.gaps,
+        measured.scale
       );
       if (resolved != null) {
         widgetPos = resolved;

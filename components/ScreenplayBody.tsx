@@ -89,7 +89,7 @@ import {
   IMPORT_ACCEPT,
   type ExportFormat,
 } from "@/lib/export";
-import { PageBackdrop } from "./PageBackdrop";
+import { PageBackdrop, pageHostStyle } from "./PageBackdrop";
 import {
   Pagination,
   STRIDE,
@@ -100,6 +100,7 @@ import {
 import { TYPING_SCROLL_MARGIN, centerCaret } from "@/lib/editor/scrollComfort";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { EditorStatusBar } from "./chrome/EditorStatusBar";
+import { usePageZoom } from "./chrome/ZoomControl";
 import { HintCard } from "./chrome/HintCard";
 import { ShortcutsModal } from "./chrome/ShortcutsModal";
 import type { MenuItem } from "./ui/Menu";
@@ -723,6 +724,10 @@ function ScreenplayEditor({
       setDualActive(inDualPair(editor.state));
     },
   });
+
+  const { zoom, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
+    onPrefsChange({ pageZoom })
+  );
 
   useEffect(() => {
     if (!editor || !duetSession) return;
@@ -1800,6 +1805,8 @@ function ScreenplayEditor({
             collaborative={duetActive}
             locked={pageLock != null}
             lockRevision={pageLock?.revision}
+            zoom={zoom}
+            onZoom={setZoom}
           />
         }
       >
@@ -1807,7 +1814,8 @@ function ScreenplayEditor({
           <div className="page-wrap">
             <div
               className="page-host page-host-sp"
-              style={{ minHeight: (Math.max(1, pages) - 1) * STRIDE + PAGE_H }}
+              data-page-zoom={zoom !== 1 ? zoom : undefined}
+              style={pageHostStyle(pages, zoom)}
             >
               <PageBackdrop pages={pages} variant="screenplay" />
               {duetActive && !duetReady && (
