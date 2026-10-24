@@ -36,6 +36,7 @@ export function EditorStatusBar({
   locked,
   lockRevision,
   zoom,
+  zoomMode,
   onZoom,
 }: {
   currentElement: ElementType;
@@ -54,6 +55,8 @@ export function EditorStatusBar({
   locked: boolean;
   lockRevision?: string;
   zoom?: number;
+  /** What was chosen: a fixed size or one of the fits. */
+  zoomMode?: number;
   onZoom?: (zoom: number) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -161,7 +164,7 @@ export function EditorStatusBar({
       >
         {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
       </span>
-      {onZoom && <ZoomControl zoom={zoom ?? 1} onZoom={onZoom} />}
+      {onZoom && <ZoomControl zoom={zoom ?? 1} mode={zoomMode} onZoom={onZoom} />}
     </div>
   );
 }

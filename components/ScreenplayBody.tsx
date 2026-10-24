@@ -726,7 +726,7 @@ function ScreenplayEditor({
     },
   });
 
-  const { zoom, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
+  const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
   );
 
@@ -1813,6 +1813,7 @@ function ScreenplayEditor({
             locked={pageLock != null}
             lockRevision={pageLock?.revision}
             zoom={zoom}
+            zoomMode={zoomMode}
             onZoom={setZoom}
           />
         }

@@ -349,7 +349,7 @@ export function PlainBody({
     },
   });
 
-  const { zoom, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
+  const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
   );
 
@@ -727,7 +727,7 @@ export function PlainBody({
             >
               {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
             </span>
-            {isBoard ? null : <ZoomControl zoom={zoom} onZoom={setZoom} />}
+            {isBoard ? null : <ZoomControl zoom={zoom} mode={zoomMode} onZoom={setZoom} />}
           </div>
         }
       >

@@ -65,7 +65,8 @@ export const DEFAULT_PREFS: Prefs = {
   // default never silently changes a working setup.
   autoContd: true,
   breakdownHighlight: true,
-  pageZoom: 1,
+  // Auto: as big as fits the window, never past 100% (lib/editor/pageZoom.ts).
+  pageZoom: 0,
 };
 
 /** Load the saved document, or null if this is a first visit. */
