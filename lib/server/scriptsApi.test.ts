@@ -242,3 +242,26 @@ describe.skipIf(!sqlite)("place: where the writer last was", () => {
     expect((await call("PATCH", "scripts/nope/place", { place: { pos: 1, line: "", off: 0 } })).place_at).toBeNull();
   });
 });
+
+describe.skipIf(!sqlite)("bookmarks in the list's cover digest", () => {
+  it("lists each document's bookmarks without sending its body", async () => {
+    migrate();
+    tick();
+    const content = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "One." }] },
+        {
+          type: "paragraph",
+          attrs: { bookmark: { id: "abc123", color: "blue", name: "Fix this" } },
+          content: [{ type: "text", text: "Two." }],
+        },
+        { type: "paragraph", attrs: { bookmark: { id: "x", color: "pink" } }, content: [{ type: "text", text: "Bad." }] },
+      ],
+    };
+    await call("POST", "scripts", { id: "s1", title: "Notes", content, type: "plain" });
+    const row = (await listed("s1")) as unknown as { digest: unknown };
+    const digest = typeof row.digest === "string" ? JSON.parse(row.digest) : row.digest;
+    expect(digest.bookmarks).toEqual([{ id: "abc123", color: "blue", name: "Fix this", text: "Two.", pos: 6 }]);
+  });
+});
