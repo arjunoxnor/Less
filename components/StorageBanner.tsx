@@ -13,6 +13,10 @@ if (typeof window !== "undefined") {
     storageFullSeen = true;
     for (const subscriber of storageFullSubscribers) subscriber();
   });
+  window.addEventListener("less:storageok", () => {
+    storageFullSeen = false;
+    for (const subscriber of storageFullSubscribers) subscriber();
+  });
 }
 
 /**
@@ -28,7 +32,7 @@ export function StorageBanner() {
   const [full, setFull] = useState(false);
 
   useEffect(() => {
-    const onFull = () => setFull(true);
+    const onFull = () => setFull(storageFullSeen);
     storageFullSubscribers.add(onFull);
     if (storageFullSeen) onFull();
     return () => {
@@ -40,8 +44,8 @@ export function StorageBanner() {
 
   return (
     <div className="storage-banner" role="alert">
-      This device is out of local storage, so some changes may not be saving.
-      Export anything important, then free up space or sign in to sync.
+      This browser&apos;s storage for LESS is full, so the latest changes may not be saved on this computer.
+      If you are signed in they are still saved to the cloud. This goes away once saving works again.
     </div>
   );
 }

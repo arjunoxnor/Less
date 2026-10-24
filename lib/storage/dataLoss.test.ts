@@ -337,7 +337,8 @@ describe("version history and migration", () => {
     for (let index = 0; index < 20; index++) {
       expect(projects.addLocalVersion(project.id, doc(`version ${index}`), null, undefined, { force: true })).toBe(true);
     }
-    expect(projects.listLocalVersions(project.id)).toHaveLength(8);
+    // Kept small: a browser gives a site about 5MB in all.
+    expect(projects.listLocalVersions(project.id)).toHaveLength(6);
 
     projects.loadProjectDoc(project.id);
     projects.addLocalVersion(project.id, doc("live draft"), null, "Before restore", { force: true });

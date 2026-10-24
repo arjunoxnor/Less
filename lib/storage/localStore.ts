@@ -160,6 +160,30 @@ function writeStorageValue(key: string, value: string | null): void {
   else window.localStorage.setItem(key, value);
 }
 
+/** Ask whoever can free space to do it now (synchronous: the write is retried after). */
+function signalStoragePressure(): void {
+  if (notifyingStorageFull) return;
+  notifyingStorageFull = true;
+  try {
+    window.dispatchEvent(new CustomEvent("less:storagepressure"));
+  } catch {
+    /* ignore */
+  } finally {
+    notifyingStorageFull = false;
+  }
+}
+
+/** A write failed even after room was made, or succeeded again after one did. */
+let storageFailing = false;
+function signalStorageOk(): void {
+  storageFailing = false;
+  try {
+    window.dispatchEvent(new CustomEvent("less:storageok"));
+  } catch {
+    /* ignore */
+  }
+}
+
 function signalStorageFull(): void {
   // dispatchEvent is synchronous. A listener may free recoverable storage, so
   // the failed write gets one retry below. Guard re-entrancy because the
@@ -179,21 +203,23 @@ function set(key: string, value: string | null): boolean {
   if (typeof window === "undefined") return false;
   try {
     writeStorageValue(key, value);
+    if (storageFailing && value !== null) signalStorageOk();
     return true;
   } catch {
-    // Storage full or disabled. Return false so callers that persist real work
-    // (the document autosave) can surface a visible "not saved" warning instead
-    // of showing a false "Saved". Also broadcast a global signal so writes that
-    // do NOT thread the boolean back to the UI (folder state, cloud bookkeeping)
-    // still make a full disk visible instead of silently corrupting sync state.
-    signalStorageFull();
-    // The storage-pressure handler runs synchronously and may have made room.
-    // Retrying here means the keystroke that discovered a full disk can still
-    // land; without it the writer had to type another character to retry.
+    // Storage full or disabled. First ask for room: the pressure handler
+    // (AppShell) trims on-device history and frees synced copies, at once.
+    // Then retry, so the keystroke that found a full disk still lands.
+    signalStoragePressure();
     try {
       writeStorageValue(key, value);
       return true;
     } catch {
+      // Still full: return false so callers that persist real work (the
+      // document autosave) show "Not saved" instead of a false "Saved", and
+      // raise the notice for writes that cannot thread the failure back
+      // (folder state, cloud bookkeeping).
+      storageFailing = true;
+      signalStorageFull();
       return false;
     }
   }

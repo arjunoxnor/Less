@@ -18,6 +18,8 @@ import {
   listProjects,
   setLastOpenedId,
   evictSyncedBodies,
+  freeHistorySpace,
+  storageUsed,
   hasPendingCloudWork,
   type ProjectType,
   type ProjectStatus,
@@ -202,10 +204,17 @@ export function AppShell() {
   // body re-loads from the cloud when that project is next opened.
   useEffect(() => {
     const onFull = () => {
+      // On-device history goes first (the cloud keeps it for synced work),
+      // then the local copies of synced, unopened projects.
+      freeHistorySpace(getLastOpenedId() ?? "");
       const n = evictSyncedBodies({ exceptId: getLastOpenedId(), max: 5 });
       if (n > 0) console.info(`Freed local copies of ${n} synced project(s)`);
     };
+    window.addEventListener("less:storagepressure", onFull);
     window.addEventListener("less:storagefull", onFull);
+    // A browser allows a site about 5MB of this storage: past ~3.5MB, make
+    // room before a save ever has to fail.
+    if (storageUsed() > 3_500_000) onFull();
     void (async () => {
       try {
         const est = await navigator.storage?.estimate?.();
@@ -214,7 +223,10 @@ export function AppShell() {
         /* estimate unsupported: the event path still covers real failures */
       }
     })();
-    return () => window.removeEventListener("less:storagefull", onFull);
+    return () => {
+      window.removeEventListener("less:storagepressure", onFull);
+      window.removeEventListener("less:storagefull", onFull);
+    };
   }, []);
 
   // Drive the view from the hash so browser back/forward works. When the hash

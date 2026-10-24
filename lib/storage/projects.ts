@@ -474,8 +474,12 @@ export interface LocalVersion {
   label?: string;
 }
 
-const LOCAL_VERS_MAX = 8; // snapshots kept per project
-const LOCAL_VERS_BYTES = 1_200_000; // ~1.2MB serialized budget per project
+// A browser gives a site about 5MB in all (Firefox shares it across every
+// oxnorhub.com app), so history on the device is kept small: the cloud keeps
+// the whole of it for a synced project, which keeps only a couple here.
+const LOCAL_VERS_MAX = 6; // snapshots kept per project
+const LOCAL_VERS_SYNCED_MAX = 2; // ... once the cloud has its history
+const LOCAL_VERS_BYTES = 400_000; // serialized budget per project
 const LOCAL_VERS_THROTTLE_MS = 3 * 60 * 1000; // one automatic snapshot per 3 min
 
 export function listLocalVersions(id: string): LocalVersion[] {
@@ -530,7 +534,11 @@ export function addLocalVersion(
   // snapshots reach back hours and days, not just the last half hour.
   const merged = [entry, ...ring];
   const keep = new Set(
-    pickVersions(merged.map((v) => ({ id: v.at, created_at: v.at, label: v.label ?? null })), now, LOCAL_VERS_MAX)
+    pickVersions(
+      merged.map((v) => ({ id: v.at, created_at: v.at, label: v.label ?? null })),
+      now,
+      getProjectMeta(id)?.cloudCreated ? LOCAL_VERS_SYNCED_MAX : LOCAL_VERS_MAX
+    )
   );
   ring = merged.filter((v) => keep.has(v.at));
   // Enforce the byte budget (keep at least the newest entry).
@@ -556,6 +564,20 @@ export function addLocalVersion(
  * cloud keeps the full history for a signed-in writer). True if anything was
  * freed.
  */
+/** About how much of the browser's storage LESS is using, in characters. */
+export function storageUsed(): number {
+  let total = 0;
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key) total += key.length + (window.localStorage.getItem(key)?.length ?? 0);
+    }
+  } catch {
+    return 0;
+  }
+  return total;
+}
+
 export function freeHistorySpace(keepId: string): boolean {
   let keys: string[] = [];
   try {
