@@ -212,3 +212,33 @@ describe.skipIf(!sqlite)("edited_at: when a document's writing last changed", ()
     });
   });
 });
+
+describe.skipIf(!sqlite)("place: where the writer last was", () => {
+  it("is stored on its own clock, never as an edit or a move", async () => {
+    migrate();
+    tick();
+    await call("POST", "scripts", { id: "s1", title: "Pilot", content: doc("one"), type: "plain" });
+    const before = await listed("s1");
+    const at = tick();
+    const saved = await call("PATCH", "scripts/s1/place", { place: { pos: 42, line: "INT. HOUSE", off: 3, junk: 1 } });
+    expect(saved.place_at).toBe(at);
+    expect(await call("GET", "scripts/s1/place")).toEqual({ place: { pos: 42, line: "INT. HOUSE", off: 3 }, place_at: at });
+    const after = await listed("s1");
+    expect(after.updated_at).toBe(before.updated_at);
+    expect(after.edited_at).toBe(before.edited_at);
+  });
+
+  it("refuses a malformed place, and says so for a script that is not there", async () => {
+    migrate();
+    const res = await onRequest({
+      request: new Request("https://less.test/api/scripts/s1/place", {
+        method: "PATCH",
+        headers: { authorization: `Bearer code:${CODE}`, "content-type": "application/json" },
+        body: JSON.stringify({ place: { pos: "x" } }),
+      }),
+      env: { DB: d1(), GOOGLE_CLIENT_ID: "", SESSION_SECRET: "" },
+    });
+    expect(res.status).toBe(400);
+    expect((await call("PATCH", "scripts/nope/place", { place: { pos: 1, line: "", off: 0 } })).place_at).toBeNull();
+  });
+});

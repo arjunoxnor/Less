@@ -123,6 +123,7 @@ import { TitlePageModal } from "./TitlePageModal";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import { Modal } from "./ui/Modal";
 import { showToast } from "./ui/Toast";
+import { useReturnPlace } from "./useReturnPlace";
 
 /** A dialog is open over the script (the palette itself does not count). */
 const modalOpen = () => !!document.querySelector(".ui-modal-scrim, .modal-backdrop");
@@ -895,6 +896,12 @@ function ScreenplayEditor({
     setPageTarget(syncedTarget ?? undefined);
     patchProjectMeta(projectId, { pageTarget: syncedTarget ?? undefined });
   }, [syncedTarget, projectId]);
+
+  // Reopen where the writer left off, on any of their computers.
+  useReturnPlace(editor, projectId, {
+    enabled: mirrorsToLibrary,
+    cloud: !!user && !sessionExpired && !!getProjectMeta(projectId)?.cloudCreated,
+  });
 
   // Flush local + cloud on the way out of this project.
   const flushRef = useRef(flush);

@@ -41,6 +41,7 @@ import {
 import { isCloudConfigured } from "@/lib/cloud/client";
 import { signOut } from "@/lib/cloud/auth";
 import { showToast } from "./ui/Toast";
+import { useReturnPlace } from "./useReturnPlace";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
 import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
 import { isMac, modKeyLabel } from "@/lib/platform";
@@ -451,6 +452,12 @@ export function PlainBody({
       });
     }
   };
+
+  // Reopen where the writer left off, on any of their computers.
+  useReturnPlace(editor, projectId, {
+    enabled: true,
+    cloud: !!user && !sessionExpired && !!getProjectMeta(projectId)?.cloudCreated,
+  });
 
   const flushRef = useRef(flush);
   flushRef.current = flush;

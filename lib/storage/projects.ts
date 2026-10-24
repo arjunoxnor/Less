@@ -8,6 +8,7 @@ import { deriveTitle, isMeaningfulDoc } from "@/lib/editor/docUtils";
 import { deriveTitleFor } from "@/lib/editor/plainDocUtils";
 import { digestOf, type CoverDigest } from "@/lib/cover/digest";
 import { pickVersions } from "@/lib/server/versionPick";
+import { sanitizePlace, type Place } from "@/lib/editor/returnPlace";
 
 /**
  * Multi-project, local-first storage. Replaces the single-document scheme: a
@@ -134,6 +135,7 @@ const tpPendingKey = (id: string) => `${tpKey(id)}:pending`;
 const tpBackupKey = (id: string) => `${tpKey(id)}:backup`;
 const tpClearedKey = (id: string) => `${tpKey(id)}:cleared`;
 const lockKey = (id: string) => `less:project:${id}:pageLock`;
+const placeKey = (id: string) => `less:project:${id}:place`;
 const breakdownKey = (id: string) => `less:project:${id}:breakdown`;
 const dirtyKey = (id: string) => `less:project:${id}:dirty`;
 const lastSavedKey = (id: string) => `less:project:${id}:lastSavedAt`;
@@ -842,6 +844,25 @@ export function savePageLock(id: string, lock: PageLock | null): void {
   else lsSet(lockKey(id), JSON.stringify(lock));
 }
 
+/* --- Where the writer last was (lib/editor/returnPlace.ts) ----------------
+   Its own key, so remembering a place never rewrites the project index. */
+
+export function loadPlace(id: string): { place: Place; at: string } | null {
+  const raw = lsGet(placeKey(id));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { place?: unknown; at?: unknown };
+    const place = sanitizePlace(parsed.place);
+    return place && typeof parsed.at === "string" ? { place, at: parsed.at } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePlace(id: string, place: Place, at: string = nowIso()): void {
+  lsSet(placeKey(id), JSON.stringify({ place, at }));
+}
+
 /* --- Breakdown tags (local-only; production element catalog) -------------- */
 
 export function loadBreakdown(id: string): BreakdownItem[] {
@@ -1079,6 +1100,7 @@ export function deleteProject(id: string): boolean {
   lsSet(tpBackupKey(id), null);
   lsSet(tpClearedKey(id), null);
   lsSet(lockKey(id), null);
+  lsSet(placeKey(id), null);
   lsSet(breakdownKey(id), null);
   lsSet(dirtyKey(id), null);
   lsSet(tpDirtyKey(id), null);
@@ -1259,6 +1281,7 @@ export function dropCloudProjects(): void {
       lsSet(tpBackupKey(m.id), null);
       lsSet(tpClearedKey(m.id), null);
       lsSet(lockKey(m.id), null);
+      lsSet(placeKey(m.id), null);
       lsSet(breakdownKey(m.id), null);
       lsSet(dirtyKey(m.id), null);
       lsSet(tpDirtyKey(m.id), null);

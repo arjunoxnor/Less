@@ -3,6 +3,7 @@ import type { TitlePage } from "@/lib/export/titlePage";
 import type { ProjectStatus, ProjectType } from "@/lib/storage/projects";
 import { api } from "./client";
 import type { CoverDigest } from "@/lib/cover/digest";
+import type { Place } from "@/lib/editor/returnPlace";
 
 /**
  * Scripts and version snapshots, over the LESS API (Cloudflare D1). Same shapes
@@ -144,6 +145,17 @@ export async function setScriptOrg(id: string, fields: OrgFields): Promise<strin
   if ("stackTop" in fields) body.stack_top = fields.stackTop ?? null;
   const r = await api<{ updated_at: string }>(`scripts/${id}`, { method: "PATCH", body });
   return r?.updated_at ?? null;
+}
+
+/** Where the writer last was in this document, and when (migration 0009). */
+export async function getScriptPlace(id: string): Promise<{ place: Place | null; place_at: string | null } | null> {
+  return api<{ place: Place | null; place_at: string | null }>(`scripts/${id}/place`);
+}
+
+/** Save where the writer is; returns the server's clock for it, or null. */
+export async function setScriptPlace(id: string, place: Place, keepalive = false): Promise<string | null> {
+  const r = await api<{ place_at: string | null }>(`scripts/${id}/place`, { method: "PATCH", body: { place }, keepalive });
+  return r?.place_at ?? null;
 }
 
 export async function deleteScript(id: string): Promise<boolean> {

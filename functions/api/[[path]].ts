@@ -21,6 +21,7 @@ import {
 import { digestOf, readDigest } from "../../lib/cover/digest";
 import { sanitizeDesk } from "../../lib/desk/layout";
 import { pickVersions } from "../../lib/server/versionPick";
+import { sanitizePlace } from "../../lib/editor/returnPlace";
 
 /* ---------- the desk: kinds and version stacks ---------- */
 // The prose kinds a plain document can be set to. Anything else stores NULL,
@@ -697,6 +698,27 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
               )
               .run();
             return json({ ok: true });
+          }
+        } else if (seg[2] === "place") {
+          // Where the writer last was (migration 0009), on its own clock: it
+          // never moves updated_at or edited_at.
+          if (method === "GET") {
+            const row = await db
+              .prepare("SELECT place,place_at FROM scripts WHERE user_id=? AND id=?")
+              .bind(uid, id)
+              .first<{ place: string | null; place_at: string | null }>();
+            return json({ place: row?.place ? sanitizePlace(row.place) : null, place_at: row?.place_at ?? null });
+          }
+          if (method === "PATCH") {
+            const b = (await readJson(request)) as Record<string, unknown> | null;
+            const place = sanitizePlace(b?.place);
+            if (!place) return fail("Bad place", 400);
+            const now = new Date().toISOString();
+            const r = await db
+              .prepare("UPDATE scripts SET place=?, place_at=? WHERE user_id=? AND id=?")
+              .bind(JSON.stringify(place), now, uid, id)
+              .run();
+            return json({ place_at: r.meta?.changes ? now : null });
           }
         } else {
           if (method === "GET") {
