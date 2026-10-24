@@ -9,9 +9,12 @@ import {
   loadBreakdown,
   loadProjectDoc,
   saveBreakdown,
+  savePlace,
   type ProjectMeta,
   type ProjectType,
 } from "@/lib/storage/projects";
+import { BOOKMARK_COLORS, bookmarkHex, type BookmarkColor, type BookmarkSummary } from "@/lib/editor/bookmarkCore";
+import { modKeyLabel } from "@/lib/platform";
 import { copyTitle, loadBodyForCopy } from "@/lib/storage/duplicate";
 import type { Folder } from "@/lib/storage/folders";
 import {
@@ -162,6 +165,7 @@ function draftTitle(title: string, taken: string[]): string {
 function readView(): HomeView {
   const raw = lsGet(VIEW_KEY) ?? "";
   if (raw === "unfiled") return { kind: "unfiled" };
+  if (raw === "bookmarks") return { kind: "bookmarks" };
   if (raw.startsWith("stage:")) return { kind: "stage", id: raw.slice(6) };
   if (raw.startsWith("project:")) return { kind: "project", id: raw.slice(8) };
   return { kind: "recent" };
@@ -170,7 +174,7 @@ function readView(): HomeView {
 function writeView(view: HomeView) {
   lsSet(
     VIEW_KEY,
-    view.kind === "recent" || view.kind === "unfiled" ? view.kind : `${view.kind}:${view.id}`
+    view.kind === "recent" || view.kind === "unfiled" || view.kind === "bookmarks" ? view.kind : `${view.kind}:${view.id}`
   );
 }
 
@@ -270,6 +274,8 @@ export function ProjectsHome({
   // left is restored once the page is live (reading storage during the first
   // render would disagree with the prebuilt page).
   const [view, setViewState] = useState<HomeView>({ kind: "recent" });
+  // The Bookmarks view's colour filter.
+  const [bookmarkOnly, setBookmarkOnly] = useState<BookmarkColor | null>(null);
   // Covers unless the writer chose the list; restored with the view, after
   // the first render, for the same reason.
   const [layout, setLayoutState] = useState<Layout>("covers");
@@ -479,6 +485,16 @@ export function ProjectsHome({
     return { projectById, folderById, sectionById, cardById, shelfById, stageOfCard, place };
   }, [sections, unfiled]);
   const { projectById, folderById, sectionById, cardById, shelfById, stageOfCard, place } = lookups;
+  // Bookmarks across every document (from each one's cover digest, so none
+  // has to be opened), the most recently edited document first.
+  const bookmarkDocs = useMemo(
+    () =>
+      [...projectById.values()]
+        .filter((p) => p.digest?.bookmarks?.length)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [projectById]
+  );
+  const bookmarkCount = bookmarkDocs.reduce((n, p) => n + (p.digest?.bookmarks?.length ?? 0), 0);
 
   /* ---- The desk: what each thing is, and the stacks it is in ---- */
 
@@ -1668,6 +1684,87 @@ export function ProjectsHome({
       />
     </div>
   );
+
+  /** Open a document at one of its bookmarks: it reopens where its place says. */
+  const openAtBookmark = (id: string, b: BookmarkSummary) => {
+    savePlace(id, { pos: b.pos + 1, line: b.text, off: 0 });
+    onOpen(id);
+  };
+
+  const renderBookmarks = () => {
+    // A digest keeps the first 60 characters of a line: show that it goes on.
+    const clipLine = (t: string) => {
+      const s = t.replace(/\s+/g, " ").trim();
+      return t.length >= 60 && s ? s.trimEnd() + "…" : s;
+    };
+    const colours = new Set(bookmarkDocs.flatMap((p) => (p.digest?.bookmarks ?? []).map((b) => b.color)));
+    const only = bookmarkOnly && colours.has(bookmarkOnly) ? bookmarkOnly : null;
+    const groups = bookmarkDocs
+      .map((p) => ({ p, marks: (p.digest?.bookmarks ?? []).filter((b) => !only || b.color === only) }))
+      .filter((g) => g.marks.length > 0);
+    return (
+      <section className="lib-section lib-bookmarks" aria-label="Bookmarks">
+        <h2 className={desk ? "dk-h2" : "lib-h2"}>Bookmarks</h2>
+        {bookmarkCount === 0 ? (
+          <p className="lib-empty">
+            Mark a line in any script or document (Bookmarks in its status bar, or {modKeyLabel()}+Shift+B) and it
+            shows up here, ready to go back to.
+          </p>
+        ) : (
+          <>
+            {colours.size > 1 && (
+              <div className="bm-filter lib-bm-filter" role="group" aria-label="Show only">
+                <button type="button" className="bm-chip" aria-pressed={!only} onClick={() => setBookmarkOnly(null)}>
+                  All
+                </button>
+                {BOOKMARK_COLORS.filter((col) => colours.has(col.id)).map((col) => (
+                  <button
+                    key={col.id}
+                    type="button"
+                    className="bm-chip bm-chip-dot"
+                    style={{ ["--bm" as string]: col.hex }}
+                    aria-pressed={only === col.id}
+                    aria-label={`Only ${col.label.toLowerCase()}`}
+                    title={`Only ${col.label.toLowerCase()}`}
+                    onClick={() => setBookmarkOnly(only === col.id ? null : col.id)}
+                  />
+                ))}
+              </div>
+            )}
+            {groups.map(({ p, marks }) => {
+              const where = place.get(p.id);
+              return (
+                <div key={p.id} className="lib-bm-group">
+                  <div className="lib-bm-doc">
+                    <span className="lib-bm-title">{p.title || "Untitled"}</span>
+                    {where && (
+                      <span className="lib-bm-where">
+                        <span className="lib-dot" style={{ background: where.color }} aria-hidden="true" />
+                        {where.label}
+                      </span>
+                    )}
+                  </div>
+                  <ul className="lib-bm-rows">
+                    {marks.map((b) => (
+                      <li key={b.id}>
+                        <button type="button" className="lib-bm-row" onClick={() => openAtBookmark(p.id, b)}>
+                          <span className="bm-dot" style={{ ["--bm" as string]: bookmarkHex(b.color) }} aria-hidden="true" />
+                          <span className="lib-bm-text">
+                            {b.name.trim() || clipLine(b.text) || "Empty line"}
+                            {b.name.trim() && b.text.trim() ? <span className="lib-bm-line">{clipLine(b.text)}</span> : null}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </section>
+    );
+  };
 
   const renderRecent = () => {
     const leadPlace = lead ? place.get(lead.id) : undefined;
@@ -2949,7 +3046,9 @@ export function ProjectsHome({
       ? (desk ? renderStageDesk : renderStage)(sectionById.get(view.id)!)
       : view.kind === "project" && cardById.has(view.id)
         ? (desk ? (narrow ? renderProjectDesk : renderProjectCanvas) : renderProject)(cardById.get(view.id)!)
-        : view.kind === "unfiled"
+        : view.kind === "bookmarks"
+          ? renderBookmarks()
+          : view.kind === "unfiled"
           ? desk
             ? renderUnfiledDesk()
             : renderUnfiled()
@@ -3088,6 +3187,7 @@ export function ProjectsHome({
           onStageMenu={(id, anchor) => setMenu({ kind: "folder", id, anchor })}
           stageMenuFor={menu?.kind === "folder" ? menu.id : null}
           onNewFolder={newStage}
+          bookmarkCount={bookmarkCount}
         />
         {sideOpen && (
           <div className="lib-scrim" onClick={() => setSideOpen(false)} aria-hidden="true" />

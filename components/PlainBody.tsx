@@ -61,6 +61,7 @@ import { listFolders } from "@/lib/storage/folders";
 import { cardForProject, MAX_LIBRARY_NAME_LENGTH } from "@/lib/storage/library";
 import { PageBackdrop, pageHostStyle } from "./PageBackdrop";
 import { ZoomControl, usePageZoom } from "./chrome/ZoomControl";
+import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
 import { MicGlyph, RecordingBar } from "./RecordingBar";
 import { canRecord, newVoiceId, VoiceRecording } from "@/lib/voicenote/recorder";
@@ -349,6 +350,7 @@ export function PlainBody({
     },
   });
 
+  const bookmarks = useBookmarks(editor);
   const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
   );
@@ -727,6 +729,13 @@ export function PlainBody({
             >
               {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
             </span>
+            {isBoard ? null : (
+              <BookmarkControl
+                editor={editor}
+                entries={bookmarks}
+                pageOf={(pos) => (editor ? docPageAtPos(editor.state, pos) : 1)}
+              />
+            )}
             {isBoard ? null : <ZoomControl zoom={zoom} mode={zoomMode} onZoom={setZoom} />}
           </div>
         }
@@ -751,6 +760,7 @@ export function PlainBody({
               >
                 <PageBackdrop pages={pages} />
                 <EditorContent editor={editor} className="pl-doc" />
+                <BookmarkLayer editor={editor} entries={bookmarks} zoom={zoom} />
               </div>
             </div>
           )}

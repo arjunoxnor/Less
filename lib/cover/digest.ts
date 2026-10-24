@@ -13,6 +13,8 @@
  * bounded, so a hostile document cannot bloat the list response.
  */
 
+import { bookmarksInJson, readBookmarkSummaries, type BookmarkSummary } from "../editor/bookmarkCore";
+
 export interface CoverDigest {
   v: 1;
   /** Words across the whole document. */
@@ -34,6 +36,8 @@ export interface CoverDigest {
   swatches?: string[];
   /** The first voice note in the document. */
   voice?: { ms: number; peaks: string; transcribed: boolean };
+  /** The document's bookmarks (up to 20), for the home's Bookmarks list. */
+  bookmarks?: BookmarkSummary[];
 }
 
 interface Node {
@@ -201,6 +205,8 @@ export function digestOf(content: unknown): CoverDigest {
   if (items.length) d.items = items;
   if (images.length) d.images = images;
   if (swatches.length) d.swatches = swatches;
+  const bookmarks = bookmarksInJson(content);
+  if (bookmarks.length) d.bookmarks = bookmarks;
   // One field order everywhere: sync compares digests as JSON, and a digest
   // read back from the server is rebuilt in readDigest's order. Without this a
   // script's own digest (firstScene first) never equals the cloud's copy, and
@@ -250,5 +256,7 @@ export function readDigest(value: unknown): CoverDigest | null {
       transcribed: voice.transcribed === true,
     };
   }
+  const bookmarks = readBookmarkSummaries(raw.bookmarks);
+  if (bookmarks.length) out.bookmarks = bookmarks;
   return out;
 }

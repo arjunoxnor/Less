@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ELEMENT_CYCLE,
   ELEMENT_LABELS,
@@ -38,6 +38,7 @@ export function EditorStatusBar({
   zoom,
   zoomMode,
   onZoom,
+  bookmarks,
 }: {
   currentElement: ElementType;
   onSetElement: (type: ElementType) => void;
@@ -58,6 +59,8 @@ export function EditorStatusBar({
   /** What was chosen: a fixed size or one of the fits. */
   zoomMode?: number;
   onZoom?: (zoom: number) => void;
+  /** The Bookmarks control (components/chrome/Bookmarks.tsx). */
+  bookmarks?: ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pillRef = useRef<HTMLButtonElement>(null);
@@ -164,6 +167,7 @@ export function EditorStatusBar({
       >
         {saveError ? "Not saved" : showSaving ? "Saving…" : "Saved"}
       </span>
+      {bookmarks}
       {onZoom && <ZoomControl zoom={zoom ?? 1} mode={zoomMode} onZoom={onZoom} />}
     </div>
   );

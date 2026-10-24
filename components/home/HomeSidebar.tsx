@@ -3,17 +3,18 @@
 import type { Section } from "@/lib/storage/library";
 import type { ProjectMeta } from "@/lib/storage/projects";
 import { DotsIcon } from "../chrome/icons";
-import { ChevronDown, ClockGlyph, NameInput, PlusGlyph, TrayGlyph } from "./homeParts";
+import { ChevronDown, ClockGlyph, NameInput, PlusGlyph, RibbonGlyph, TrayGlyph } from "./homeParts";
 import type { HomeDragSource } from "./useHomeDrag";
 
 export type HomeView =
   | { kind: "recent" }
+  | { kind: "bookmarks" }
   | { kind: "stage"; id: string }
   | { kind: "project"; id: string }
   | { kind: "unfiled" };
 
 /**
- * The library down the left: Recent, then each top-level folder (a stage, like
+ * The library down the left: Recent, Bookmarks, then each top-level folder (a stage, like
  * InProgress) with the projects inside it, then anything not in a folder.
  * Every project row is also where a carried script can be dropped.
  */
@@ -36,6 +37,7 @@ export function HomeSidebar({
   onStageMenu,
   stageMenuFor,
   onNewFolder,
+  bookmarkCount = 0,
 }: {
   sideRef: React.RefObject<HTMLElement | null>;
   /** On a narrow window the sidebar is a drawer; this is its state. */
@@ -56,6 +58,8 @@ export function HomeSidebar({
   onStageMenu: (stageId: string, anchor: DOMRect) => void;
   stageMenuFor: string | null;
   onNewFolder: () => void;
+  /** Bookmarks across every document (the Bookmarks view). */
+  bookmarkCount?: number;
 }) {
   const carryingItem = dragSource?.kind === "item";
   return (
@@ -74,6 +78,17 @@ export function HomeSidebar({
           <ClockGlyph />
         </span>
         <span className="lib-nav-name">Recent</span>
+      </button>
+      <button
+        type="button"
+        className={"lib-nav lib-nav-bookmarks" + (view.kind === "bookmarks" ? " is-on" : "")}
+        onClick={() => onSelect({ kind: "bookmarks" })}
+      >
+        <span className="lib-nav-icon" aria-hidden="true">
+          <RibbonGlyph />
+        </span>
+        <span className="lib-nav-name">Bookmarks</span>
+        {bookmarkCount > 0 && <span className="lib-count">{bookmarkCount}</span>}
       </button>
 
       {sections.map((section) => {

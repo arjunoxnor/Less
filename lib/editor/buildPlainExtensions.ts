@@ -12,6 +12,7 @@ import { SmartCaps } from "./smartCaps";
 import { boardExtensions } from "./boardNodes";
 import { VoiceNote, VoicePending, type VoiceNoteOptions } from "./voiceNodes";
 import { cleanPastedHTML } from "./docFonts";
+import { Bookmarks } from "./bookmarks";
 
 /**
  * Notes use paragraph spacing for their visible rhythm. At the top level,
@@ -131,6 +132,11 @@ export function buildPlainExtensions(opts?: {
     // (lib/editor/voiceNodes.ts) are the other way round: documents only.
     ...(opts?.board
       ? boardExtensions
-      : [VoicePending, VoiceNote.configure({ onOriginal: opts?.onOriginalTranscript ?? null })]),
+      : [
+          VoicePending,
+          VoiceNote.configure({ onOriginal: opts?.onOriginalTranscript ?? null }),
+          // Coloured bookmarks on paragraphs and headings (lib/editor/bookmarks.ts).
+          Bookmarks.configure({ types: ["paragraph", "heading"] }),
+        ]),
   ];
 }

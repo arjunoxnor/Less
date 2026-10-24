@@ -95,6 +95,11 @@ export const ClockGlyph = () => (
     <polyline points="12 7.5 12 12 15 14" />
   </svg>
 );
+export const RibbonGlyph = () => (
+  <svg {...svg}>
+    <path d="M7 4h10v16l-5-3.6L7 20z" />
+  </svg>
+);
 export const TrayGlyph = () => (
   <svg {...svg}>
     <path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />

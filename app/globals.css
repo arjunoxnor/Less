@@ -6114,3 +6114,357 @@ html.is-dragging * {
     display: none !important;
   }
 }
+
+/* ---- Bookmarks (lib/editor/bookmarks.ts) -------------------------------- */
+/* Flags in the left margin, on a layer over the page (it scales with it). */
+.bm-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.bm-flag {
+  position: absolute;
+  width: 11px;
+  height: 15px;
+  padding: 0;
+  border: none;
+  background: var(--bm);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0.92;
+  transition: transform var(--dur-1) var(--ease), opacity var(--dur-1) var(--ease);
+}
+.bm-flag:hover,
+.bm-flag:focus-visible {
+  opacity: 1;
+  transform: scale(1.25);
+  outline: none;
+}
+@media print {
+  .bm-layer {
+    display: none;
+  }
+}
+
+/* The status bar's Bookmarks button. */
+.status-bm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.status-bm:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.status-bm-some {
+  color: var(--ink);
+}
+.status-bm-icon,
+.bm-dot {
+  flex: none;
+  width: 8px;
+  height: 11px;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+}
+.bm-dot {
+  width: 9px;
+  height: 13px;
+  background: var(--bm);
+}
+
+/* The bookmark panels: the list (status bar) and one bookmark (a flag). */
+.bm-pop {
+  position: fixed;
+  z-index: var(--z-menus);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 270px;
+  max-width: calc(100vw - 16px);
+  max-height: min(70vh, 560px, calc(100dvh - 16px));
+  overflow: auto;
+  padding: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 10px;
+  box-shadow: var(--e2);
+  font-size: var(--text-sm);
+  animation: ui-menu-in var(--dur-1) var(--ease);
+}
+.bm-list-pop {
+  width: 330px;
+}
+.bm-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bm-hint,
+.bm-here-label {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.bm-here {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--hairline);
+}
+.bm-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.bm-name {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-sm);
+}
+.bm-swatches {
+  display: flex;
+  gap: 7px;
+}
+.bm-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--bm);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: transform var(--dur-1) var(--ease);
+}
+.bm-swatch:hover {
+  transform: scale(1.1);
+}
+.bm-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--bm);
+}
+.bm-remove {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.bm-remove:hover {
+  color: var(--danger);
+}
+.bm-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bm-chip {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--control-line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.bm-chip[aria-pressed="true"] {
+  color: var(--paper);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.bm-chip-dot,
+.bm-chip-dot[aria-pressed="true"] {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: var(--bm);
+}
+.bm-chip-dot[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
+}
+.bm-empty {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.bm-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -4px;
+  padding: 0;
+  list-style: none;
+}
+.bm-row-wrap {
+  display: flex;
+  align-items: center;
+}
+.bm-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bm-row:hover,
+.bm-row:focus-visible {
+  background: var(--surface-2);
+}
+.bm-row-here {
+  font-weight: 600;
+}
+.bm-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-row-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+.bm-row-page {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.bm-row-x {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+.bm-row-wrap:hover .bm-row-x,
+.bm-row-x:focus-visible {
+  opacity: 1;
+}
+.bm-row-x:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+@media (hover: none) {
+  .bm-row-x {
+    opacity: 1;
+  }
+}
+
+/* The home's Bookmarks: every document's bookmarks, grouped by document. */
+.lib-bookmarks {
+  max-width: 720px;
+}
+.lib-bm-filter {
+  margin-bottom: 14px;
+}
+.lib-bm-group {
+  margin-bottom: 18px;
+}
+.lib-bm-doc {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+}
+.lib-bm-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: var(--text-md);
+}
+.lib-bm-where {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.lib-bm-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lib-bm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+.lib-bm-row:hover {
+  background: var(--surface-2);
+}
+.lib-bm-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+.lib-bm-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-bm-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

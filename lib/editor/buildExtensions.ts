@@ -31,6 +31,7 @@ import type { NSpell } from "nspell";
 import type { DuetSession } from "@/lib/collab/duet";
 import { DualLayout } from "./dualLayout";
 import { ScreenplayPaste } from "./screenplayPaste";
+import { Bookmarks } from "./bookmarks";
 
 /** Hint shown on the current empty line, tailored to its element type. */
 function placeholderFor(element: ElementType): string {
@@ -113,6 +114,8 @@ export function buildExtensions(opts?: {
     FindReplace,
     // A pasted scene keeps its elements instead of becoming all Action.
     ScreenplayPaste,
+    // Coloured bookmarks on lines (lib/editor/bookmarks.ts).
+    Bookmarks.configure({ types: ["screenplayLine"] }),
     Gapcursor,
     Dropcursor,
     Placeholder.configure({

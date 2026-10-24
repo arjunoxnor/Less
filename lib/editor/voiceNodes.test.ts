@@ -19,7 +19,8 @@ const B = "fedcba9876543210fedcba9876543210";
 
 const para = (text: string): JSONContent => ({
   type: "paragraph",
-  attrs: { textAlign: null },
+  // Every paragraph carries the bookmark slot (empty), as the editor saves it.
+  attrs: { bookmark: null, textAlign: null },
   ...(text ? { content: [{ type: "text", text }] } : {}),
 });
 const card = (id: string, extra: Record<string, unknown> = {}): JSONContent => ({

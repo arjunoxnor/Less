@@ -101,6 +101,7 @@ import { TYPING_SCROLL_MARGIN, centerCaret } from "@/lib/editor/scrollComfort";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { EditorStatusBar } from "./chrome/EditorStatusBar";
 import { usePageZoom } from "./chrome/ZoomControl";
+import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
 import { HintCard } from "./chrome/HintCard";
 import { ShortcutsModal } from "./chrome/ShortcutsModal";
 import type { MenuItem } from "./ui/Menu";
@@ -726,6 +727,7 @@ function ScreenplayEditor({
     },
   });
 
+  const bookmarks = useBookmarks(editor);
   const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
   );
@@ -1815,6 +1817,13 @@ function ScreenplayEditor({
             zoom={zoom}
             zoomMode={zoomMode}
             onZoom={setZoom}
+            bookmarks={
+              <BookmarkControl
+                editor={editor}
+                entries={bookmarks}
+                pageOf={(pos) => (editor ? pageAtPos(editor.state, pos) : 1)}
+              />
+            }
           />
         }
       >
@@ -1832,6 +1841,7 @@ function ScreenplayEditor({
                 </div>
               )}
               <EditorContent editor={editor} className="sp-editor" />
+              <BookmarkLayer editor={editor} entries={bookmarks} zoom={zoom} />
             </div>
           </div>
         </div>
