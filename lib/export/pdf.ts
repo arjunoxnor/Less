@@ -17,6 +17,8 @@ import {
 import { paginate } from "./paginate";
 import { hasTitlePage, type TitlePage } from "./titlePage";
 import { labelLockedPages, type PageLock } from "./pageLock";
+import { makeRowStyler, type StyledPiece } from "./pdfStyle";
+import type { DrawOp } from "./paginate";
 
 /**
  * Spec-accurate screenplay PDF, generated client-side with pdf-lib.
@@ -26,7 +28,8 @@ import { labelLockedPages, type PageLock } from "./pageLock";
  * positioned instructions, optionally prepend an unnumbered title page, and
  * stamp the page numbers.
  *
- * Fonts: Courier Prime (Regular for body, Bold for scene headings), embedded
+ * Fonts: Courier Prime (Regular for body; Bold, Italic and Bold Italic for
+ * the writer's own formatting), embedded
  * with subsetting from the OFL-licensed TTFs vendored under public/fonts/, so
  * screen and print share the same face. Courier Prime is metrically Courier
  * compatible (10 cpi at 12pt), so NONE of the geometry in layout.ts changes.
@@ -46,6 +49,8 @@ let warnedFallback = false;
 interface Faces {
   regular: PDFFont;
   bold: PDFFont;
+  italic: PDFFont;
+  boldItalic: PDFFont;
   /** True when Courier Prime embedded (text passes through un-sanitized). */
   embedded: boolean;
 }
@@ -59,13 +64,17 @@ async function fetchFontBytes(path: string): Promise<Uint8Array> {
 async function loadFaces(pdf: PDFDocument): Promise<Faces> {
   try {
     pdf.registerFontkit(fontkit);
-    const [regularBytes, boldBytes] = await Promise.all([
+    const [regularBytes, boldBytes, italicBytes, boldItalicBytes] = await Promise.all([
       fetchFontBytes("/fonts/CourierPrime-Regular.ttf"),
       fetchFontBytes("/fonts/CourierPrime-Bold.ttf"),
+      fetchFontBytes("/fonts/CourierPrime-Italic.ttf"),
+      fetchFontBytes("/fonts/CourierPrime-BoldItalic.ttf"),
     ]);
     const regular = await pdf.embedFont(regularBytes, { subset: true });
     const bold = await pdf.embedFont(boldBytes, { subset: true });
-    return { regular, bold, embedded: true };
+    const italic = await pdf.embedFont(italicBytes, { subset: true });
+    const boldItalic = await pdf.embedFont(boldItalicBytes, { subset: true });
+    return { regular, bold, italic, boldItalic, embedded: true };
   } catch (err) {
     if (!warnedFallback) {
       warnedFallback = true;
@@ -73,7 +82,9 @@ async function loadFaces(pdf: PDFDocument): Promise<Faces> {
     }
     const regular = await pdf.embedFont(StandardFonts.Courier);
     const bold = await pdf.embedFont(StandardFonts.CourierBold);
-    return { regular, bold, embedded: false };
+    const italic = await pdf.embedFont(StandardFonts.CourierOblique);
+    const boldItalic = await pdf.embedFont(StandardFonts.CourierBoldOblique);
+    return { regular, bold, italic, boldItalic, embedded: false };
   }
 }
 
@@ -92,6 +103,41 @@ function drawText(page: PDFPage, font: PDFFont, text: string, x: number, y: numb
     } catch {
       // Give up on this one line rather than the whole document.
     }
+  }
+}
+
+/** "#rrggbb" as a pdf-lib colour. */
+function hexColor(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+
+/**
+ * One row with the writer's formatting: highlights behind, then the text in
+ * its face, then underlines (one stroke under a run, through the spaces of an
+ * underlined phrase). Monospace, so every piece starts at its column.
+ */
+function drawStyledRow(page: PDFPage, faces: Faces, op: DrawOp, pieces: StyledPiece[]) {
+  for (const p of pieces) {
+    if (!p.style.highlight) continue;
+    page.drawRectangle({
+      x: op.x + p.col * CHAR_W,
+      y: op.y - 3,
+      width: p.cols * CHAR_W,
+      height: LINE + 0.5,
+      color: hexColor(p.style.highlight),
+    });
+  }
+  for (const p of pieces) {
+    if (!p.text.trim()) continue;
+    const bold = op.bold || p.style.bold;
+    const face = bold && p.style.italic ? faces.boldItalic : bold ? faces.bold : p.style.italic ? faces.italic : faces.regular;
+    drawText(page, face, p.text, op.x + p.col * CHAR_W, op.y);
+  }
+  for (const p of pieces) {
+    if (!p.style.underline) continue;
+    const x = op.x + p.col * CHAR_W;
+    page.drawLine({ start: { x, y: op.y - 1.8 }, end: { x: x + p.cols * CHAR_W, y: op.y - 1.8 }, thickness: 0.6, color: BLACK });
   }
 }
 
@@ -183,14 +229,19 @@ export async function exportPdf(
 
   if (hasTitlePage(titlePage)) drawTitlePage(pdf, faces.regular, titlePage!, clean);
 
-  const { pages } = paginate(lines, { ...opts, keepUnicode: faces.embedded });
+  // Formatting is found after layout, row by row (lib/export/pdfStyle.ts).
+  const styled = lines.some((l) => l.marks?.length);
+  const { pages } = paginate(lines, { ...opts, keepUnicode: faces.embedded, trackSource: styled });
+  const styleRow = styled ? makeRowStyler(lines, clean) : null;
   // When locked, page numbers are frozen: inserted material takes A-page letters
   // (42, 42A, 42B...) instead of renumbering. Locking never changes the layout.
   const lockLabels = opts?.lock ? labelLockedPages(pages, lines, opts.lock) : null;
   for (const p of pages) {
     const page = pdf.addPage([PAGE_W, PAGE_H]);
     for (const op of p.ops) {
-      drawText(page, op.bold ? faces.bold : faces.regular, op.text, op.x, op.y);
+      const pieces = styleRow && op.src != null ? styleRow(op.src, op.text) : null;
+      if (pieces) drawStyledRow(page, faces, op, pieces);
+      else drawText(page, op.bold ? faces.bold : faces.regular, op.text, op.x, op.y);
     }
     // Page numbers: top-right, "N.", omitted on the unnumbered first page unless
     // a lock has assigned it a letter (a rare A-page before page 1 stays shown).

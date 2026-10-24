@@ -66,6 +66,9 @@ export interface DrawOp {
   /** Draw in the bold face. The standard format has no bold lines; kept for
       the scene-number path and any future emphasis. */
   bold?: boolean;
+  /** With `trackSource`: the index of the source line this row's words came
+      from (absent for text the layout supplies: CONT'D, MORE, numbers, marks). */
+  src?: number;
 }
 /** One laid-out page (1-based number); the renderer omits the stamp on page 1. */
 export interface Page {
@@ -91,6 +94,8 @@ interface Row {
   bold?: boolean;
   /** The source line is revised and needs a right-margin marker. */
   revised?: boolean;
+  /** The source line's index (dual columns, which are drawn row by row). */
+  src?: number;
 }
 interface Block {
   kind: ElementType;
@@ -111,6 +116,8 @@ interface Block {
   revised?: boolean;
   /** Dialogue and action: every legal sentence break, computed once. */
   splits?: SplitOption[];
+  /** The source line's index. */
+  src?: number;
 }
 
 /** Rows for one element's text, positioned (transitions right-aligned,
@@ -219,7 +226,7 @@ function buildDualRows(blocks: Block[], originX: number): Row[] {
   for (const b of blocks) {
     const { x, maxChars } = dualColumn(originX, b.kind);
     for (const w of wrap(b.text, maxChars)) {
-      rows.push({ text: w, x, ...(b.revised ? { revised: true } : {}) });
+      rows.push({ text: w, x, ...(b.revised ? { revised: true } : {}), ...(b.src != null ? { src: b.src } : {}) });
     }
   }
   return rows;
@@ -276,6 +283,7 @@ function buildBlocks(
       cueName: kind === "dialogue" ? currentCue : undefined,
       sceneNumber: kind === "scene_heading" ? ++sceneCounter : undefined,
       revised: line.revised === true,
+      src: li,
       // A dual line never breaks across a page (it is placed whole), so it has
       // no sentence breaks to offer.
       splits:
@@ -309,11 +317,18 @@ function buildBlocks(
 /** Pass 2: place blocks onto pages, applying the break rules. */
 export function paginate(
   lines: ScriptLine[],
-  opts?: { sceneNumbers?: boolean; autoContd?: boolean; keepUnicode?: boolean }
+  opts?: {
+    sceneNumbers?: boolean;
+    autoContd?: boolean;
+    keepUnicode?: boolean;
+    /** Tag each row with its source line (DrawOp.src), for styled rendering. */
+    trackSource?: boolean;
+  }
 ): PaginateResult {
   const contdFlags = opts?.autoContd ? computeContinuations(lines) : null;
   const blocks = buildBlocks(lines, contdFlags, opts?.keepUnicode);
   const sceneNumbers = opts?.sceneNumbers ?? false;
+  const track = opts?.trackSource === true;
 
   const pages: Page[] = [];
   let pageNumber = 1;
@@ -332,9 +347,10 @@ export function paginate(
   };
 
   const remainingSlots = () => LINES_PER_PAGE - usedSlots;
-  const place = (text: string, x: number, bold?: boolean) => {
+  /** Place one row; `src` says which source line its words are (when tracked). */
+  const place = (text: string, x: number, bold?: boolean, src?: number) => {
     markStart();
-    ops.push({ text, x, y, ...(bold ? { bold: true } : {}) });
+    ops.push({ text, x, y, ...(bold ? { bold: true } : {}), ...(track && src != null ? { src } : {}) });
     if (revisedMark) ops.push({ text: "*", x: REVISION_X, y });
     y -= LINE;
     usedSlots++;
@@ -383,13 +399,13 @@ export function paginate(
     for (;;) {
       const room = remainingSlots();
       if (rows.length <= room) {
-        for (const r of rows) place(r.text, r.x);
+        for (const r of rows) place(r.text, r.x, undefined, block.src);
         return;
       }
       const split = chooseSplit(splits, room);
       if (split) {
         const head = layoutRows(kind, text.slice(0, split.offset));
-        for (const r of head) place(r.text, r.x);
+        for (const r of head) place(r.text, r.x, undefined, block.src);
         text = text.slice(split.offset);
       } else if (
         atPageTop ||
@@ -400,7 +416,7 @@ export function paginate(
         // room (it already opens the page, or is taller than one): fill this
         // page line by line.
         const take = Math.max(1, room);
-        for (const r of rows.slice(0, take)) place(r.text, r.x);
+        for (const r of rows.slice(0, take)) place(r.text, r.x, undefined, block.src);
         text = rows
           .slice(take)
           .map((r) => r.text)
@@ -422,10 +438,10 @@ export function paginate(
   };
 
   /** Place an atomic block, flowing across a break only if taller than a page. */
-  const placeFlow = (rows: Row[]) => {
+  const placeFlow = (rows: Row[], src?: number) => {
     for (const r of rows) {
       if (remainingSlots() <= 0) newPage();
-      place(r.text, r.x, r.bold);
+      place(r.text, r.x, r.bold, src);
     }
   };
 
@@ -456,8 +472,9 @@ export function paginate(
       for (let k = 0; k < canDraw; k++) {
         const l = leftRows[row + k];
         const r = rightRows[row + k];
-        if (l) ops.push({ text: l.text, x: l.x, y: startY - k * LINE });
-        if (r) ops.push({ text: r.text, x: r.x, y: startY - k * LINE });
+        const tag = (row: Row) => (track && row.src != null ? { src: row.src } : {});
+        if (l) ops.push({ text: l.text, x: l.x, y: startY - k * LINE, ...tag(l) });
+        if (r) ops.push({ text: r.text, x: r.x, y: startY - k * LINE, ...tag(r) });
         if (l?.revised || r?.revised) {
           ops.push({ text: "*", x: REVISION_X, y: startY - k * LINE });
         }
@@ -487,7 +504,7 @@ export function paginate(
     }
     for (const r of rows) {
       if (remainingSlots() <= 0) newPage();
-      place(r.text, r.x);
+      place(r.text, r.x, undefined, block.src);
     }
   };
 
@@ -580,10 +597,10 @@ export function paginate(
       ops.push({ text: num, x: RIGHT_EDGE + CHAR_W, y: headY });
       for (const r of block.rows) {
         if (remainingSlots() <= 0) newPage();
-        place(r.text, r.x, r.bold);
+        place(r.text, r.x, r.bold, block.src);
       }
     } else {
-      placeFlow(block.rows);
+      placeFlow(block.rows, block.src);
     }
   }
 

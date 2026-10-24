@@ -1,6 +1,7 @@
 import { DEFAULT_ELEMENT, type ElementType } from "@/lib/editor/elements";
-import type { ScriptLine } from "@/types/screenplay";
+import type { ScriptLine, TextStyleRun } from "@/types/screenplay";
 import { hasTitlePage, type TitlePage } from "./titlePage";
+import { cleanHex, normalizeRuns, segments, type CharStyle } from "./styleRuns";
 
 /**
  * Final Draft (.fdx) import and export.
@@ -40,17 +41,64 @@ function paragraphToLine(p: Element, dual = false): ScriptLine {
   const element = TYPE_MAP[rawType] ?? DEFAULT_ELEMENT;
 
   // Concatenate only DIRECT <Text> children (handles multi-run lines and
-  // literal embedded newlines); ignore styling attributes and metadata nodes.
-  // localName (not tagName) so a namespace prefix like <fd:Text> still matches.
+  // literal embedded newlines); a run's Style (Bold, Italic, Underline) and
+  // Background (a highlight) come along as the line's formatting. localName
+  // (not tagName) so a namespace prefix like <fd:Text> still matches.
   let text = "";
+  const runs: TextStyleRun[] = [];
   for (const child of Array.from(p.children)) {
-    if (child.localName === "Text") text += child.textContent ?? "";
+    if (child.localName !== "Text") continue;
+    const t = child.textContent ?? "";
+    const style = fdxStyle(child);
+    if (t && style) runs.push({ from: text.length, to: text.length + t.length, ...style });
+    text += t;
   }
   // A Final Draft Number attribute is deliberately NOT folded into the text: the
   // editor, the scene navigator, find/replace and the Fountain exporter all read
   // line.text, so a synthetic " #N#" suffix would be visible everywhere the PDF
   // does not show it. Scene numbering stays the renderer's job.
-  return dual ? { element, text, dual: true } : { element, text };
+  const line: ScriptLine = dual ? { element, text, dual: true } : { element, text };
+  const marks = normalizeRuns(runs, text.length);
+  if (marks.length) line.marks = marks;
+  return line;
+}
+
+/** "#RRRRGGGGBBBB" (Final Draft's 16 bits a channel) or "#RRGGBB" as "#rrggbb". */
+function fdxColor(v: string | null): string | undefined {
+  const s = (v ?? "").trim();
+  if (/^#[0-9a-f]{12}$/i.test(s)) return cleanHex("#" + s.slice(1, 3) + s.slice(5, 7) + s.slice(9, 11));
+  return cleanHex(s);
+}
+
+/** A <Text> run's formatting, or null when it has none. */
+function fdxStyle(el: Element): CharStyle | null {
+  const tokens = (el.getAttribute("Style") ?? "").split("+").map((t) => t.trim().toLowerCase());
+  const style: CharStyle = {};
+  if (tokens.includes("bold")) style.bold = true;
+  if (tokens.includes("italic")) style.italic = true;
+  if (tokens.includes("underline")) style.underline = true;
+  const bg = fdxColor(el.getAttribute("Background"));
+  // White is Final Draft's "no highlight".
+  if (bg && bg !== "#ffffff") style.highlight = bg;
+  return style.bold || style.italic || style.underline || style.highlight ? style : null;
+}
+
+/** "#rrggbb" in Final Draft's 16-bits-a-channel spelling. */
+const fdxColor16 = (hex: string) =>
+  "#" + [1, 3, 5].map((i) => hex.slice(i, i + 2).toUpperCase().repeat(2)).join("");
+
+/** A line's text as <Text> runs, each carrying its formatting. */
+function runsXml(line: ScriptLine, indent: string): string {
+  if (!line.marks?.length) return `${indent}<Text>${esc(line.text)}</Text>\n`;
+  return segments(line.text, line.marks)
+    .map(({ text, style }) => {
+      const names = [style.bold && "Bold", style.italic && "Italic", style.underline && "Underline"].filter(Boolean);
+      const attrs =
+        (names.length ? ` Style="${names.join("+")}"` : "") +
+        (style.highlight ? ` Background="${fdxColor16(style.highlight)}"` : "");
+      return `${indent}<Text${attrs}>${esc(text)}</Text>\n`;
+    })
+    .join("");
 }
 
 /** Paragraph descendants in document order, without recursion on hostile depth. */
@@ -246,7 +294,7 @@ function paragraphXml(line: ScriptLine, indent: string): string {
   const preserveEmpty = line.text === "" ? ' LESSPreserveEmpty="true"' : "";
   return (
     `${indent}<Paragraph Type="${type}"${preserveEmpty}>\n` +
-    `${indent}  <Text>${esc(line.text)}</Text>\n` +
+    runsXml(line, `${indent}  `) +
     `${indent}</Paragraph>`
   );
 }

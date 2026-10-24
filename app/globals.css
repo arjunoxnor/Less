@@ -6468,3 +6468,72 @@ html.is-dragging * {
   color: var(--muted);
   font-size: var(--text-sm);
 }
+
+/* ---- Formatting in a script (lib/editor/scriptMarks.ts) ------------------ */
+/* A highlight is a light wash: its text stays dark in either theme. */
+.sp-prose mark {
+  padding: 0;
+  border-radius: 2px;
+  color: #1a1a1a !important;
+}
+/* The bar over a selection (components/ScriptFormatBubble.tsx). */
+.fmt-bubble {
+  position: fixed;
+  z-index: var(--z-menus);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 8px;
+  box-shadow: var(--e2);
+  /* Its own property, so the entrance animation's transform adds to it. */
+  translate: -50% calc(-100% - 10px);
+  animation: ui-menu-in var(--dur-1) var(--ease);
+}
+.fmt-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fmt-btn:hover {
+  background: var(--surface-2);
+}
+.fmt-btn[aria-pressed="true"] {
+  background: var(--surface-3);
+}
+.fmt-u {
+  text-decoration: underline;
+}
+.fmt-clear {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.fmt-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 4px 3px;
+  background: var(--hairline);
+}
+.fmt-swatch {
+  width: 20px;
+  height: 20px;
+  margin: 0 2px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+}
+.fmt-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
+}

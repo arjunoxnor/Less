@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import { DEFAULT_ELEMENT, type ElementType } from "@/lib/editor/elements";
-import type { ScriptLine } from "@/types/screenplay";
+import type { ScriptLine, TextStyleRun } from "@/types/screenplay";
+import { nodesFromRuns, runsFromLine, shiftRuns } from "./styleRuns";
 
 /**
  * The interchange bridge between the ProseMirror document and the flat
@@ -90,9 +91,33 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
     };
     if (node.attrs?.dual === true) line.dual = true;
     if (node.attrs?.revised === true) line.revised = true;
+    const marks = lineMarks(node, raw_text, line.text, element);
+    if (marks.length) line.marks = marks;
     lines.push(line);
   }
   return lines;
+}
+
+/**
+ * A line's bold, italic, underline and highlight, moved to match the text as
+ * printed: capitals keep every offset (unless a letter grows when
+ * capitalized, when the styling is dropped rather than misplaced), and a
+ * parenthetical's supplied bracket and trimmed spaces shift it.
+ */
+function lineMarks(node: JSONContent, raw: string, printed: string, element: ElementType): TextStyleRun[] {
+  const runs = runsFromLine(node);
+  if (runs.length === 0) return runs;
+  if (element === "parenthetical") {
+    // Only what survives the trim moves across, one along if a bracket was supplied.
+    const lead = raw.length - raw.trimStart().length;
+    const end = raw.trimEnd().length;
+    const kept = runs
+      .map((r) => ({ ...r, from: Math.max(r.from, lead), to: Math.min(r.to, end) }))
+      .filter((r) => r.to > r.from);
+    const shift = (raw.trim().startsWith("(") ? 0 : 1) - lead;
+    return shiftRuns(kept, shift, printed.length);
+  }
+  return printed.length === raw.length ? runs : [];
 }
 
 /**
@@ -109,7 +134,7 @@ export function linesToDoc(lines: ScriptLine[]): JSONContent {
       ...(line.dual ? { dual: true } : {}),
       ...(line.revised ? { revised: true } : {}),
     },
-    content: line.text ? [{ type: "text", text: line.text }] : [],
+    content: nodesFromRuns(line.text ?? "", line.marks),
   }));
 
   if (nodes.length === 0) {

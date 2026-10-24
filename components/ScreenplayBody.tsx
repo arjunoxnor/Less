@@ -102,6 +102,7 @@ import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { EditorStatusBar } from "./chrome/EditorStatusBar";
 import { usePageZoom } from "./chrome/ZoomControl";
 import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
+import { ScriptFormatBubble } from "./ScriptFormatBubble";
 import { HintCard } from "./chrome/HintCard";
 import { ShortcutsModal } from "./chrome/ShortcutsModal";
 import type { MenuItem } from "./ui/Menu";
@@ -1842,6 +1843,7 @@ function ScreenplayEditor({
               )}
               <EditorContent editor={editor} className="sp-editor" />
               <BookmarkLayer editor={editor} entries={bookmarks} zoom={zoom} />
+              <ScriptFormatBubble editor={editor} />
             </div>
           </div>
         </div>

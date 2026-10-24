@@ -14,6 +14,20 @@ export interface ScriptLine {
   dual?: boolean;
   /** True when the line is marked changed in the current revision pass. */
   revised?: boolean;
+  /** Bold, italic, underline and highlight, as stretches of `text` (absent
+      when the line is plain). See lib/export/styleRuns.ts. */
+  marks?: TextStyleRun[];
+}
+
+/** A styled stretch of a line: characters `from` (inclusive) to `to` (exclusive). */
+export interface TextStyleRun {
+  from: number;
+  to: number;
+  bold?: true;
+  italic?: true;
+  underline?: true;
+  /** A highlight colour, "#rrggbb". */
+  highlight?: string;
 }
 
 /** A scene, derived by splitting the line list on scene headings. */

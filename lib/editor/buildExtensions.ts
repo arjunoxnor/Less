@@ -32,6 +32,7 @@ import type { DuetSession } from "@/lib/collab/duet";
 import { DualLayout } from "./dualLayout";
 import { ScreenplayPaste } from "./screenplayPaste";
 import { Bookmarks } from "./bookmarks";
+import { scriptMarks } from "./scriptMarks";
 
 /** Hint shown on the current empty line, tailored to its element type. */
 function placeholderFor(element: ElementType): string {
@@ -98,6 +99,8 @@ export function buildExtensions(opts?: {
     Document.extend({ content: "screenplayLine+" }),
     Text,
     ScreenplayLine,
+    // Bold, italic, underline and highlight on the text (lib/editor/scriptMarks.ts).
+    ...scriptMarks,
     // Names the two columns of each dual-dialogue pair so they lay out side
     // by side (the page engine stands the right column up beside the left).
     DualLayout,

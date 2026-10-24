@@ -1,6 +1,7 @@
 import type { ElementType } from "@/lib/editor/elements";
-import type { ScriptLine } from "@/types/screenplay";
+import type { ScriptLine, TextStyleRun } from "@/types/screenplay";
 import { ensureParentheticalParens } from "./flatten";
+import { isPlainStyle, normalizeRuns, segments } from "./styleRuns";
 import { hasTitlePage, type TitlePage } from "./titlePage";
 
 /**
@@ -54,15 +55,52 @@ function isAllCaps(text: string): boolean {
  * whose position carries Fountain meaning.
  */
 function escapeInline(text: string): string {
-  let out = text
+  return escapeLine(escapeChars(text));
+}
+
+/** The character escapes: backslashes, emphasis markers, notes and boneyards. */
+function escapeChars(text: string): string {
+  return text
     .replace(/\\/g, "\\\\")
     .replace(/\/\*/g, "\\/*")
     .replace(/\[\[/g, "\\[[")
     .replace(/([*_])/g, "\\$1");
+}
+
+/** The line escapes: a leading control character, a trailing ^ or <. */
+function escapeLine(escaped: string): string {
+  let out = escaped;
   if (/^[.@!>~#=]/.test(out)) out = `\\${out}`;
   if (out.endsWith("^")) out = `${out.slice(0, -1)}\\^`;
   if (out.endsWith("<")) out = `${out.slice(0, -1)}\\<`;
   return out;
+}
+
+/**
+ * A line's text as Fountain with its formatting written as emphasis:
+ * *italic*, **bold**, ***bold italic***, _underline_ (Fountain has no
+ * highlight, so a highlight is left out). Spaces at a styled stretch's edges
+ * go outside its markers, where Fountain looks for them.
+ */
+function emphasized(text: string, marks: TextStyleRun[] | undefined): string {
+  if (!marks?.length) return escapeInline(text);
+  let body = "";
+  for (const { text: piece, style } of segments(text, marks)) {
+    const esc = escapeChars(piece);
+    const core = esc.trim();
+    const shown = { ...style, highlight: undefined };
+    if (isPlainStyle(shown) || !core) {
+      body += esc;
+      continue;
+    }
+    const lead = esc.slice(0, esc.length - esc.trimStart().length);
+    const trail = esc.slice(esc.trimEnd().length);
+    const stars = style.bold && style.italic ? "***" : style.bold ? "**" : style.italic ? "*" : "";
+    const open = (style.underline ? "_" : "") + stars;
+    const close = stars + (style.underline ? "_" : "");
+    body += lead + open + core + close + trail;
+  }
+  return escapeLine(body);
 }
 
 /**
@@ -72,18 +110,67 @@ function escapeInline(text: string): string {
  * a URL, "5 * 3", a "____" blank to fill in) is text and is kept.
  */
 function stripInline(text: string): string {
+  return parseInline(text).text;
+}
+
+// Placeholders that switch a style on and off while the emphasis is read.
+const BOLD_MARK = "\uE010";
+const ITALIC_MARK = "\uE011";
+const UNDERLINE_MARK = "\uE012";
+
+/**
+ * Fountain inline emphasis read as formatting: the text without its markers,
+ * and the stretches that were bold, italic or underlined. The same pairing
+ * rules as before (a lone "*" or "_" is text).
+ */
+function parseInline(text: string): { text: string; marks: TextStyleRun[] } {
   const held: string[] = [];
   // Escaped markers are set aside first, so they never pair up.
   const hold = (c: string) => {
     held.push(c);
-    return `${held.length - 1}`;
+    return `\uE000${held.length - 1}\uE001`;
   };
+  const B = BOLD_MARK;
+  const I = ITALIC_MARK;
+  const U = UNDERLINE_MARK;
   let t = text.replace(/\\([\\*_/.@!>~#=[\]^<])/g, (_, c: string) => hold(c));
-  t = t.replace(/\*\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*\*/g, "$1");
-  t = t.replace(/\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*/g, "$1");
-  t = t.replace(/\*(?=[^\s*])(.+?)(?<=[^\s*])\*/g, "$1");
-  t = t.replace(/(^|[^\p{L}\p{N}_])_(?=[^\s_])(.+?)(?<=[^\s_])_(?=$|[^\p{L}\p{N}_])/gu, "$1$2");
-  return t.replace(/(\d+)/g, (_, n: string) => held[Number(n)]);
+  t = t.replace(/\*\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*\*/g, `${B}${I}$1${I}${B}`);
+  t = t.replace(/\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*/g, `${B}$1${B}`);
+  t = t.replace(/\*(?=[^\s*])(.+?)(?<=[^\s*])\*/g, `${I}$1${I}`);
+  t = t.replace(/(^|[^\p{L}\p{N}_])_(?=[^\s_])(.+?)(?<=[^\s_])_(?=$|[^\p{L}\p{N}_])/gu, `$1${U}$2${U}`);
+  t = t.replace(/\uE000(\d+)\uE001/g, (_, n: string) => held[Number(n)]);
+  let out = "";
+  const runs: TextStyleRun[] = [];
+  let bold = false;
+  let italic = false;
+  let underline = false;
+  for (const ch of t) {
+    if (ch === B) bold = !bold;
+    else if (ch === I) italic = !italic;
+    else if (ch === U) underline = !underline;
+    else {
+      const from = out.length;
+      out += ch;
+      if (bold || italic || underline) {
+        runs.push({
+          from,
+          to: out.length,
+          ...(bold ? { bold: true as const } : {}),
+          ...(italic ? { italic: true as const } : {}),
+          ...(underline ? { underline: true as const } : {}),
+        });
+      }
+    }
+  }
+  return { text: out, marks: normalizeRuns(runs, out.length) };
+}
+
+/** A parsed line, with its formatting when it has any. */
+function lineOf(element: ElementType, value: string, dual = false): ScriptLine {
+  const { text, marks } = parseInline(value);
+  const line: ScriptLine = dual ? { element, text, dual: true } : { element, text };
+  if (marks.length) line.marks = marks;
+  return line;
 }
 
 /**
@@ -142,12 +229,18 @@ function toFountainTitlePage(tp: TitlePage): string {
   return out.join("\n");
 }
 
+/** A parenthetical with its brackets; its formatting kept when they were already there. */
+function parenthetical(line: ScriptLine): string {
+  const printed = ensureParentheticalParens(line.text);
+  return printed === line.text ? emphasized(line.text, line.marks) : escapeInline(printed);
+}
+
 export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): string {
   const blocks: string[] = [];
   let i = 0;
 
   while (i < lines.length) {
-    const { element, text } = lines[i];
+    const { element, text, marks } = lines[i];
 
     if (element === "character") {
       // Start a cue cluster: the character line plus the parentheticals and
@@ -155,7 +248,7 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       // re-import as one cue (no blank line breaks the cluster).
       // Always force a cue. Besides allowing mixed case, this keeps a literal
       // leading Fountain control character from being reclassified.
-      const cue = `@${escapeInline(text)}`;
+      const cue = `@${emphasized(text, marks)}`;
       // A dual (right-column) cue carries a trailing caret.
       const cluster: string[] = [lines[i].dual ? `${cue} ^` : cue];
       i++;
@@ -166,11 +259,11 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
         const l = lines[i];
         cluster.push(
           l.element === "parenthetical"
-            ? escapeInline(ensureParentheticalParens(l.text))
+            ? parenthetical(l)
             : l.text
               ? /^\(.*\)$/.test(l.text.trim())
-                ? `~${escapeInline(l.text)}`
-                : escapeInline(l.text)
+                ? `~${emphasized(l.text, l.marks)}`
+                : emphasized(l.text, l.marks)
               : "~"
         );
         i++;
@@ -181,20 +274,20 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
 
     switch (element) {
       case "scene_heading":
-        blocks.push(SCENE_PREFIX.test(text) ? escapeInline(text) : `.${escapeInline(text)}`);
+        blocks.push(SCENE_PREFIX.test(text) ? emphasized(text, marks) : `.${emphasized(text, marks)}`);
         break;
       case "transition": {
-        const t = escapeInline(text.trim());
+        const t = text.trim() === text ? emphasized(text, marks) : escapeInline(text.trim());
         blocks.push(/TO:$/.test(text.trim()) ? t : `>${t}`);
         break;
       }
       case "parenthetical":
         // Orphaned parenthetical (no preceding cue): keep it as its own block.
-        blocks.push(escapeInline(ensureParentheticalParens(text)));
+        blocks.push(parenthetical(lines[i]));
         break;
       case "dialogue":
         // Orphaned dialogue: keep it so nothing is lost.
-        blocks.push(`~${escapeInline(text)}`);
+        blocks.push(`~${emphasized(text, marks)}`);
         break;
       case "action":
       default:
@@ -202,8 +295,8 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
         // different element (all-caps cue, or a leading control character).
         blocks.push(
           text === "" || actionNeedsForce(text)
-            ? `!${escapeInline(text)}`
-            : escapeInline(text)
+            ? `!${emphasized(text, marks)}`
+            : emphasized(text, marks)
         );
         break;
     }
@@ -322,11 +415,7 @@ export function parseFountain(text: string): {
       // A scene number written into the heading ("INT. HOUSE - DAY #12A#") is
       // not part of its text: LESS numbers scenes itself.
       const value = element === "scene_heading" ? rawValue.replace(/\s*#[^#\s]+#\s*$/, "") : rawValue;
-      out.push(
-        dual
-          ? { element, text: stripInline(value), dual: true }
-          : { element, text: stripInline(value) }
-      );
+      out.push(lineOf(element, value, dual));
     };
 
     // 1. Forced markers (highest priority).
@@ -347,7 +436,7 @@ export function parseFountain(text: string): {
     }
     if (line.startsWith("!")) {
       // Action forced with "!"; preserve leading whitespace after the marker.
-      out.push({ element: "action", text: stripInline(raw.replace(/^\s*!/, "")) });
+      out.push(lineOf("action", raw.replace(/^\s*!/, "")));
       inDialogue = false;
       inDual = false;
       continue;
@@ -425,7 +514,7 @@ export function parseFountain(text: string): {
     }
 
     // 10. Default: action (trim a trailing newline artifact only).
-    out.push({ element: "action", text: stripInline(raw.replace(/\s+$/, "")) });
+    out.push(lineOf("action", raw.replace(/\s+$/, "")));
   }
 
   return { lines: out, titlePage };
