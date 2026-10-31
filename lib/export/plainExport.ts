@@ -143,6 +143,18 @@ function markdownBlock(node: JSONContent): string {
     }
     case "horizontalRule":
       return "---";
+    case "table": {
+      const rows = (node.content ?? []).map((row) =>
+        (row.content ?? []).map((cell) =>
+          (cell.content ?? []).map(inlineMarkdown).join(" ").replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ")
+        )
+      );
+      if (rows.length === 0) return "";
+      const width = Math.max(...rows.map((r) => r.length));
+      const line = (cells: string[]) =>
+        `| ${Array.from({ length: width }, (_, i) => cells[i] ?? "").join(" | ")} |`;
+      return [line(rows[0]), line(Array(width).fill("---")), ...rows.slice(1).map(line)].join("\n");
+    }
     case "paragraph":
       return escapeMarkdownBlockStarts(inlineMarkdown(node));
     // Board blocks (lib/editor/boardNodes.ts). An image leaves as a link, which

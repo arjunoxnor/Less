@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNod
 import type { ChainedCommands, Editor } from "@tiptap/react";
 import { DOC_FONTS, DOC_SIZES, docFontOf, sizeOf, styleAt, wordAround, type DocFont } from "@/lib/editor/docFonts";
 import type { DocFontChoice } from "@/lib/storage/localStore";
+import { LINE_SPACINGS, lineSpacingAt } from "@/lib/editor/lineSpacing";
 
 /**
  * The plain document's formatting controls: marks, text color and highlight,
@@ -65,7 +66,7 @@ function AlignIcon({ kind }: { kind: "left" | "center" | "right" | "justify" }) 
 
 export function PlainToolbar({ editor }: { editor: Editor | null }) {
   const [, force] = useReducer((x: number) => x + 1, 0);
-  const [menu, setMenu] = useState<null | "color" | "highlight" | "link">(null);
+  const [menu, setMenu] = useState<null | "color" | "highlight" | "link" | "style" | "spacing" | "table">(null);
   const [linkDraft, setLinkDraft] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -176,8 +177,58 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
     setMenu(null);
   };
 
+  // The paragraph's style, as a word processor shows it.
+  const level = [1, 2, 3].find((l) => editor.isActive("heading", { level: l }));
+  const styleName = level ? `Heading ${level}` : "Normal";
+  const menuRow = (key: string, label: ReactNode, active: boolean, onClick: () => void, disabled = false) => (
+    <button
+      key={key}
+      type="button"
+      role="menuitem"
+      className={"pt-swatch" + (active ? " pt-row-on" : "")}
+      disabled={disabled}
+      onClick={() => {
+        onClick();
+        setMenu(null);
+      }}
+    >
+      {label}
+    </button>
+  );
+  const inTable = editor.isActive("table");
+  const spacing = lineSpacingAt(editor.state);
+
   return (
     <>
+      <div className="toolbar-group">
+        <div className="tb-menu" ref={menu === "style" ? menuRef : undefined}>
+          <button
+            type="button"
+            className="tb-btn pt-style-btn"
+            onClick={() => setMenu((m) => (m === "style" ? null : "style"))}
+            title="Paragraph style"
+            aria-haspopup="menu"
+            aria-expanded={menu === "style"}
+          >
+            {styleName}
+            <Caret />
+          </button>
+          {menu === "style" && (
+            <div className="tb-menu-list pt-swatches" role="menu" aria-label="Paragraph style">
+              {menuRow("p", "Normal", !level, () => chain().setParagraph().run())}
+              {[1, 2, 3].map((l) =>
+                menuRow(
+                  `h${l}`,
+                  <span className={`pt-style-h${l}`}>Heading {l}</span>,
+                  level === l,
+                  () => chain().setHeading({ level: l as 1 | 2 | 3 }).run()
+                )
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="toolbar-group">
         {Btn(<strong>B</strong>, editor.isActive("bold"), () => chain().toggleBold().run(), "Bold (Ctrl+B)")}
         {Btn(<em>I</em>, editor.isActive("italic"), () => chain().toggleItalic().run(), "Italic (Ctrl+I)")}
@@ -277,6 +328,26 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
         {Btn(<AlignIcon kind="center" />, editor.isActive({ textAlign: "center" }), () => chain().setTextAlign("center").run(), "Align center")}
         {Btn(<AlignIcon kind="right" />, editor.isActive({ textAlign: "right" }), () => chain().setTextAlign("right").run(), "Align right")}
         {Btn(<AlignIcon kind="justify" />, editor.isActive({ textAlign: "justify" }), () => chain().setTextAlign("justify").run(), "Justify")}
+        <div className="tb-menu" ref={menu === "spacing" ? menuRef : undefined}>
+          <button
+            type="button"
+            className={"tb-btn" + (spacing ? " tb-btn-active" : "")}
+            onClick={() => setMenu((m) => (m === "spacing" ? null : "spacing"))}
+            title="Line spacing"
+            aria-haspopup="menu"
+            aria-expanded={menu === "spacing"}
+          >
+            Spacing
+            <Caret />
+          </button>
+          {menu === "spacing" && (
+            <div className="tb-menu-list pt-swatches" role="menu" aria-label="Line spacing">
+              {LINE_SPACINGS.map((o) =>
+                menuRow(o.label, o.label, spacing === o.value, () => chain().setLineSpacing(o.value).run())
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="toolbar-group">
@@ -324,6 +395,44 @@ export function PlainToolbar({ editor }: { editor: Editor | null }) {
                   Set
                 </button>
               </div>
+            </div>
+          )}
+        </div>
+        <div className="tb-menu" ref={menu === "table" ? menuRef : undefined}>
+          <button
+            type="button"
+            className={"tb-btn" + (inTable ? " tb-btn-active" : "")}
+            onClick={() => setMenu((m) => (m === "table" ? null : "table"))}
+            title="Table"
+            aria-haspopup="menu"
+            aria-expanded={menu === "table"}
+          >
+            Table
+            <Caret />
+          </button>
+          {menu === "table" && (
+            <div className="tb-menu-list pt-swatches" role="menu" aria-label="Table">
+              {inTable ? (
+                <>
+                  {menuRow("ra", "Add row below", false, () => chain().addRowAfter().run())}
+                  {menuRow("rb", "Add row above", false, () => chain().addRowBefore().run())}
+                  {menuRow("ca", "Add column right", false, () => chain().addColumnAfter().run())}
+                  {menuRow("cb", "Add column left", false, () => chain().addColumnBefore().run())}
+                  {menuRow("hr", "Header row on or off", false, () => chain().toggleHeaderRow().run())}
+                  {menuRow("dr", "Delete row", false, () => chain().deleteRow().run())}
+                  {menuRow("dc", "Delete column", false, () => chain().deleteColumn().run())}
+                  {menuRow("dt", "Delete table", false, () => chain().deleteTable().run())}
+                </>
+              ) : (
+                <>
+                  {menuRow("t3", "Insert table (3 by 3)", false, () =>
+                    chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+                  )}
+                  {menuRow("t2", "Insert table (2 by 2)", false, () =>
+                    chain().insertTable({ rows: 2, cols: 2, withHeaderRow: false }).run()
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

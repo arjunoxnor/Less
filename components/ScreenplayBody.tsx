@@ -99,6 +99,7 @@ import { EditorStatusBar } from "./chrome/EditorStatusBar";
 import { usePageZoom } from "./chrome/ZoomControl";
 import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
 import { ScriptFormatBubble } from "./ScriptFormatBubble";
+import { useSelectedWords } from "./chrome/useSelectedWords";
 import { HintCard } from "./chrome/HintCard";
 import { ShortcutsModal } from "./chrome/ShortcutsModal";
 import type { MenuItem } from "./ui/Menu";
@@ -717,6 +718,7 @@ function ScreenplayEditor({
   });
 
   const bookmarks = useBookmarks(editor);
+  const selectedWords = useSelectedWords(editor);
   const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
   );
@@ -1743,6 +1745,7 @@ function ScreenplayEditor({
             pageCount={pages}
             pageTarget={pageTarget}
             wordCount={wordCount}
+            selectedWords={selectedWords}
             saved={saved}
             saveError={saveError}
             collaborative={duetActive}

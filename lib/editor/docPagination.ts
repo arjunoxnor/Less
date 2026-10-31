@@ -313,10 +313,12 @@ function px(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function gapElement(height: number, listItem: boolean, split: boolean): HTMLElement {
-  const element = document.createElement(split ? "span" : listItem ? "li" : "div");
+function gapElement(height: number, listItem: boolean, split: boolean, tableRow = false): HTMLElement {
+  const element = document.createElement(tableRow ? "tr" : split ? "span" : listItem ? "li" : "div");
   element.className = split ? "doc-page-gap doc-page-split" : "doc-page-gap";
   element.style.height = `${Math.max(0, height)}px`;
+  // A row between rows holds its height only with a cell in it.
+  if (tableRow) element.appendChild(document.createElement("td")).setAttribute("colspan", "99");
   element.setAttribute("contenteditable", "false");
   element.setAttribute("aria-hidden", "true");
   return element;
@@ -448,6 +450,26 @@ function measureBlocks(view: EditorView): {
   view.state.doc.forEach((node, offset) => {
     const dom = doms[childIndex++];
     if (!(dom instanceof HTMLElement)) return;
+    // A table breaks between its rows, never inside one.
+    if (node.type.name === "table") {
+      const tableStyle = getComputedStyle(dom);
+      const lastRow = node.childCount - 1;
+      node.forEach((row, rowOffset, index) => {
+        const pos = offset + 1 + rowOffset;
+        const rowDom = view.nodeDOM(pos);
+        if (!(rowDom instanceof HTMLElement)) return;
+        push(
+          row,
+          pos,
+          rowDom,
+          "tableRow",
+          false,
+          index === 0 ? px(tableStyle.marginTop) : 0,
+          index === lastRow ? px(tableStyle.marginBottom) : 0
+        );
+      });
+      return;
+    }
     if (!isList(node)) {
       push(node, offset, dom, blockKind(node), false);
       return;
@@ -556,7 +578,8 @@ function compute(view: EditorView): {
       marginBottom: block.marginBottom,
       lineTops: block.lineTops,
       // A leaf block (a rule, a voice note card) has no lines to break between.
-      splittable: block.kind !== "heading" && block.kind !== "horizontalRule" && !block.node.isLeaf,
+      splittable:
+        block.kind !== "heading" && block.kind !== "horizontalRule" && block.kind !== "tableRow" && !block.node.isLeaf,
     }))
   );
   const decos: Decoration[] = [];
@@ -598,7 +621,7 @@ function compute(view: EditorView): {
     decos.push(
       Decoration.widget(
         widgetPos,
-        () => gapElement(rounded, block.listItem, split),
+        () => gapElement(rounded, block.listItem, split, block.kind === "tableRow"),
         { side: -1, key: specKey, ignoreSelection: true, marks: [] }
       )
     );

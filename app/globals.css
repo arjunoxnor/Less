@@ -6556,3 +6556,63 @@ html.is-dragging * {
 .fmt-swatch[aria-pressed="true"] {
   box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
 }
+
+/* ---- Document tables and the paragraph menus ----------------------------- */
+.pl-prose table {
+  width: 100%;
+  margin: 0 0 0.8em;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.pl-prose th,
+.pl-prose td {
+  position: relative;
+  padding: 4px 8px;
+  border: 1px solid var(--control-line);
+  vertical-align: top;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.pl-prose th {
+  background: var(--btn-bg);
+  font-weight: 600;
+}
+.pl-prose tr.doc-page-gap td {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+.pl-prose .selectedCell {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.pl-prose .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.pl-prose.resize-cursor {
+  cursor: col-resize;
+}
+.pt-style-btn {
+  min-width: 96px;
+  justify-content: space-between;
+}
+.pt-row-on {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.pt-style-h1 {
+  font-size: 1.3em;
+  font-weight: 700;
+}
+.pt-style-h2 {
+  font-size: 1.15em;
+  font-weight: 700;
+}
+.pt-style-h3 {
+  font-weight: 700;
+}

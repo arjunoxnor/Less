@@ -30,6 +30,7 @@ export function EditorStatusBar({
   pageCount,
   pageTarget,
   wordCount,
+  selectedWords,
   saved,
   saveError,
   collaborative,
@@ -50,6 +51,8 @@ export function EditorStatusBar({
   pageCount: number;
   pageTarget?: number;
   wordCount: number;
+  /** Words selected, shown as "12 of 3,400 words". */
+  selectedWords?: number | null;
   saved: boolean;
   saveError: boolean;
   collaborative?: boolean;
@@ -154,7 +157,10 @@ export function EditorStatusBar({
           ? `${pageCount} / ${pageTarget} ${pageTarget === 1 ? "page" : "pages"}`
           : `Page ${caretPage} of ${pageCount} · ${pageCount} min`}
       </span>
-      <span className="status-item">{wordCount.toLocaleString()} words</span>
+      <span className="status-item">
+        {selectedWords != null ? `${selectedWords.toLocaleString()} of ` : ""}
+        {wordCount.toLocaleString()} words
+      </span>
       <span
         className={"status-item status-saved" + (saveError ? " status-save-error" : "")}
         role="status"

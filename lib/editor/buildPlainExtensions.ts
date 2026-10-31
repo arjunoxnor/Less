@@ -14,6 +14,8 @@ import { VoiceNote, VoicePending, type VoiceNoteOptions } from "./voiceNodes";
 import { cleanPastedHTML } from "./docFonts";
 import { Bookmarks } from "./bookmarks";
 import { FindReplace } from "./findPlugin";
+import { LineSpacing } from "./lineSpacing";
+import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 
 /**
  * Notes use paragraph spacing for their visible rhythm. At the top level,
@@ -139,6 +141,11 @@ export function buildPlainExtensions(opts?: {
           // Coloured bookmarks on paragraphs and headings (lib/editor/bookmarks.ts).
           Bookmarks.configure({ types: ["paragraph", "heading"] }),
           FindReplace,
+          LineSpacing,
+          Table.configure({ resizable: true, lastColumnResizable: false }),
+          TableRow,
+          TableHeader,
+          TableCell,
         ]),
   ];
 }

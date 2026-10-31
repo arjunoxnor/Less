@@ -64,6 +64,7 @@ import { ZoomControl, usePageZoom } from "./chrome/ZoomControl";
 import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
 import { FindReplacePanel } from "./FindReplacePanel";
 import { useFindReplace } from "./useFindReplace";
+import { useSelectedWords } from "./chrome/useSelectedWords";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
 import { MicGlyph, RecordingBar } from "./RecordingBar";
 import { canRecord, newVoiceId, VoiceRecording } from "@/lib/voicenote/recorder";
@@ -353,6 +354,7 @@ export function PlainBody({
   });
 
   const bookmarks = useBookmarks(editor);
+  const selectedWords = useSelectedWords(editor);
   const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
   );
@@ -745,7 +747,10 @@ export function PlainBody({
             {isBoard ? null : (
               <span className="status-item">Page {caretPage} of {pages}</span>
             )}
-            <span className="status-item">{words.toLocaleString()} words</span>
+            <span className="status-item">
+              {selectedWords != null ? `${selectedWords.toLocaleString()} of ` : ""}
+              {words.toLocaleString()} words
+            </span>
             <span className="status-item">{chars.toLocaleString()} characters</span>
             <span
               className={"status-item status-saved" + (saveError ? " status-save-error" : "")}
