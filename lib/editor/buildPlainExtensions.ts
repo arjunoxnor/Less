@@ -15,6 +15,7 @@ import { cleanPastedHTML } from "./docFonts";
 import { Bookmarks } from "./bookmarks";
 import { FindReplace } from "./findPlugin";
 import { LineSpacing } from "./lineSpacing";
+import { Comment } from "./comments";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 
 /**
@@ -142,6 +143,7 @@ export function buildPlainExtensions(opts?: {
           Bookmarks.configure({ types: ["paragraph", "heading"] }),
           FindReplace,
           LineSpacing,
+          Comment,
           Table.configure({ resizable: true, lastColumnResizable: false }),
           TableRow,
           TableHeader,

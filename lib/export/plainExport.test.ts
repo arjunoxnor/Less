@@ -110,3 +110,19 @@ describe("plain-document export", () => {
     );
   });
 });
+
+describe("comments", () => {
+  it("never reach an export", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Words.", marks: [{ type: "comment", attrs: { id: "a", text: "Secret note" } }] }],
+        },
+      ],
+    };
+    expect(plainToMarkdown(doc)).toBe("Words.\n");
+    expect(plainToText(doc)).toBe("Words.\n");
+  });
+});

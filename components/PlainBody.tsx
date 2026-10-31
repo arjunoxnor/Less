@@ -64,6 +64,7 @@ import { PageBackdrop, pageHostStyle } from "./PageBackdrop";
 import { ZoomControl, usePageZoom } from "./chrome/ZoomControl";
 import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
 import { FindReplacePanel } from "./FindReplacePanel";
+import { CommentsPanel } from "./CommentsPanel";
 import { useFindReplace } from "./useFindReplace";
 import { useSelectedWords } from "./chrome/useSelectedWords";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
@@ -644,6 +645,20 @@ export function PlainBody({
   );
 
   const find = useFindReplace(editor, activePanel === "find");
+  // A click on commented words opens that comment.
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+  useEffect(() => {
+    if (!editor || isBoard) return;
+    const dom = editor.view.dom;
+    const onClick = (e: Event) => {
+      const id = (e.target as HTMLElement | null)?.closest?.("[data-comment-id]")?.getAttribute("data-comment-id");
+      if (!id) return;
+      setActiveComment(id);
+      setActivePanel("comments");
+    };
+    dom.addEventListener("click", onClick);
+    return () => dom.removeEventListener("click", onClick);
+  }, [editor, isBoard]);
   // Cmd/Ctrl+F opens the find panel in the dock (a board has no pages to search).
   useEffect(() => {
     if (isBoard) return;
@@ -660,7 +675,12 @@ export function PlainBody({
 
   const railItems: RailItem[] = [
     ...(inFilm ? ([{ kind: "panel", id: "docs", label: "Docs" }] as RailItem[]) : []),
-    ...(isBoard ? [] : ([{ kind: "panel", id: "find", label: "Find", shortcut: mod + "F" }] as RailItem[])),
+    ...(isBoard
+      ? []
+      : ([
+          { kind: "panel", id: "find", label: "Find", shortcut: mod + "F" },
+          { kind: "panel", id: "comments", label: "Comments" },
+        ] as RailItem[])),
     { kind: "panel", id: "history", label: "History" },
     { kind: "divider" },
   ];
@@ -681,6 +701,8 @@ export function PlainBody({
         onSaveDraft={onSaveDraft ? openSaveDraft : undefined}
         onClose={() => setActivePanel(null)}
       />
+    ) : activePanel === "comments" ? (
+      <CommentsPanel editor={editor} activeId={activeComment} onClose={() => setActivePanel(null)} />
     ) : activePanel === "find" ? (
       <FindReplacePanel
         findState={find.findState}

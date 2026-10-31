@@ -28,7 +28,8 @@ export type PanelId =
   | "breakdown"
   | "reports"
   | "history"
-  | "find";
+  | "find"
+  | "comments";
 
 export type RailItem =
   | { kind: "panel"; id: PanelId; label: string; shortcut?: string }
@@ -42,6 +43,7 @@ const GLYPHS: Record<PanelId, () => React.ReactNode> = {
   breakdown: BreakdownIcon,
   reports: ReportsIcon,
   history: HistoryIcon,
+  comments: NotesIcon,
   find: FindIcon,
 };
 
