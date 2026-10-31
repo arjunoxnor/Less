@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { ScriptLine } from "@/types/screenplay";
 import { deriveTitle } from "@/lib/editor/docUtils";
 import { docToLines, linesToDoc } from "./flatten";
+import { docxToPlainDoc } from "./docxImport";
 import { downloadBlob, safeFilename } from "./download";
 import { toFountain, parseFountain } from "./fountain";
 import { parseFdx, toFdx } from "./fdx";
@@ -25,7 +26,7 @@ export type ImportFormat = "fountain" | "fdx";
  * here next to importFile so the picker and the parser never drift apart.
  */
 export const IMPORT_ACCEPT =
-  ".docx,.odt,.rtf,.fdx,.fountain,.txt,.text,.md,.markdown,.spmd,.xml";
+  ".docx,.pdf,.odt,.rtf,.fdx,.fountain,.txt,.text,.md,.markdown,.spmd,.xml";
 
 /**
  * Clear the dual flag on any imported cue cluster that has no left-column
@@ -144,6 +145,9 @@ export async function importFile(file: File): Promise<{
   // A prose file keeps its own text: Markdown is read as Markdown, plain text
   // line for line (the Fountain reader would drop headings and emphasis).
   let prose: { text: string; markdown: boolean } | null = null;
+  // A Word or PDF file read as a document, with its structure, if it is prose.
+  let richPlain: JSONContent | null = null;
+  let pdfScript = false;
 
   // Formats that are inherently screenplays, so content detection is skipped.
   const forceScreenplay =
@@ -157,7 +161,13 @@ export async function importFile(file: File): Promise<{
     lines = r.lines;
     titlePage = r.titlePage;
   } else if (name.endsWith(".docx")) {
-    lines = await docxToLines(await file.arrayBuffer());
+    const buf = await file.arrayBuffer();
+    lines = await docxToLines(buf);
+    try {
+      richPlain = await docxToPlainDoc(buf);
+    } catch {
+      richPlain = null; // the text alone still comes through
+    }
   } else if (name.endsWith(".odt")) {
     lines = await odtToLines(await file.arrayBuffer());
   } else if (name.endsWith(".rtf")) {
@@ -171,9 +181,20 @@ export async function importFile(file: File): Promise<{
       "Apple Pages files are not supported. In Pages, choose File then Export To then Word, and import the .docx."
     );
   } else if (name.endsWith(".pdf")) {
-    throw new Error(
-      "PDF import is not supported yet. Export the script to .docx, .fdx, or .fountain and import that."
-    );
+    const { looksLikeScreenplay, pdfToPlainDoc, pdfToScript, readPdf } = await import("./pdfImport");
+    const pages = await readPdf(await file.arrayBuffer());
+    if (looksLikeScreenplay(pages)) {
+      const r = pdfToScript(pages);
+      lines = r.lines;
+      titlePage = r.titlePage;
+      pdfScript = true;
+    } else {
+      richPlain = pdfToPlainDoc(pages);
+      lines = (richPlain.content ?? []).map((n) => ({
+        element: "action" as const,
+        text: (n.content ?? []).map((c) => c.text ?? "").join(""),
+      }));
+    }
   } else if (
     name.endsWith(".fountain") ||
     name.endsWith(".spmd") ||
@@ -195,7 +216,7 @@ export async function importFile(file: File): Promise<{
     const text = await readText(file);
     if (looksBinary(text)) {
       throw new Error(
-        "Unsupported file type. Import a Word (.docx), Final Draft (.fdx), Fountain (.fountain, .txt), Rich Text (.rtf), or OpenDocument (.odt) file."
+        "Unsupported file type. Import a Word (.docx), PDF, Final Draft (.fdx), Fountain (.fountain, .txt), Rich Text (.rtf), or OpenDocument (.odt) file."
       );
     }
     const r = parseFountain(text);
@@ -211,7 +232,7 @@ export async function importFile(file: File): Promise<{
   // that the file is a screenplay. Without one, treat it as a prose document so a
   // Google-Docs-style one-pager imports as a plain document, not a screenplay.
   const kind: ImportKind =
-    forceScreenplay || lines.some((l) => l.element === "scene_heading")
+    forceScreenplay || pdfScript || lines.some((l) => l.element === "scene_heading")
       ? "screenplay"
       : "plain";
 
@@ -222,7 +243,9 @@ export async function importFile(file: File): Promise<{
     plainDoc:
       kind !== "plain"
         ? undefined
-        : prose
+        : richPlain
+          ? richPlain
+          : prose
           ? prose.markdown
             ? markdownToPlainDoc(prose.text)
             : textToPlainDoc(prose.text)

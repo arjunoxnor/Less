@@ -108,7 +108,9 @@ describe("smart capitals", () => {
   it("can be switched off", () => {
     const ed = (editor = makeEditor(docOf(line("action", ""))));
     const type = (ch: string) =>
-      ed.view.someProp("handleTextInput", (f) => f(ed.view, ed.state.selection.from, ed.state.selection.to, ch)) ||
+      ed.view.someProp("handleTextInput", (f) =>
+        f(ed.view, ed.state.selection.from, ed.state.selection.to, ch, () => ed.state.tr.insertText(ch))
+      ) ||
       ed.commands.insertContent(ch);
     setCaretAtLineEnd(ed, 0);
     type("a");

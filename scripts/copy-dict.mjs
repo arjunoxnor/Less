@@ -17,3 +17,10 @@ await mkdir(outDir, { recursive: true });
 await copyFile(join(pkgDir, "index.aff"), join(outDir, "en_US.aff"));
 await copyFile(join(pkgDir, "index.dic"), join(outDir, "en_US.dic"));
 console.log("copy-dict: wrote public/dict/en_US.aff and en_US.dic");
+
+// The PDF reader's worker, for importing PDFs (lib/export/pdfImport.ts).
+const pdfDir = join(here, "..", "public", "pdf");
+await mkdir(pdfDir, { recursive: true });
+const pdfjsRoot = dirname(require.resolve("pdfjs-dist/package.json"));
+await copyFile(join(pdfjsRoot, "legacy", "build", "pdf.worker.min.mjs"), join(pdfDir, "pdf.worker.min.mjs"));
+console.log("copy-dict: wrote public/pdf/pdf.worker.min.mjs");

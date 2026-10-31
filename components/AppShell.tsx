@@ -401,7 +401,7 @@ export function AppShell() {
           const { doc, titlePage, kind, plainDoc } = await importFile(file);
           const info = placement[file.name] ?? {};
           const fallback = file.name.replace(
-            /\.(fdx|fountain|txt|text|md|markdown|spmd|xml|docx|odt|rtf)$/i,
+            /\.(fdx|fountain|txt|text|md|markdown|spmd|xml|docx|pdf|odt|rtf)$/i,
             ""
           );
           const folderId = info.folderKey ? folderIdByKey[info.folderKey] : undefined;
