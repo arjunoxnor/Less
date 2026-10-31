@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ZOOM_AUTO, ZOOM_FIT_PAGE, ZOOM_FIT_WIDTH, clampZoom, fittedZoom, stepZoom, zoomLabel } from "./pageZoom";
+import { MAX_ZOOM, ZOOM_AUTO, ZOOM_FIT_PAGE, ZOOM_FIT_WIDTH, clampHomeZoom, clampZoom, fittedZoom, stepZoom, zoomLabel } from "./pageZoom";
 
 describe("page zoom", () => {
   it("steps through the presets and stops at the ends", () => {
@@ -42,5 +42,15 @@ describe("zooms that fit the window", () => {
   });
   it("leaves a fixed zoom as it is", () => {
     expect(fittedZoom(1.25, 500, 500)).toBe(1.25);
+  });
+});
+
+describe("the home's zoom", () => {
+  it("stays in range and has no fit modes (100% is the fit)", () => {
+    expect(clampHomeZoom(1.25)).toBe(1.25);
+    expect(clampHomeZoom(9)).toBe(MAX_ZOOM);
+    expect(clampHomeZoom(0)).toBe(1);
+    expect(clampHomeZoom(-1)).toBe(1);
+    expect(clampHomeZoom("big")).toBe(1);
   });
 });

@@ -131,9 +131,10 @@ export function designWidthOf(layout: DeskLayout | null, things: readonly DeskTh
 }
 
 /** How much a desk laid out for w0 is scaled to show on a screen this wide. */
-export function deskScale(width: number, w0: number): number {
+export function deskScale(width: number, w0: number, zoom = 1): number {
   if (!(width > 0) || !(w0 > 0)) return 1;
-  const s = clamp(width / w0, DESK_SCALE_MIN, DESK_SCALE_MAX);
+  // The writer's zoom goes on top of the fit, past its limits if they ask.
+  const s = clamp(clamp(width / w0, DESK_SCALE_MIN, DESK_SCALE_MAX) * zoom, DESK_SCALE_MIN / 2, DESK_SCALE_MAX * 2);
   // Within a hair of the width it was made for, it is drawn as it is.
   return Math.abs(s - 1) < 0.01 ? 1 : Math.round(s * 1000) / 1000;
 }

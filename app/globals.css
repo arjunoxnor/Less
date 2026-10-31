@@ -5011,9 +5011,28 @@ html.is-dragging * {
 }
 .lib-main-inner {
   /* Grows with a big monitor instead of staying a narrow column. */
-  max-width: clamp(900px, 70vw, 1400px);
+  /* A zoomed home keeps this width on screen, so zooming out shows more. */
+  max-width: calc(clamp(900px, 70vw, 1400px) / var(--home-zoom, 1));
   margin: 0 auto;
   padding: 40px 40px 140px;
+}
+/* The home's zoom, in the corner (components/home/HomeZoom.tsx). */
+.lib-zoom {
+  position: fixed;
+  right: 14px;
+  bottom: 12px;
+  z-index: 5;
+  margin: 0;
+  padding: 2px 3px;
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: var(--e1, 0 1px 3px rgba(0, 0, 0, 0.16));
+  font-size: var(--text-sm);
+}
+@media (max-width: 720px) {
+  .lib-zoom {
+    display: none;
+  }
 }
 
 /* ---- Sidebar ---- */

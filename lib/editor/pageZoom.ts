@@ -48,6 +48,12 @@ export function clampZoom(z: unknown): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100));
 }
 
+/** The home's zoom made safe: within range, no fits (100% is already the fit). */
+export function clampHomeZoom(z: unknown): number {
+  const v = clampZoom(z);
+  return isFitMode(v) ? 1 : v;
+}
+
 /** The next preset in (1) or out (-1) from z. */
 export function stepZoom(z: number, dir: 1 | -1): number {
   if (dir > 0) return ZOOM_STEPS.find((s) => s > z + 0.001) ?? MAX_ZOOM;

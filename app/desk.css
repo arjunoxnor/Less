@@ -51,7 +51,7 @@ body {
   background-size: 22px 22px;
 }
 .lib.is-desk .lib-main-inner {
-  max-width: clamp(1180px, 82vw, 1900px);
+  max-width: calc(clamp(1180px, 82vw, 1900px) / var(--home-zoom, 1));
 }
 
 /* ============================== Covers ===================================== */

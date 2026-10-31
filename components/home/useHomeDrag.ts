@@ -426,15 +426,18 @@ export function useHomeDrag({
           // Off a desk scaled to fit the screen, the copy is drawn at the
           // desk's scale, inside a holder the drag positions.
           const scale = scaleOf(el.closest<HTMLElement>("[data-desk]"));
-          if (scale !== 1) {
+          const homeZoom = el.closest("[data-desk]")
+            ? 1
+            : Number(el.closest<HTMLElement>("[data-home-zoom]")?.dataset.homeZoom) || 1;
+          if (scale * homeZoom !== 1) {
             const holder = document.createElement("div");
             holder.className = "dk-ghost-zoom";
             Object.assign(copy.style, {
               position: "relative",
               inset: "auto",
               margin: "0px",
-              width: `${el.getBoundingClientRect().width / scale}px`,
-              zoom: String(scale),
+              width: `${el.getBoundingClientRect().width / (scale * homeZoom)}px`,
+              zoom: String(scale * homeZoom),
             });
             holder.appendChild(copy);
             if (lists.some((top) => top > 0)) {

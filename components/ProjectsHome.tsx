@@ -102,6 +102,7 @@ import {
 } from "./home/homeParts";
 import { HomeRow } from "./home/HomeRow";
 import { HomeSidebar, type HomeView } from "./home/HomeSidebar";
+import { HomeZoomControl, useHomeZoomKeys } from "./home/HomeZoom";
 import { useHomeDrag, type HomeDragSource, type HomeDrop } from "./home/useHomeDrag";
 import {
   DeleteFolderModal,
@@ -1584,6 +1585,10 @@ export function ProjectsHome({
   const q = query.trim().toLowerCase();
   /** The project on screen is a desk (not on a phone, not while searching). */
   const canvasView = !q && desk && !narrow && view.kind === "project" && cardById.has(view.id);
+  // The writer's zoom, on top of the fit (a phone keeps the fit).
+  const homeZoom = narrow ? 1 : prefs.homeZoom;
+  const setHomeZoom = (z: number) => onPrefsChange({ homeZoom: z });
+  useHomeZoomKeys(homeZoom, setHomeZoom, mainRef, !narrow);
   type Hit = { key: string; folder: Folder; where: string } | { key: string; meta: ProjectMeta };
   const hits = useMemo<Hit[]>(() => {
     if (!q) return [];
@@ -2837,7 +2842,7 @@ export function ProjectsHome({
     const { layout, things, groupOf, shelfOf } = deskThingsOf(card);
     // Laid out for one width, drawn scaled to fit this screen.
     const w0 = designWidthOf(layout, things, deskWidth);
-    const scale = deskScale(deskWidth, w0);
+    const scale = deskScale(deskWidth, w0, homeZoom);
     const placed = arrangeOnce(things, layout, w0);
     deskNow.current = { cardId: f.id, things, placed, w0, scale };
     const extent = deskExtent(things, placed);
@@ -3193,8 +3198,20 @@ export function ProjectsHome({
           <div className="lib-scrim" onClick={() => setSideOpen(false)} aria-hidden="true" />
         )}
         <main ref={mainRef} className={"lib-main" + (canvasView ? " has-canvas" : "")}>
-          <div className={"lib-main-inner" + (canvasView ? " is-canvas" : "")}>{content}</div>
+          {/* A desk scales itself; everything else is drawn at the zoom here. */}
+          <div
+            className={"lib-main-inner" + (canvasView ? " is-canvas" : "")}
+            data-home-zoom={!canvasView && homeZoom !== 1 ? homeZoom : undefined}
+            style={
+              !canvasView && homeZoom !== 1
+                ? ({ zoom: homeZoom, ["--home-zoom" as string]: homeZoom } as React.CSSProperties)
+                : undefined
+            }
+          >
+            {content}
+          </div>
         </main>
+        <HomeZoomControl zoom={homeZoom} onZoom={setHomeZoom} />
       </div>
 
       {drag.line && (

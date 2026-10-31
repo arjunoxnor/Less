@@ -127,6 +127,9 @@ describe("a desk laid out for one screen, shown on another", () => {
   it("scales to fit: down on a smaller screen, up on a bigger one, within limits", () => {
     expect(deskScale(1100, 2200)).toBe(0.5);
     expect(deskScale(600, 2200)).toBe(0.4);
+    // The writer's zoom goes on top of the fit.
+    expect(deskScale(1100, 2200, 1.5)).toBe(0.75);
+    expect(deskScale(1100, 1100, 2)).toBe(2);
     expect(deskScale(1500, 2000)).toBe(0.75);
     expect(deskScale(2000, 1000)).toBe(1.8);
     expect(deskScale(1500, 1000)).toBe(1.5);
