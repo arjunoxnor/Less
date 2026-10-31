@@ -35,3 +35,10 @@ export function getSpeller(): Promise<NSpell> {
   }
   return spellerPromise;
 }
+
+/** Words that arrived from another computer: known to a checker already running. */
+export function addWordsToSpeller(words: string[]): void {
+  void spellerPromise?.then((sp) => {
+    for (const word of words) sp.add(word);
+  }).catch(() => {});
+}

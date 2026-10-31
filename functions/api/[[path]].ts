@@ -19,6 +19,7 @@ import {
   newAssetId,
 } from "../../lib/server/assets";
 import { digestOf, readDigest } from "../../lib/cover/digest";
+import { cleanDictionary, mergeDictionary } from "../../lib/editor/dictionaryWords";
 import { sanitizeDesk } from "../../lib/desk/layout";
 import { pickVersions } from "../../lib/server/versionPick";
 import { sanitizePlace } from "../../lib/editor/returnPlace";
@@ -472,6 +473,28 @@ export const onRequest = async (ctx: PagesContext): Promise<Response> => {
     }
 
     /* ---- folders ---- */
+    // The writer's spelling dictionary, on every computer. A write only ever
+    // adds: two computers adding words at once both keep theirs.
+    if (seg[0] === "settings" && seg[1] === "dictionary" && seg.length === 2) {
+      const read = async (): Promise<string[]> => {
+        const row = await db.prepare("SELECT dict FROM user_settings WHERE user_id=?").bind(uid).first<{ dict: string }>();
+        return cleanDictionary(row?.dict);
+      };
+      if (method === "GET") return json({ words: await read() });
+      if (method === "PUT") {
+        const b = (await readJson(request)) as Record<string, unknown> | null;
+        const merged = mergeDictionary(await read(), cleanDictionary(b?.words));
+        const now = new Date().toISOString();
+        await db
+          .prepare(
+            "INSERT INTO user_settings (user_id,dict,dict_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET dict=excluded.dict, dict_at=excluded.dict_at"
+          )
+          .bind(uid, JSON.stringify(merged), now)
+          .run();
+        return json({ words: merged });
+      }
+    }
+
     if (seg[0] === "folders") {
       if (method === "GET" && seg.length === 1) {
         const r = await db

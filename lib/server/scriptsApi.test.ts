@@ -265,3 +265,25 @@ describe.skipIf(!sqlite)("bookmarks in the list's cover digest", () => {
     expect(digest.bookmarks).toEqual([{ id: "abc123", color: "blue", name: "Fix this", text: "Two.", pos: 6 }]);
   });
 });
+
+describe.skipIf(!sqlite)("the spelling dictionary", () => {
+  it("starts empty, only ever gains words, and keeps both computers' words", async () => {
+    migrate();
+    expect(await call("GET", "settings/dictionary")).toEqual({ words: [] });
+    expect(await call("PUT", "settings/dictionary", { words: ["Mumbai", "Ananya"] })).toEqual({ words: ["Mumbai", "Ananya"] });
+    // Another computer, which never saw those: nothing is lost, case makes no second entry.
+    expect(await call("PUT", "settings/dictionary", { words: ["Shamali", "MUMBAI"] })).toEqual({
+      words: ["Mumbai", "Ananya", "Shamali"],
+    });
+    expect(await call("GET", "settings/dictionary")).toEqual({ words: ["Mumbai", "Ananya", "Shamali"] });
+  });
+
+  it("takes only words", async () => {
+    migrate();
+    const res = await call("PUT", "settings/dictionary", {
+      words: ["ok", 5, "<script>", "two words", "x".repeat(99), "don\u2019t", "Jean-Luc"],
+    });
+    expect(res).toEqual({ words: ["ok", "don\u2019t", "Jean-Luc"] });
+    expect(await call("PUT", "settings/dictionary", { words: "nope" })).toEqual({ words: ["ok", "don\u2019t", "Jean-Luc"] });
+  });
+});

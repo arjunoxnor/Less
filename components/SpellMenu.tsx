@@ -181,7 +181,7 @@ export const SpellMenu = memo(function SpellMenu({
         }}
         onClick={() => runWordAction("ignore")}
       >
-        Ignore
+        Ignore in this script
       </button>
       <button
         type="button"

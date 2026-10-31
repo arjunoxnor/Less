@@ -12,6 +12,7 @@ import {
   type Prefs,
 } from "@/lib/storage/localStore";
 import { useProjects } from "@/lib/storage/useProjects";
+import { startDictionarySync } from "@/lib/cloud/dictionary";
 import {
   getLastOpenedId,
   getProjectMeta,
@@ -144,6 +145,10 @@ export function AppShell() {
   useEffect(() => startUploadLoop(), []);
   useEffect(() => {
     if (user?.id) void flushUploads();
+  }, [user?.id]);
+  // The spelling dictionary follows the account.
+  useEffect(() => {
+    if (user?.id) return startDictionarySync();
   }, [user?.id]);
 
   useEffect(() => {

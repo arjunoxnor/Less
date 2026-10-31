@@ -18,6 +18,8 @@ export interface ScriptSettings {
   /** The revision pass being written, and its date (lib/editor/revisionColors.ts). */
   revisionColor?: string;
   revisionDate?: string;
+  /** Words spell check leaves alone in this script. */
+  spellIgnore?: string[];
   /** Locked pages (null: unlocked on purpose). */
   pageLock?: PageLock | null;
   /** Breakdown tags. */
@@ -77,6 +79,10 @@ export function trimTitlePage(tp: TitlePage | null | undefined): TitlePage | nul
   }
   if (isRevisionColor(raw?.revisionColor)) settings.revisionColor = raw.revisionColor;
   if (typeof raw?.revisionDate === "string") settings.revisionDate = raw.revisionDate.slice(0, 20);
+  if (Array.isArray(raw?.spellIgnore)) {
+    const words = raw.spellIgnore.filter((w) => typeof w === "string" && w.length <= 64).slice(0, 1000);
+    if (words.length) settings.spellIgnore = words;
+  }
   if (raw?.pageLock === null || (raw?.pageLock && Array.isArray(raw.pageLock.anchors))) settings.pageLock = raw.pageLock;
   if (Array.isArray(raw?.breakdown)) {
     settings.breakdown = raw.breakdown.filter(

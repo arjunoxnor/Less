@@ -40,6 +40,7 @@ import {
   scrollPosToCenter,
 } from "@/lib/editor/findPlugin";
 import { useFindReplace } from "./useFindReplace";
+import { setIgnoredWords } from "@/lib/editor/spellcheck";
 import { REVISION_COLORS, revisionMark } from "@/lib/editor/revisionColors";
 import {
   previewRename,
@@ -868,6 +869,15 @@ function ScreenplayEditor({
     },
     [setTitlePage]
   );
+
+  // Words ignored by spell check ride with the script, too.
+  const ignoredWords = titlePage?.settings?.spellIgnore;
+  useEffect(() => {
+    setIgnoredWords(editor?.view ?? null, ignoredWords ?? [], (word) => {
+      const had = titlePageNow.current?.settings?.spellIgnore ?? [];
+      if (!had.includes(word)) setScriptPref({ spellIgnore: [...had, word] });
+    });
+  }, [editor, ignoredWords, setScriptPref]);
 
   // Page lock, breakdown tags and the page target ride with the title page
   // too, so a lock taken on the laptop numbers the desktop's PDF the same.

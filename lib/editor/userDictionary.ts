@@ -1,7 +1,8 @@
 /**
  * The writer's personal spelling dictionary: words they have chosen to keep.
  * Stored in localStorage so it survives reloads and works offline without an
- * account. Optional Supabase sync can layer on later.
+ * account; when signed in it also syncs (lib/cloud/dictionary.ts), and every
+ * added word is announced so that can happen at once.
  */
 
 const KEY = "less:userDict";
@@ -39,6 +40,16 @@ export function addUserWord(word: string): void {
   const lw = w.toLowerCase();
   if (words.some((x) => x.toLowerCase() === lw)) return;
   words.push(w);
+  write(words);
+  try {
+    window.dispatchEvent(new CustomEvent("less:dictionarychange"));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Replace the list with one already merged (a sync). */
+export function saveUserDictionary(words: string[]): void {
   write(words);
 }
 

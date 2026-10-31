@@ -65,8 +65,19 @@ const SCREENPLAY_TERMS = new Set<string>([
 const TOKEN = /[A-Za-z][A-Za-z'’-]*/g;
 const MAX_MARKS = 2000;
 
-/** Words ignored for this session only (the "Ignore" action). Lowercased. */
-const sessionIgnore = new Set<string>();
+/** Words ignored in the open script (the "Ignore" action). Lowercased. They
+    are kept with the script, so they last and follow it to other computers. */
+let scriptIgnore = new Set<string>();
+let onIgnore: ((word: string) => void) | null = null;
+
+/** The open script's ignored words, and where a newly ignored one is saved. */
+export function setIgnoredWords(view: EditorView | null, words: readonly string[], save: (word: string) => void): void {
+  onIgnore = save;
+  const next = new Set(words.map((w) => w.toLowerCase()));
+  const same = next.size === scriptIgnore.size && [...next].every((w) => scriptIgnore.has(w));
+  scriptIgnore = next;
+  if (!same && view) viewScanners.get(view)?.(true);
+}
 /** The resolved checker, shared across helpers once the engine loads. */
 let speller: NSpell | null = null;
 /** Per-view immediate rescan triggers, so the helpers can refresh underlines. */
@@ -128,7 +139,7 @@ function decorationsForLine(
       names.has(lower) ||
       names.has(stem) ||
       SCREENPLAY_TERMS.has(lower) ||
-      sessionIgnore.has(lower)
+      scriptIgnore.has(lower)
     ) {
       continue;
     }
@@ -423,7 +434,8 @@ export function acceptSpellFix(
 
 /** Ignore a word for the rest of this session (clears its underlines now). */
 export function ignoreWord(view: EditorView, word: string): void {
-  sessionIgnore.add(word.toLowerCase());
+  scriptIgnore.add(word.toLowerCase());
+  onIgnore?.(word.toLowerCase());
   viewScanners.get(view)?.(true);
   view.focus();
 }
