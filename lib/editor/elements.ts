@@ -8,14 +8,23 @@
  * once, here.
  */
 
-/** The six element types a screenplay line can be. */
+/** The element types a screenplay line can be: the six of the writing rhythm,
+    then the ones Final Draft also has, picked from the line-type menu. */
 export type ElementType =
   | "scene_heading"
   | "action"
   | "character"
   | "parenthetical"
   | "dialogue"
-  | "transition";
+  | "transition"
+  | "shot"
+  | "general"
+  | "lyrics"
+  | "new_act"
+  | "end_of_act";
+
+/** The less common line types: in the menu, not in the Tab cycle. */
+export const EXTRA_ELEMENTS: ElementType[] = ["shot", "general", "lyrics", "new_act", "end_of_act"];
 
 /** The default type for a brand-new, context-free line. */
 export const DEFAULT_ELEMENT: ElementType = "action";
@@ -42,6 +51,11 @@ export const ELEMENT_LABELS: Record<ElementType, string> = {
   parenthetical: "Parenthetical",
   dialogue: "Dialogue",
   transition: "Transition",
+  shot: "Shot",
+  general: "General",
+  lyrics: "Lyrics",
+  new_act: "New act",
+  end_of_act: "End of act",
 };
 
 /**
@@ -64,6 +78,11 @@ export const ENTER_FLOW: Record<ElementType, ElementType> = {
   parenthetical: "dialogue",
   dialogue: "action",
   transition: "scene_heading",
+  shot: "action",
+  general: "general",
+  lyrics: "lyrics",
+  new_act: "scene_heading",
+  end_of_act: "new_act",
 };
 
 /**
@@ -76,6 +95,9 @@ export const UPPERCASE_ELEMENTS: ReadonlySet<ElementType> = new Set<ElementType>
   "scene_heading",
   "character",
   "transition",
+  "shot",
+  "new_act",
+  "end_of_act",
 ]);
 
 /**
@@ -102,6 +124,11 @@ export const ELEMENT_NUMBER: Record<ElementType, string> = {
   dialogue: "4",
   parenthetical: "5",
   transition: "6",
+  shot: "",
+  general: "",
+  lyrics: "",
+  new_act: "",
+  end_of_act: "",
 };
 
 /** Step to the next element type in the cycle (Tab). */

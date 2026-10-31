@@ -47,6 +47,14 @@ function placeholderFor(element: ElementType): string {
       return "What they say…";
     case "transition":
       return "CUT TO:";
+    case "shot":
+      return "CLOSE ON:";
+    case "lyrics":
+      return "What they sing…";
+    case "new_act":
+      return "ACT ONE";
+    case "end_of_act":
+      return "END OF ACT ONE";
     default:
       return "Action: describe what we see.";
   }
@@ -81,6 +89,8 @@ export function buildExtensions(opts?: {
   onSpellState?: (state: SpellState | null) => void;
   /** Live read of the user's Revisions toggle (auto-marks edited lines). */
   isRevisionEnabled?: () => boolean;
+  /** The pass an edit is marked with (lib/editor/revisionColors.ts). */
+  revisionColor?: () => true | string;
   /** Live read of the user's auto-(CONT'D) toggle. */
   isContdEnabled?: () => boolean;
   /** Live read of the breakdown element catalog (for in-script highlighting). */
@@ -157,7 +167,7 @@ export function buildExtensions(opts?: {
   }
   // Revision tracking marks edited lines while revision mode is on.
   if (opts?.isRevisionEnabled) {
-    extensions.push(buildRevisionTracker(opts.isRevisionEnabled));
+    extensions.push(buildRevisionTracker(opts.isRevisionEnabled, opts.revisionColor));
   }
   // Auto (CONT'D) markers, gated by a live-read toggle.
   if (opts?.isContdEnabled) {

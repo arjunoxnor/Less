@@ -254,12 +254,14 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
       i++;
       while (
         i < lines.length &&
-        (lines[i].element === "parenthetical" || lines[i].element === "dialogue")
+        (lines[i].element === "parenthetical" || lines[i].element === "dialogue" || lines[i].element === "lyrics")
       ) {
         const l = lines[i];
         cluster.push(
           l.element === "parenthetical"
             ? parenthetical(l)
+            : l.element === "lyrics"
+              ? `~${emphasized(l.text, l.marks)}`
             : l.text
               ? /^\(.*\)$/.test(l.text.trim())
                 ? `~${emphasized(l.text, l.marks)}`
@@ -285,6 +287,12 @@ export function toFountain(lines: ScriptLine[], titlePage?: TitlePage | null): s
         // Orphaned parenthetical (no preceding cue): keep it as its own block.
         blocks.push(parenthetical(lines[i]));
         break;
+      case "new_act":
+      case "end_of_act":
+        // Fountain's centered text.
+        blocks.push(`> ${emphasized(text, marks)} <`);
+        break;
+      case "lyrics":
       case "dialogue":
         // Orphaned dialogue: keep it so nothing is lost.
         blocks.push(`~${emphasized(text, marks)}`);

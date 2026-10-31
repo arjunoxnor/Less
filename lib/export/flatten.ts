@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import { DEFAULT_ELEMENT, type ElementType } from "@/lib/editor/elements";
 import type { ScriptLine, TextStyleRun } from "@/types/screenplay";
 import { nodesFromRuns, runsFromLine, shiftRuns } from "./styleRuns";
+import { isRevisionColor } from "@/lib/editor/revisionColors";
 
 /**
  * The interchange bridge between the ProseMirror document and the flat
@@ -19,6 +20,11 @@ const ELEMENT_SET: ReadonlySet<string> = new Set<ElementType>([
   "parenthetical",
   "dialogue",
   "transition",
+  "shot",
+  "general",
+  "lyrics",
+  "new_act",
+  "end_of_act",
 ]);
 
 /** Narrow an arbitrary value to one of the six element types. */
@@ -51,6 +57,9 @@ const UPPERCASE_ELEMENTS: ReadonlySet<ElementType> = new Set<ElementType>([
   "scene_heading",
   "character",
   "transition",
+  "shot",
+  "new_act",
+  "end_of_act",
 ]);
 
 /** Supply screenplay punctuation without changing the stored editor document. */
@@ -91,6 +100,10 @@ export function docToLines(doc: JSONContent): ScriptLine[] {
     };
     if (node.attrs?.dual === true) line.dual = true;
     if (node.attrs?.revised === true) line.revised = true;
+    else if (isRevisionColor(node.attrs?.revised)) {
+      line.revised = true;
+      line.revisedColor = node.attrs.revised;
+    }
     const marks = lineMarks(node, raw_text, line.text, element);
     if (marks.length) line.marks = marks;
     lines.push(line);
@@ -132,7 +145,7 @@ export function linesToDoc(lines: ScriptLine[]): JSONContent {
       element: isElementType(line.element) ? line.element : DEFAULT_ELEMENT,
       // Set the attr only when true, so docs without dual serialize unchanged.
       ...(line.dual ? { dual: true } : {}),
-      ...(line.revised ? { revised: true } : {}),
+      ...(line.revised ? { revised: line.revisedColor ?? true } : {}),
     },
     content: nodesFromRuns(line.text ?? "", line.marks),
   }));

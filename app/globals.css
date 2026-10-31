@@ -589,6 +589,28 @@ body {
   text-transform: uppercase;
 }
 
+/* The less common line types, in the same geometry as the PDF (layout.ts). */
+.sp-prose .sp-shot,
+.sp-prose .sp-general {
+  margin-top: 16px;
+}
+.sp-prose .sp-shot,
+.sp-prose .sp-new_act,
+.sp-prose .sp-end_of_act {
+  text-transform: uppercase;
+}
+.sp-prose .sp-lyrics {
+  margin-top: 0;
+  margin-left: 1in;
+  margin-right: 1.5in;
+  font-style: italic;
+}
+.sp-prose .sp-new_act,
+.sp-prose .sp-end_of_act {
+  margin-top: 16px;
+  text-align: center;
+}
+
 /* The very first line should never push down from the top margin. */
 .sp-prose .sp-line:first-child {
   margin-top: 0;
@@ -6649,4 +6671,20 @@ html.is-dragging * {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+/* A revised line's star, in the colour of its pass (revisionColors.ts). */
+.sp-prose .sp-line[data-revised="blue"]::after { color: #2f6df6; }
+.sp-prose .sp-line[data-revised="pink"]::after { color: #e0559a; }
+.sp-prose .sp-line[data-revised="yellow"]::after { color: #c9a400; }
+.sp-prose .sp-line[data-revised="green"]::after { color: #2f9e64; }
+.sp-prose .sp-line[data-revised="goldenrod"]::after { color: #b8860b; }
+.sp-prose .sp-line[data-revised="buff"]::after { color: #a08858; }
+.sp-prose .sp-line[data-revised="salmon"]::after { color: #e9806e; }
+.sp-prose .sp-line[data-revised="cherry"]::after { color: #b3123f; }
+@media (max-width: 720px) {
+  .sp-prose .sp-lyrics {
+    margin-left: 12%;
+    margin-right: 10%;
+  }
 }

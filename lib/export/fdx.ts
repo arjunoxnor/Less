@@ -22,17 +22,17 @@ const TYPE_MAP: Record<string, ElementType> = {
   "Scene Heading": "scene_heading",
   "Scene Heading (Top of Page)": "scene_heading",
   Action: "action",
-  General: "action",
-  Shot: "action",
+  General: "general",
+  Shot: "shot",
   Character: "character",
   Parenthetical: "parenthetical",
   Dialogue: "dialogue",
   Transition: "transition",
   "Cast List": "action",
-  "New Act": "action",
-  "End of Act": "action",
-  Lyrics: "dialogue",
-  Song: "dialogue",
+  "New Act": "new_act",
+  "End of Act": "end_of_act",
+  Lyrics: "lyrics",
+  Song: "lyrics",
 };
 
 /** Read a single <Paragraph> into one ScriptLine. */
@@ -269,6 +269,11 @@ const REVERSE_TYPE: Record<ElementType, string> = {
   parenthetical: "Parenthetical",
   dialogue: "Dialogue",
   transition: "Transition",
+  shot: "Shot",
+  general: "General",
+  lyrics: "Lyrics",
+  new_act: "New Act",
+  end_of_act: "End of Act",
 };
 
 // Everything XML 1.0 forbids in character data, matched by code point (the /u

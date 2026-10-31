@@ -40,6 +40,7 @@ import {
   scrollPosToCenter,
 } from "@/lib/editor/findPlugin";
 import { useFindReplace } from "./useFindReplace";
+import { REVISION_COLORS, revisionMark } from "@/lib/editor/revisionColors";
 import {
   previewRename,
   renameCharacterEverywhere,
@@ -100,6 +101,7 @@ import { usePageZoom } from "./chrome/ZoomControl";
 import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
 import { ScriptFormatBubble } from "./ScriptFormatBubble";
 import { useSelectedWords } from "./chrome/useSelectedWords";
+import { setSmartCapsEnabled } from "@/lib/editor/smartCaps";
 import { HintCard } from "./chrome/HintCard";
 import { ShortcutsModal } from "./chrome/ShortcutsModal";
 import type { MenuItem } from "./ui/Menu";
@@ -565,6 +567,7 @@ function ScreenplayEditor({
   const outlineRef = useRef<Outline>(EMPTY_OUTLINE);
   const spellEnabledRef = useRef(prefs.spellCheck);
   const revisionEnabledRef = useRef(prefs.revisionMode);
+  const revisionColorRef = useRef<true | string>(true);
   const contdEnabledRef = useRef(prefs.autoContd);
   const breakdownItemsRef = useRef<BreakdownItem[]>(breakdownItems);
   const breakdownEnabledRef = useRef(prefs.breakdownHighlight);
@@ -640,6 +643,7 @@ function ScreenplayEditor({
         isSpellEnabled: () => spellEnabledRef.current,
         onSpellState: setSpellState,
         isRevisionEnabled: () => revisionEnabledRef.current,
+        revisionColor: () => revisionColorRef.current,
         isContdEnabled: () => contdEnabledRef.current,
         getBreakdownItems: () => breakdownItemsRef.current,
         isBreakdownEnabled: () => breakdownEnabledRef.current,
@@ -718,6 +722,7 @@ function ScreenplayEditor({
   });
 
   const bookmarks = useBookmarks(editor);
+  setSmartCapsEnabled(prefs.smartCaps);
   const selectedWords = useSelectedWords(editor);
   const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
@@ -995,6 +1000,7 @@ function ScreenplayEditor({
   useEffect(() => {
     revisionEnabledRef.current = scriptPrefs.revisionMode;
   }, [scriptPrefs.revisionMode]);
+  revisionColorRef.current = revisionMark(titlePage?.settings?.revisionColor);
 
   useEffect(() => {
     contdEnabledRef.current = scriptPrefs.autoContd;
@@ -1094,6 +1100,8 @@ function ScreenplayEditor({
           sceneNumbers: scriptPrefs.sceneNumbers,
           autoContd: scriptPrefs.autoContd,
           lock: pageLock,
+          revisionColor: titlePage?.settings?.revisionColor,
+          revisionDate: titlePage?.settings?.revisionDate,
         });
       }
     },
@@ -1516,11 +1524,30 @@ function ScreenplayEditor({
     { kind: "divider" },
     { kind: "label", label: "View" },
     { kind: "checkbox", label: "Spell check", checked: prefs.spellCheck, onToggle: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) },
+    { kind: "checkbox", label: "Smart capitals", checked: prefs.smartCaps, onToggle: () => onPrefsChange({ smartCaps: !prefs.smartCaps }) },
     { kind: "checkbox", label: "Scene numbers", checked: scriptPrefs.sceneNumbers, onToggle: () => setScriptPref({ sceneNumbers: !scriptPrefs.sceneNumbers }) },
     { kind: "checkbox", label: "Auto (CONT'D)", checked: scriptPrefs.autoContd, onToggle: () => setScriptPref({ autoContd: !scriptPrefs.autoContd }) },
     { kind: "checkbox", label: "Revision mode", checked: scriptPrefs.revisionMode, onToggle: () => setScriptPref({ revisionMode: !scriptPrefs.revisionMode }) },
     ...(scriptPrefs.revisionMode
-      ? [{ label: "Clear revision marks", danger: true, onSelect: clearRevisions } as MenuItem]
+      ? ([
+          { kind: "label", label: "Revision pass" },
+          ...REVISION_COLORS.map(
+            (rc): MenuItem => ({
+              kind: "radio",
+              group: "revision-pass",
+              label: rc.label,
+              swatch: rc.hex,
+              checked: (titlePage?.settings?.revisionColor ?? "white") === rc.id,
+              onSelect: () =>
+                setScriptPref({
+                  revisionColor: rc.id,
+                  revisionDate: new Date().toLocaleDateString(undefined, { year: "2-digit", month: "numeric", day: "numeric" }),
+                }),
+            })
+          ),
+          { label: "Clear revision marks", danger: true, onSelect: clearRevisions },
+          { kind: "divider" },
+        ] as MenuItem[])
       : []),
     { kind: "checkbox", label: "Typewriter scrolling", checked: prefs.focusTypewriter, onToggle: () => onPrefsChange({ focusTypewriter: !prefs.focusTypewriter }) },
     { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },

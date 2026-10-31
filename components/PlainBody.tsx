@@ -67,6 +67,7 @@ import { FindReplacePanel } from "./FindReplacePanel";
 import { CommentsPanel } from "./CommentsPanel";
 import { useFindReplace } from "./useFindReplace";
 import { useSelectedWords } from "./chrome/useSelectedWords";
+import { setSmartCapsEnabled } from "@/lib/editor/smartCaps";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
 import { MicGlyph, RecordingBar } from "./RecordingBar";
 import { canRecord, newVoiceId, VoiceRecording } from "@/lib/voicenote/recorder";
@@ -356,6 +357,7 @@ export function PlainBody({
   });
 
   const bookmarks = useBookmarks(editor);
+  setSmartCapsEnabled(prefs.smartCaps);
   const selectedWords = useSelectedWords(editor);
   const { zoom, mode: zoomMode, setZoom } = usePageZoom(editor, prefs.pageZoom, (pageZoom) =>
     onPrefsChange({ pageZoom })
@@ -612,6 +614,7 @@ export function PlainBody({
   const overflowItems: MenuItem[] = [
     { label: "Use system theme", onSelect: () => onPrefsChange({ theme: "system" }) },
     { kind: "checkbox", label: "Spell check", checked: prefs.spellCheck, onToggle: () => onPrefsChange({ spellCheck: !prefs.spellCheck }) },
+    { kind: "checkbox", label: "Smart capitals", checked: prefs.smartCaps, onToggle: () => onPrefsChange({ smartCaps: !prefs.smartCaps }) },
     { kind: "divider" },
     ...STATUS_ROWS.map(
       (s): MenuItem => ({

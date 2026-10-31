@@ -57,6 +57,8 @@ export interface Layout {
   /** Right-align to this x (points from the page's left edge) instead of
       starting at x (transitions). */
   rightEdge?: number;
+  /** Centred on the text column (act breaks). */
+  center?: boolean;
   /** Characters every wrapped line after the first is indented by, so a
       parenthetical's second line sits under its first letter, not under the
       bracket (Final Draft and Arc Studio both hang it by one). */
@@ -76,6 +78,11 @@ export const LAYOUT: Record<ElementType, Layout> = {
   parenthetical: { x: LEFT + 1.5 * PT_PER_IN, maxChars: 25, spaceBefore: 0, hang: 1 },
   dialogue: { x: LEFT + 1 * PT_PER_IN, maxChars: 35, spaceBefore: 0 },
   transition: { x: LEFT, maxChars: 56, spaceBefore: 1, rightEdge: 7.1 * PT_PER_IN },
+  shot: { x: LEFT, maxChars: 60, spaceBefore: 1 },
+  general: { x: LEFT, maxChars: 60, spaceBefore: 1 },
+  lyrics: { x: LEFT + 1 * PT_PER_IN, maxChars: 35, spaceBefore: 0 },
+  new_act: { x: LEFT, maxChars: 60, spaceBefore: 1, center: true },
+  end_of_act: { x: LEFT, maxChars: 60, spaceBefore: 1, center: true },
 };
 
 // pdf-lib's built-in Courier uses WinAnsi (CP1252) encoding. These are the

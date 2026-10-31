@@ -17,7 +17,7 @@ const revKey = new PluginKey("screenplayRevisions");
  * clearRevisions, setNote): they change attributes, not screenplay content. */
 export const SKIP_REVISION_META = "skipRevisionTrack";
 
-export function buildRevisionTracker(isEnabled: () => boolean): Extension {
+export function buildRevisionTracker(isEnabled: () => boolean, passColor: () => true | string = () => true): Extension {
   return Extension.create({
     name: "screenplayRevisions",
     addProseMirrorPlugins() {
@@ -39,11 +39,13 @@ export function buildRevisionTracker(isEnabled: () => boolean): Extension {
             if (!ranges.length) return null;
 
             const setTr = newState.tr;
+            const mark = passColor();
             let changed = false;
             for (const { node, pos } of changedTopLevelNodes(newState.doc, ranges)) {
               if (node.type.name !== "screenplayLine") continue;
-              if (!node.attrs.revised) {
-                setTr.setNodeMarkup(pos, undefined, { ...node.attrs, revised: true });
+              // A line edited again in a later pass takes that pass's colour.
+              if (node.attrs.revised !== mark) {
+                setTr.setNodeMarkup(pos, undefined, { ...node.attrs, revised: mark });
                 changed = true;
               }
             }

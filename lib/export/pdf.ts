@@ -19,6 +19,7 @@ import { hasTitlePage, type TitlePage } from "./titlePage";
 import { labelLockedPages, type PageLock } from "./pageLock";
 import { makeRowStyler, type StyledPiece } from "./pdfStyle";
 import type { DrawOp } from "./paginate";
+import { revisionLabel } from "@/lib/editor/revisionColors";
 
 /**
  * Spec-accurate screenplay PDF, generated client-side with pdf-lib.
@@ -131,7 +132,8 @@ function drawStyledRow(page: PDFPage, faces: Faces, op: DrawOp, pieces: StyledPi
   for (const p of pieces) {
     if (!p.text.trim()) continue;
     const bold = op.bold || p.style.bold;
-    const face = bold && p.style.italic ? faces.boldItalic : bold ? faces.bold : p.style.italic ? faces.italic : faces.regular;
+    const italic = op.italic || p.style.italic;
+    const face = bold && italic ? faces.boldItalic : bold ? faces.bold : italic ? faces.italic : faces.regular;
     drawText(page, face, p.text, op.x + p.col * CHAR_W, op.y);
   }
   for (const p of pieces) {
@@ -219,7 +221,14 @@ function drawTitlePage(
 export async function exportPdf(
   lines: ScriptLine[],
   titlePage?: TitlePage | null,
-  opts?: { sceneNumbers?: boolean; autoContd?: boolean; lock?: PageLock | null }
+  opts?: {
+    sceneNumbers?: boolean;
+    autoContd?: boolean;
+    lock?: PageLock | null;
+    /** The pass being written and its date, for the header of revised pages. */
+    revisionColor?: string;
+    revisionDate?: string;
+  }
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const faces = await loadFaces(pdf);
@@ -231,7 +240,12 @@ export async function exportPdf(
 
   // Formatting is found after layout, row by row (lib/export/pdfStyle.ts).
   const styled = lines.some((l) => l.marks?.length);
-  const { pages } = paginate(lines, { ...opts, keepUnicode: faces.embedded, trackSource: styled });
+  const { pages } = paginate(lines, {
+    sceneNumbers: opts?.sceneNumbers,
+    autoContd: opts?.autoContd,
+    keepUnicode: faces.embedded,
+    trackSource: styled,
+  });
   const styleRow = styled ? makeRowStyler(lines, clean) : null;
   // When locked, page numbers are frozen: inserted material takes A-page letters
   // (42, 42A, 42B...) instead of renumbering. Locking never changes the layout.
@@ -241,7 +255,7 @@ export async function exportPdf(
     for (const op of p.ops) {
       const pieces = styleRow && op.src != null ? styleRow(op.src, op.text) : null;
       if (pieces) drawStyledRow(page, faces, op, pieces);
-      else drawText(page, op.bold ? faces.bold : faces.regular, op.text, op.x, op.y);
+      else drawText(page, op.italic ? (op.bold ? faces.boldItalic : faces.italic) : op.bold ? faces.bold : faces.regular, op.text, op.x, op.y);
     }
     // Page numbers: top-right, "N.", omitted on the unnumbered first page unless
     // a lock has assigned it a letter (a rare A-page before page 1 stays shown).
@@ -249,6 +263,16 @@ export async function exportPdf(
     if (p.number > 1 || (lockLabels && numText !== "1")) {
       const label = `${numText}.`;
       drawText(page, faces.regular, label, RIGHT_EDGE - columnLength(label) * CHAR_W, PAGENO_Y);
+    }
+    // A page changed in a coloured pass says so in its header, left of the number.
+    const rev = revisionLabel(
+      p.ops.flatMap((op) => (op.rev ? [op.rev] : [])),
+      opts?.revisionColor,
+      opts?.revisionDate
+    );
+    if (rev) {
+      const clear = (String(lockLabels?.get(p.number) ?? p.number).length + 3) * CHAR_W;
+      drawText(page, faces.regular, rev, RIGHT_EDGE - clear - columnLength(rev) * CHAR_W, PAGENO_Y);
     }
   }
 

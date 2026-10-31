@@ -47,6 +47,8 @@ export interface Prefs {
   breakdownHighlight: boolean;
   /** How big the pages are drawn on screen (1 = 100%). Never changes layout. */
   pageZoom: number;
+  /** Capitalize the start of sentences and a lone "i" as you type. */
+  smartCaps: boolean;
   /** How big the home and desks are drawn, on top of their fit (1 = the fit). */
   homeZoom: number;
 }
@@ -70,6 +72,7 @@ export const DEFAULT_PREFS: Prefs = {
   // Auto: as big as fits the window, never past 100% (lib/editor/pageZoom.ts).
   pageZoom: 0,
   homeZoom: 1,
+  smartCaps: true,
 };
 
 /** Load the saved document, or null if this is a first visit. */

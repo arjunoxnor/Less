@@ -376,7 +376,7 @@ function xmlEscape(text: string): string {
 
 function officeDocx(lines: ScriptLine[]): ArrayBuffer {
   const ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-  const names: Record<ScriptLine["element"], string> = {
+  const names: Partial<Record<ScriptLine["element"], string>> = {
     scene_heading: "SceneHeading",
     action: "Action",
     character: "Character",
@@ -396,7 +396,7 @@ function officeOdt(lines: ScriptLine[]): ArrayBuffer {
   const office = "urn:oasis:names:tc:opendocument:xmlns:office:1.0";
   const text = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
   const style = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
-  const names: Record<ScriptLine["element"], string> = {
+  const names: Partial<Record<ScriptLine["element"], string>> = {
     scene_heading: "Scene Heading",
     action: "Action",
     character: "Character",
@@ -428,7 +428,7 @@ function rtfEscape(text: string): string {
 }
 
 function officeRtf(lines: ScriptLine[]): string {
-  const align: Record<ScriptLine["element"], string> = {
+  const align: Partial<Record<ScriptLine["element"], string>> = {
     scene_heading: "ql",
     action: "ql",
     character: "qc",

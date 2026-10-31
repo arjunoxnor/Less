@@ -1,3 +1,4 @@
+import { isRevisionColor } from "@/lib/editor/revisionColors";
 import type { BreakdownItem } from "@/lib/editor/breakdown";
 import type { PageLock } from "./pageLock";
 /**
@@ -14,6 +15,9 @@ export interface ScriptSettings {
   sceneNumbers?: boolean;
   autoContd?: boolean;
   revisionMode?: boolean;
+  /** The revision pass being written, and its date (lib/editor/revisionColors.ts). */
+  revisionColor?: string;
+  revisionDate?: string;
   /** Locked pages (null: unlocked on purpose). */
   pageLock?: PageLock | null;
   /** Breakdown tags. */
@@ -71,6 +75,8 @@ export function trimTitlePage(tp: TitlePage | null | undefined): TitlePage | nul
     const v = raw?.[key];
     if (typeof v === "boolean") settings[key] = v;
   }
+  if (isRevisionColor(raw?.revisionColor)) settings.revisionColor = raw.revisionColor;
+  if (typeof raw?.revisionDate === "string") settings.revisionDate = raw.revisionDate.slice(0, 20);
   if (raw?.pageLock === null || (raw?.pageLock && Array.isArray(raw.pageLock.anchors))) settings.pageLock = raw.pageLock;
   if (Array.isArray(raw?.breakdown)) {
     settings.breakdown = raw.breakdown.filter(

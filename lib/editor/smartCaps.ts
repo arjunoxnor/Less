@@ -14,10 +14,17 @@ import type { EditorState } from "@tiptap/pm/state";
  * and edit), and every change is a normal, undoable step.
  */
 
+/** The writer's switch (Prefs.smartCaps), set by whichever editor is open. */
+let smartCapsOn = true;
+export const setSmartCapsEnabled = (on: boolean) => {
+  smartCapsOn = on;
+};
+
 // Where sentence casing applies: screenplay action/dialogue lines and plain
 // paragraphs/headings. Never scene headings/cues/transitions (AutoCaps owns
 // those), parentheticals (lowercase by convention), or code blocks.
 function isProse(state: EditorState): boolean {
+  if (!smartCapsOn) return false;
   const parent = state.selection.$from.parent;
   if (parent.type.name === "screenplayLine") {
     const el = parent.attrs.element as string | undefined;

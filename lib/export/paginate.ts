@@ -8,6 +8,7 @@ import {
   LINES_PER_PAGE,
   RIGHT_EDGE,
   TOP_BASELINE,
+  columnLength,
   rightAlignX,
   sanitize,
   sanitizeLoose,
@@ -66,6 +67,10 @@ export interface DrawOp {
   /** Draw in the bold face. The standard format has no bold lines; kept for
       the scene-number path and any future emphasis. */
   bold?: boolean;
+  /** Draw in the italic face (lyrics). */
+  italic?: boolean;
+  /** A revision star's pass, when it is past the first. */
+  rev?: string;
   /** With `trackSource`: the index of the source line this row's words came
       from (absent for text the layout supplies: CONT'D, MORE, numbers, marks). */
   src?: number;
@@ -96,6 +101,8 @@ interface Row {
   revised?: boolean;
   /** The source line's index (dual columns, which are drawn row by row). */
   src?: number;
+  /** The source line's revision pass. */
+  revColor?: string;
 }
 interface Block {
   kind: ElementType;
@@ -118,6 +125,8 @@ interface Block {
   splits?: SplitOption[];
   /** The source line's index. */
   src?: number;
+  /** The source line's revision pass, when it is past the first. */
+  revColor?: string;
 }
 
 /** Rows for one element's text, positioned (transitions right-aligned,
@@ -127,7 +136,12 @@ function layoutRows(kind: ElementType, text: string): Row[] {
   const hang = el.hang ?? 0;
   return wrap(text, el.maxChars, hang).map((s, i) => ({
     text: s,
-    x: el.rightEdge != null ? rightAlignX(s, el.rightEdge) : el.x + (i > 0 ? hang * CHAR_W : 0),
+    x:
+      el.rightEdge != null
+        ? rightAlignX(s, el.rightEdge)
+        : el.center
+          ? el.x + ((el.maxChars - columnLength(s)) * CHAR_W) / 2
+          : el.x + (i > 0 ? hang * CHAR_W : 0),
   }));
 }
 
@@ -226,7 +240,13 @@ function buildDualRows(blocks: Block[], originX: number): Row[] {
   for (const b of blocks) {
     const { x, maxChars } = dualColumn(originX, b.kind);
     for (const w of wrap(b.text, maxChars)) {
-      rows.push({ text: w, x, ...(b.revised ? { revised: true } : {}), ...(b.src != null ? { src: b.src } : {}) });
+      rows.push({
+        text: w,
+        x,
+        ...(b.revised ? { revised: true } : {}),
+        ...(b.revColor ? { revColor: b.revColor } : {}),
+        ...(b.src != null ? { src: b.src } : {}),
+      });
     }
   }
   return rows;
@@ -268,7 +288,7 @@ function buildBlocks(
 
     if (kind === "character") {
       currentCue = cueBaseName(text).toUpperCase() || undefined;
-    } else if (kind === "scene_heading" || kind === "action" || kind === "transition") {
+    } else if (kind !== "parenthetical" && kind !== "dialogue" && kind !== "lyrics") {
       currentCue = undefined;
     }
     // parenthetical and dialogue keep currentCue.
@@ -284,6 +304,7 @@ function buildBlocks(
       sceneNumber: kind === "scene_heading" ? ++sceneCounter : undefined,
       revised: line.revised === true,
       src: li,
+      revColor: line.revisedColor,
       // A dual line never breaks across a page (it is placed whole), so it has
       // no sentence breaks to offer.
       splits:
@@ -337,6 +358,7 @@ export function paginate(
   let usedSlots = 0;
   let atPageTop = true;
   let revisedMark = false; // set per block; prints a margin asterisk on each row
+  let revisedColor: string | undefined; // its revision pass, past the first
   // The source-line index whose content is being placed, and the index that
   // opened the current page (for page-lock anchoring). markStart records the
   // first real content on a fresh page; newPage attaches it and resets it.
@@ -350,8 +372,16 @@ export function paginate(
   /** Place one row; `src` says which source line its words are (when tracked). */
   const place = (text: string, x: number, bold?: boolean, src?: number) => {
     markStart();
-    ops.push({ text, x, y, ...(bold ? { bold: true } : {}), ...(track && src != null ? { src } : {}) });
-    if (revisedMark) ops.push({ text: "*", x: REVISION_X, y });
+    const italic = src != null && blocks[src]?.kind === "lyrics";
+    ops.push({
+      text,
+      x,
+      y,
+      ...(bold ? { bold: true } : {}),
+      ...(italic ? { italic: true } : {}),
+      ...(track && src != null ? { src } : {}),
+    });
+    if (revisedMark) ops.push({ text: "*", x: REVISION_X, y, ...(revisedColor ? { rev: revisedColor } : {}) });
     y -= LINE;
     usedSlots++;
     atPageTop = false;
@@ -476,7 +506,8 @@ export function paginate(
         if (l) ops.push({ text: l.text, x: l.x, y: startY - k * LINE, ...tag(l) });
         if (r) ops.push({ text: r.text, x: r.x, y: startY - k * LINE, ...tag(r) });
         if (l?.revised || r?.revised) {
-          ops.push({ text: "*", x: REVISION_X, y: startY - k * LINE });
+          const rev = l?.revColor ?? r?.revColor;
+          ops.push({ text: "*", x: REVISION_X, y: startY - k * LINE, ...(rev ? { rev } : {}) });
         }
       }
       y = startY - canDraw * LINE;
@@ -547,6 +578,7 @@ export function paginate(
     const block = blocks[bi];
     bi++;
     revisedMark = block.revised === true;
+    revisedColor = block.revColor;
 
     // An unpaired dual block (orphan import / a 3rd speaker) renders in the right
     // column on its own, so the PDF matches the on-screen right-column indent

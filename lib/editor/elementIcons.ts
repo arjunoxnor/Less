@@ -24,6 +24,11 @@ const ICONS: Record<string, string> = {
   dialogue: svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
   parenthetical: svg('<path d="M9 4a8 10 0 0 0 0 16"/><path d="M15 4a8 10 0 0 1 0 16"/>'),
   transition: svg('<polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/>'),
+  shot: svg('<rect x="3" y="6" width="13" height="12" rx="2"/><polygon points="22 8 16 12 22 16 22 8"/>'),
+  general: svg('<line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="14" x2="16" y2="14"/>'),
+  lyrics: svg('<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>'),
+  new_act: svg('<line x1="6" y1="4" x2="6" y2="20"/><polygon points="6 5 19 9 6 13 6 5"/>'),
+  end_of_act: svg('<rect x="5" y="5" width="14" height="14" rx="2"/>'),
 };
 
 const LABELS: Record<string, string> = {
@@ -33,6 +38,11 @@ const LABELS: Record<string, string> = {
   dialogue: "Dialogue",
   parenthetical: "Parenthetical",
   transition: "Transition",
+  shot: "Shot",
+  general: "General",
+  lyrics: "Lyrics",
+  new_act: "New act",
+  end_of_act: "End of act",
 };
 
 const elementIconsKey = new PluginKey<DecorationSet>("screenplayElementIcons");

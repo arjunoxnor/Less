@@ -14,6 +14,8 @@ export interface ScriptLine {
   dual?: boolean;
   /** True when the line is marked changed in the current revision pass. */
   revised?: boolean;
+  /** Which revision pass, when it is past the first (lib/editor/revisionColors.ts). */
+  revisedColor?: string;
   /** Bold, italic, underline and highlight, as stretches of `text` (absent
       when the line is plain). See lib/export/styleRuns.ts. */
   marks?: TextStyleRun[];

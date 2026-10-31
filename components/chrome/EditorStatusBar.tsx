@@ -5,6 +5,7 @@ import {
   ELEMENT_CYCLE,
   ELEMENT_LABELS,
   ELEMENT_NUMBER,
+  EXTRA_ELEMENTS,
   type ElementType,
 } from "@/lib/editor/elements";
 import { Menu, type MenuItem } from "../ui/Menu";
@@ -91,14 +92,15 @@ export function EditorStatusBar({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const items: MenuItem[] = ELEMENT_CYCLE.map((t) => ({
-    kind: "radio" as const,
+  const row = (t: ElementType): MenuItem => ({
+    kind: "radio",
     group: "element",
     label: ELEMENT_LABELS[t],
-    hint: mod + ELEMENT_NUMBER[t],
+    hint: ELEMENT_NUMBER[t] ? mod + ELEMENT_NUMBER[t] : undefined,
     checked: currentElement === t,
     onSelect: () => onSetElement(t),
-  }));
+  });
+  const items: MenuItem[] = [...ELEMENT_CYCLE.map(row), { kind: "divider" }, ...EXTRA_ELEMENTS.map(row)];
 
   return (
     <div className="status-bar">

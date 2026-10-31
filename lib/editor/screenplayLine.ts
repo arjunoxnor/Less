@@ -11,6 +11,7 @@ import {
   wrapParentheticalText,
 } from "./parenthetical";
 import { SKIP_REVISION_META } from "./revisions";
+import { isRevisionColor } from "./revisionColors";
 import { sceneCard } from "./sceneAttrs";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 
@@ -88,8 +89,12 @@ export const ScreenplayLine = Node.create<ScreenplayLineOptions>({
       // others; drives the on-screen and PDF revision asterisks.
       revised: {
         default: false,
-        parseHTML: (el) => el.getAttribute("data-revised") === "true",
-        renderHTML: (attrs) => (attrs.revised ? { "data-revised": "true" } : {}),
+        // True, or the name of the revision pass it belongs to (revisionColors.ts).
+        parseHTML: (el) => {
+          const v = el.getAttribute("data-revised");
+          return v === "true" ? true : isRevisionColor(v) ? v : false;
+        },
+        renderHTML: (attrs) => (attrs.revised ? { "data-revised": String(attrs.revised) } : {}),
       },
       // Scene headings only: the scene's card on the structure board. One
       // attribute holding { storyline, color, synopsis }, null for every other
