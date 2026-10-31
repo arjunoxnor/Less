@@ -43,7 +43,8 @@ import { signOut } from "@/lib/cloud/auth";
 import { showToast } from "./ui/Toast";
 import { useReturnPlace } from "./useReturnPlace";
 import { useCloudSync } from "@/lib/storage/useCloudSync";
-import { exportPlain, type PlainExportFormat } from "@/lib/export/plainExport";
+import { exportPlain, exportRich, type PlainExportFormat } from "@/lib/export/plainExport";
+import { DOC_FONTS } from "@/lib/editor/docFonts";
 import { isMac, modKeyLabel } from "@/lib/platform";
 import { EditorShell, type PanelId, type RailItem } from "./chrome/EditorShell";
 import { FontControls, PlainToolbar } from "./PlainToolbar";
@@ -560,6 +561,21 @@ export function PlainBody({
     },
     [editor, title]
   );
+  const handleRichExport = useCallback(
+    async (format: "pdf" | "docx") => {
+      if (!editor) return;
+      const font = (DOC_FONTS.find((f) => f.key === prefs.docFont) ?? DOC_FONTS[0]).label;
+      try {
+        const { missing } = await exportRich(editor.getJSON(), format, title, { font, sizePx: prefs.docFontSize ?? 16 });
+        if (missing > 0) {
+          showToast(`${missing} ${missing === 1 ? "character" : "characters"} outside Western text printed as "?". Word export keeps them.`);
+        }
+      } catch {
+        showToast("That export did not work. Try again, or export as plain text.", { variant: "danger" });
+      }
+    },
+    [editor, title, prefs.docFont, prefs.docFontSize]
+  );
 
   const signOutAndFlush = async () => {
     // Land any pending edit before sign-out clears the local cloud copy.
@@ -576,6 +592,12 @@ export function PlainBody({
   const mod = modKeyLabel();
 
   const exportItems: MenuItem[] = [
+    ...(isBoard
+      ? []
+      : ([
+          { label: "PDF", onSelect: () => void handleRichExport("pdf") },
+          { label: "Word (.docx)", onSelect: () => void handleRichExport("docx") },
+        ] as MenuItem[])),
     { label: "Markdown", onSelect: () => handleExport("markdown") },
     { label: "Plain text", onSelect: () => handleExport("txt") },
   ];

@@ -247,6 +247,10 @@ function textBlock(node: JSONContent): string {
       return (node.content ?? []).map(textBlock).join("\n\n");
     case "horizontalRule":
       return "---";
+    case "table":
+      return (node.content ?? [])
+        .map((row) => (row.content ?? []).map((cell) => (cell.content ?? []).map(textBlock).join(" ")).join("\t"))
+        .join("\n");
     case "figure": {
       const src = exportedImageUrl(node.attrs?.src);
       return [inlineText(node), src ? `[image: ${src}]` : ""].filter(Boolean).join("\n");
@@ -275,6 +279,32 @@ export function plainToMarkdown(doc: JSONContent): string {
 
 export function plainToText(doc: JSONContent): string {
   return finish((doc.content ?? []).map(textBlock));
+}
+
+/**
+ * A document as PDF or Word, in its base font and size. Returns how many
+ * characters the PDF's built-in fonts could not print, so the app can say so.
+ */
+export async function exportRich(
+  doc: JSONContent,
+  format: "pdf" | "docx",
+  title: string,
+  look: { font: string; sizePx: number }
+): Promise<{ missing: number }> {
+  if (format === "pdf") {
+    const { plainToPdf } = await import("./docPdf");
+    const { bytes, missing } = await plainToPdf(doc, look);
+    downloadBlob(bytes as BlobPart, safeFilename(title, "pdf"), "application/pdf");
+    return { missing };
+  }
+  const { plainToDocx } = await import("./docx");
+  const bytes = await plainToDocx(doc, look);
+  downloadBlob(
+    bytes as BlobPart,
+    safeFilename(title, "docx"),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  );
+  return { missing: 0 };
 }
 
 export function exportPlain(
