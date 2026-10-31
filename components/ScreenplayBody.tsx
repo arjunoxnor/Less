@@ -37,13 +37,9 @@ import { breakdownToText, BREAKDOWN_CATEGORIES, type BreakdownItem } from "@/lib
 import { useBreakdown } from "@/lib/editor/useBreakdown";
 import { downloadBlob, safeFilename } from "@/lib/export/download";
 import {
-  findPluginKey,
-  setFindQuery,
-  gotoMatch,
   scrollPosToCenter,
-  replaceOne,
-  replaceAll,
 } from "@/lib/editor/findPlugin";
+import { useFindReplace } from "./useFindReplace";
 import {
   previewRename,
   renameCharacterEverywhere,
@@ -118,7 +114,7 @@ import { CastListPanel } from "./CastListPanel";
 import { ReportsPanel } from "./ReportsPanel";
 import { NotesPanel } from "./NotesPanel";
 import { BreakdownPanel } from "./BreakdownPanel";
-import { FindReplacePanel, type FindInputs } from "./FindReplacePanel";
+import { FindReplacePanel } from "./FindReplacePanel";
 import { AutocompleteMenu } from "./AutocompleteMenu";
 import { SpellMenu } from "./SpellMenu";
 import { TitlePageModal } from "./TitlePageModal";
@@ -546,14 +542,6 @@ function ScreenplayEditor({
   const [pageTargetDraft, setPageTargetDraft] = useState("");
   const [caretLine, setCaretLine] = useState(0);
   const [caretPage, setCaretPage] = useState(1);
-  const [findState, setFindState] = useState<FindInputs>({
-    query: "",
-    replace: "",
-    caseSensitive: false,
-    wholeWord: false,
-    element: "all",
-  });
-  const [findMeta, setFindMeta] = useState({ matchCount: 0, activeIndex: 0 });
   const [acState, setAcState] = useState<AcState | null>(null);
   const [spellState, setSpellState] = useState<SpellState | null>(null);
   const [dualActive, setDualActive] = useState(false);
@@ -1251,45 +1239,10 @@ function ScreenplayEditor({
     [jumpToScene]
   );
 
-  const showFind = activePanel === "find";
-  useEffect(() => {
-    if (!editor) return;
-    if (showFind) {
-      setFindQuery(editor.view, {
-        query: findState.query,
-        caseSensitive: findState.caseSensitive,
-        wholeWord: findState.wholeWord,
-        element: findState.element,
-      });
-    } else {
-      setFindQuery(editor.view, { query: "" });
-    }
-  }, [
+  const { findState, setFindPatch, findMeta, onFindPrev, onFindNext, onReplaceOne, onReplaceAll } = useFindReplace(
     editor,
-    showFind,
-    findState.query,
-    findState.caseSensitive,
-    findState.wholeWord,
-    findState.element,
-  ]);
-
-  useEffect(() => {
-    if (!editor) return;
-    const sync = () => {
-      const s = findPluginKey.getState(editor.state);
-      if (!s) return;
-      setFindMeta((prev) =>
-        prev.matchCount === s.matches.length && prev.activeIndex === s.active
-          ? prev
-          : { matchCount: s.matches.length, activeIndex: s.active }
-      );
-    };
-    sync();
-    editor.on("transaction", sync);
-    return () => {
-      editor.off("transaction", sync);
-    };
-  }, [editor]);
+    activePanel === "find"
+  );
 
   // Cmd/Ctrl+F opens the find panel in the dock. Escape is handled by the
   // shell's single ordered handler (dock first, then focus mode).
@@ -1355,21 +1308,6 @@ function ScreenplayEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const activeFindIndex = () =>
-    editor ? findPluginKey.getState(editor.state)?.active ?? 0 : 0;
-  const onFindPrev = useCallback(() => {
-    if (editor) gotoMatch(editor.view, activeFindIndex() - 1);
-  }, [editor]);
-  const onFindNext = useCallback(() => {
-    if (editor) gotoMatch(editor.view, activeFindIndex() + 1);
-  }, [editor]);
-  const onReplaceOne = useCallback(() => {
-    if (editor) replaceOne(editor.view, findState.replace);
-  }, [editor, findState.replace]);
-  const onReplaceAll = useCallback(
-    () => (editor ? replaceAll(editor.view, findState.replace) : 0),
-    [editor, findState.replace]
-  );
 
   const onRenameChar = useCallback(
     (from: string, to: string, includeMentions: boolean) =>
@@ -1448,11 +1386,6 @@ function ScreenplayEditor({
       editor?.chain().setTextSelection(pos).setNote("").run();
     },
     [editor]
-  );
-
-  const setFindPatch = useCallback(
-    (patch: Partial<FindInputs>) => setFindState((s) => ({ ...s, ...patch })),
-    []
   );
 
   // Cmd/Ctrl+K opens the command palette.

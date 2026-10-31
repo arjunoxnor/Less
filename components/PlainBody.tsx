@@ -62,6 +62,8 @@ import { cardForProject, MAX_LIBRARY_NAME_LENGTH } from "@/lib/storage/library";
 import { PageBackdrop, pageHostStyle } from "./PageBackdrop";
 import { ZoomControl, usePageZoom } from "./chrome/ZoomControl";
 import { BookmarkControl, BookmarkLayer, useBookmarks } from "./chrome/Bookmarks";
+import { FindReplacePanel } from "./FindReplacePanel";
+import { useFindReplace } from "./useFindReplace";
 import { useCalmPending } from "@/lib/ui/useCalmPending";
 import { MicGlyph, RecordingBar } from "./RecordingBar";
 import { canRecord, newVoiceId, VoiceRecording } from "@/lib/voicenote/recorder";
@@ -617,8 +619,24 @@ export function PlainBody({
     () => cardForProject(projectId, listProjects(), listFolders()) !== null
   );
 
+  const find = useFindReplace(editor, activePanel === "find");
+  // Cmd/Ctrl+F opens the find panel in the dock (a board has no pages to search).
+  useEffect(() => {
+    if (isBoard) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        if (document.querySelector(".ui-modal-scrim, .modal-backdrop, .cmd-backdrop")) return;
+        setActivePanel("find");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isBoard]);
+
   const railItems: RailItem[] = [
     ...(inFilm ? ([{ kind: "panel", id: "docs", label: "Docs" }] as RailItem[]) : []),
+    ...(isBoard ? [] : ([{ kind: "panel", id: "find", label: "Find", shortcut: mod + "F" }] as RailItem[])),
     { kind: "panel", id: "history", label: "History" },
     { kind: "divider" },
   ];
@@ -637,6 +655,18 @@ export function PlainBody({
           setConfirmRestore({ content });
         }}
         onSaveDraft={onSaveDraft ? openSaveDraft : undefined}
+        onClose={() => setActivePanel(null)}
+      />
+    ) : activePanel === "find" ? (
+      <FindReplacePanel
+        findState={find.findState}
+        setFindState={find.setFindPatch}
+        matchCount={find.findMeta.matchCount}
+        activeIndex={find.findMeta.activeIndex}
+        onPrev={find.onFindPrev}
+        onNext={find.onFindNext}
+        onReplaceOne={find.onReplaceOne}
+        onReplaceAll={find.onReplaceAll}
         onClose={() => setActivePanel(null)}
       />
     ) : null;

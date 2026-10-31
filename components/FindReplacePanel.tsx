@@ -37,15 +37,17 @@ export const FindReplacePanel = memo(function FindReplacePanel({
   setFindState: (patch: Partial<FindInputs>) => void;
   matchCount: number;
   activeIndex: number;
-  cast: CastEntry[];
+  /** Scripts only, with onRename and getPreview: the rename mode. */
+  cast?: CastEntry[];
   onPrev: () => void;
   onNext: () => void;
   onReplaceOne: () => void;
   onReplaceAll: () => number;
-  onRename: (from: string, to: string, includeMentions: boolean) => RenamePlan;
-  getPreview: (from: string, to: string, includeMentions: boolean) => RenamePlan;
+  onRename?: (from: string, to: string, includeMentions: boolean) => RenamePlan;
+  getPreview?: (from: string, to: string, includeMentions: boolean) => RenamePlan;
   onClose: () => void;
 }) {
+  const isScript = !!onRename && !!getPreview && !!cast;
   // The panel always opens in Find mode with blank rename fields; the planned
   // cast-panel handoff that pre-filled a name was never wired and its plumbing
   // is gone (superaudit 2 B10).
@@ -81,7 +83,7 @@ export const FindReplacePanel = memo(function FindReplacePanel({
     setPreview(null);
     if (mode !== "rename" || !canRename) return;
     const timer = window.setTimeout(() => {
-      setPreview(getPreview(cleanFrom, cleanTo, includeMentions));
+      setPreview(getPreview ? getPreview(cleanFrom, cleanTo, includeMentions) : null);
     }, 150);
     return () => window.clearTimeout(timer);
   }, [canRename, cast, cleanFrom, cleanTo, getPreview, includeMentions, mode]);
@@ -94,6 +96,7 @@ export const FindReplacePanel = memo(function FindReplacePanel({
     }
     // Re-read immediately on the confirmation click. The document may have
     // changed since the debounced preview (or since the first click).
+    if (!getPreview || !onRename) return;
     const livePreview = getPreview(cleanFrom, cleanTo, includeMentions);
     setPreview(livePreview);
     if (livePreview.cues + livePreview.mentions === 0) {
@@ -123,31 +126,33 @@ export const FindReplacePanel = memo(function FindReplacePanel({
         </button>
       </div>
 
-      <div className="find-seg">
-        <button
-          type="button"
-          className={"seg" + (mode === "find" ? " seg-active" : "")}
-          onClick={() => setMode("find")}
-          aria-pressed={mode === "find"}
-        >
-          Find
-        </button>
-        <button
-          type="button"
-          className={"seg" + (mode === "rename" ? " seg-active" : "")}
-          onClick={() => setMode("rename")}
-          aria-pressed={mode === "rename"}
-        >
-          Rename
-        </button>
-      </div>
+      {isScript && (
+        <div className="find-seg">
+          <button
+            type="button"
+            className={"seg" + (mode === "find" ? " seg-active" : "")}
+            onClick={() => setMode("find")}
+            aria-pressed={mode === "find"}
+          >
+            Find
+          </button>
+          <button
+            type="button"
+            className={"seg" + (mode === "rename" ? " seg-active" : "")}
+            onClick={() => setMode("rename")}
+            aria-pressed={mode === "rename"}
+          >
+            Rename
+          </button>
+        </div>
+      )}
 
       {mode === "find" ? (
         <div className="find-body">
           <input
             className="find-input"
-            placeholder="Find in script"
-            aria-label="Find in script"
+            placeholder={isScript ? "Find in script" : "Find in document"}
+            aria-label={isScript ? "Find in script" : "Find in document"}
             autoFocus
             value={queryDraft}
             onChange={(e) => {
@@ -189,21 +194,23 @@ export const FindReplacePanel = memo(function FindReplacePanel({
             />
             Whole word
           </label>
-          <label className="find-check find-check-select">
-            <span>In</span>
-            <select
-              className="find-input"
-              value={findState.element}
-              onChange={(e) => setFindState({ element: e.target.value })}
-            >
-              <option value="all">All elements</option>
-              {ELEMENT_CYCLE.map((t) => (
-                <option key={t} value={t}>
-                  {ELEMENT_LABELS[t]}
-                </option>
-              ))}
-            </select>
-          </label>
+          {isScript && (
+            <label className="find-check find-check-select">
+              <span>In</span>
+              <select
+                className="find-input"
+                value={findState.element}
+                onChange={(e) => setFindState({ element: e.target.value })}
+              >
+                <option value="all">All elements</option>
+                {ELEMENT_CYCLE.map((t) => (
+                  <option key={t} value={t}>
+                    {ELEMENT_LABELS[t]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="find-row">
             <button type="button" className="tb-btn" onClick={onPrev} disabled={!hasQuery || matchCount === 0}>
@@ -247,7 +254,7 @@ export const FindReplacePanel = memo(function FindReplacePanel({
           <select
             className="find-input"
             aria-label="Character to rename"
-            value={cast.some((c) => c.name === fromName) ? fromName : ""}
+            value={cast?.some((c) => c.name === fromName) ? fromName : ""}
             onChange={(e) => {
               setFromName(e.target.value);
               setConfirming(false);
@@ -255,7 +262,7 @@ export const FindReplacePanel = memo(function FindReplacePanel({
             }}
           >
             <option value="">Choose a character</option>
-            {cast.map((c) => (
+            {cast?.map((c) => (
               <option key={c.name} value={c.name}>
                 {c.name}
               </option>

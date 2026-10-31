@@ -13,6 +13,7 @@ import { boardExtensions } from "./boardNodes";
 import { VoiceNote, VoicePending, type VoiceNoteOptions } from "./voiceNodes";
 import { cleanPastedHTML } from "./docFonts";
 import { Bookmarks } from "./bookmarks";
+import { FindReplace } from "./findPlugin";
 
 /**
  * Notes use paragraph spacing for their visible rhythm. At the top level,
@@ -137,6 +138,7 @@ export function buildPlainExtensions(opts?: {
           VoiceNote.configure({ onOriginal: opts?.onOriginalTranscript ?? null }),
           // Coloured bookmarks on paragraphs and headings (lib/editor/bookmarks.ts).
           Bookmarks.configure({ types: ["paragraph", "heading"] }),
+          FindReplace,
         ]),
   ];
 }

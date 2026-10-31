@@ -9,7 +9,8 @@ import { changedTopLevelNodes } from "./changedRanges";
  * (query, matches, active index, decorations) in plugin state. React owns only
  * the query / replacement / case-sensitivity inputs and reads the match count
  * and active index back out. Matches are plain (non-regex) substrings within a
- * single screenplayLine; they never span lines.
+ * single text line (a screenplayLine, or a document's paragraph, heading or
+ * list item); they never span lines.
  */
 
 export interface FindOpts {
@@ -48,13 +49,24 @@ function matchesInLine(
   query: string,
   opts: FindOpts
 ): Match[] {
-  if (!query || node.type.name !== "screenplayLine") return [];
+  if (!query) return [];
+  // A top-level node that holds lines (a list, a quote): search each of them.
+  if (!node.isTextblock) {
+    const inside: Match[] = [];
+    node.descendants((child, pos) => {
+      if (!child.isTextblock) return true;
+      inside.push(...matchesInLine(child, offset + 1 + pos, query, opts));
+      return false;
+    });
+    return inside;
+  }
   const scope = opts.element && opts.element !== "all" ? opts.element : null;
   if (scope && node.attrs.element !== scope) return [];
 
   const matches: Match[] = [];
   const needle = opts.caseSensitive ? query : query.toLowerCase();
-  const raw = node.textContent;
+  // A line break inside a line holds its one position, so offsets stay true.
+  const raw = node.textBetween(0, node.content.size, "", "\uFFFC");
   const hay = opts.caseSensitive ? raw : raw.toLowerCase();
   const nlen = needle.length;
   let index = hay.indexOf(needle);
