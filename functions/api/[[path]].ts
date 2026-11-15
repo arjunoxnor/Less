@@ -18,6 +18,7 @@ import {
   judgeUpload,
   newAssetId,
 } from "../../lib/server/assets";
+import { signSession, verifyGoogleIdToken, verifySession } from "../../lib/server/tokens";
 import { digestOf, readDigest } from "../../lib/cover/digest";
 import { cleanDictionary, mergeDictionary } from "../../lib/editor/dictionaryWords";
 import { sanitizeDesk } from "../../lib/desk/layout";
@@ -150,122 +151,12 @@ async function rateLimited(
 const clientIp = (request: Request) =>
   request.headers.get("cf-connecting-ip") || "unknown";
 
-/* ---------- base64url ---------- */
-function b64urlToBytes(s: string): Uint8Array {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-function bytesToB64url(b: Uint8Array): string {
-  let s = "";
-  for (const x of b) s += String.fromCharCode(x);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-const b64urlToString = (s: string) => new TextDecoder().decode(b64urlToBytes(s));
-
 async function sha256hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", enc.encode(s));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/* ---------- session token (HS256) ---------- */
-function hmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"]
-  );
-}
-async function signSession(payload: object, secret: string): Promise<string> {
-  const header = bytesToB64url(enc.encode(JSON.stringify({ alg: "HS256", typ: "JWT" })));
-  const body = bytesToB64url(enc.encode(JSON.stringify(payload)));
-  const data = `${header}.${body}`;
-  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret), enc.encode(data)));
-  return `${data}.${bytesToB64url(sig)}`;
-}
-async function verifySession(token: string, secret: string): Promise<Record<string, unknown> | null> {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-  // Pin the algorithm: only ever accept the HS256 we mint, so a token that
-  // declares a different alg is rejected outright (defense in depth, F29).
-  try {
-    if (JSON.parse(b64urlToString(parts[0])).alg !== "HS256") return null;
-  } catch {
-    return null;
-  }
-  const ok = await crypto.subtle.verify(
-    "HMAC",
-    await hmacKey(secret),
-    b64urlToBytes(parts[2]),
-    enc.encode(`${parts[0]}.${parts[1]}`)
-  );
-  if (!ok) return null;
-  try {
-    const payload = JSON.parse(b64urlToString(parts[1]));
-    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-/* ---------- Google ID token (RS256 against Google's JWKS) ---------- */
-
-// Cache Google's signing keys instead of re-fetching them on every sign-in
-// (F28). The certs rotate slowly; honor the response's max-age when present,
-// else keep them an hour.
-let certsCache: { keys: Array<JsonWebKey & { kid: string }>; exp: number } | null = null;
-async function googleCerts(): Promise<Array<JsonWebKey & { kid: string }>> {
-  if (certsCache && Date.now() < certsCache.exp) return certsCache.keys;
-  const res = await fetch("https://www.googleapis.com/oauth2/v3/certs");
-  const data = (await res.json()) as { keys: Array<JsonWebKey & { kid: string }> };
-  const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get("cache-control") || "")?.[1] || "3600");
-  certsCache = { keys: data.keys, exp: Date.now() + Math.max(300, maxAge) * 1000 };
-  return data.keys;
-}
-
-async function verifyGoogleIdToken(
-  idToken: string,
-  clientId: string
-): Promise<{ sub: string; email?: string; name?: string } | null> {
-  const parts = idToken.split(".");
-  if (parts.length !== 3) return null;
-  let header: { kid?: string };
-  let payload: { iss?: string; aud?: string; exp?: number; sub?: string; email?: string; name?: string };
-  try {
-    header = JSON.parse(b64urlToString(parts[0]));
-    payload = JSON.parse(b64urlToString(parts[1]));
-  } catch {
-    return null;
-  }
-  const certs = await googleCerts();
-  const jwk = certs.find((k) => k.kid === header.kid);
-  if (!jwk) return null;
-  const key = await crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["verify"]
-  );
-  const ok = await crypto.subtle.verify(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    b64urlToBytes(parts[2]),
-    enc.encode(`${parts[0]}.${parts[1]}`)
-  );
-  if (!ok) return null;
-  if (payload.iss !== "accounts.google.com" && payload.iss !== "https://accounts.google.com") return null;
-  if (payload.aud !== clientId) return null;
-  if (payload.exp && Date.now() / 1000 > payload.exp) return null;
-  if (!payload.sub) return null;
-  return { sub: payload.sub, email: payload.email, name: payload.name };
-}
+/* Session tokens and Google ID token checks: lib/server/tokens.ts (jose). */
 
 async function userFrom(request: Request, env: Env): Promise<{ id: string; email?: string } | null> {
   const m = (request.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
